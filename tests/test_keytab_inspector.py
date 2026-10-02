@@ -8,29 +8,31 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from keytab_inspector import parse_keytab_stream, ENCTYPE_MAP
 
 
+def make_entry_bytes(realm: bytes, components: list, key_data: bytes, keytype: int = 18, vno8: int = 1, vno32: int = 1):
+    entry_buf = io.BytesIO()
+    entry_buf.write(struct.pack(">h", len(components)))
+    entry_buf.write(struct.pack(">h", len(realm)) + realm)
+    for comp in components:
+        entry_buf.write(struct.pack(">h", len(comp)) + comp)
+    entry_buf.write(struct.pack(">I", 1))  # name_type
+    entry_buf.write(struct.pack(">I", 1700000000))  # timestamp
+    entry_buf.write(struct.pack(">B", vno8))
+    entry_buf.write(struct.pack(">h", keytype))
+    entry_buf.write(struct.pack(">H", len(key_data)) + key_data)
+    entry_buf.write(struct.pack(">I", vno32))
+    return entry_buf.getvalue()
+
+
 class TestKeytabInspector(unittest.TestCase):
     def test_parse_valid_synthetic_keytab(self):
         stream = io.BytesIO()
         stream.write(b"\x05\x02")
 
         realm = b"CORP.LOCAL"
-        comp1 = b"HOST"
-        comp2 = b"server01.corp.local"
+        components = [b"HOST", b"server01.corp.local"]
         key_data = b"\xaa" * 32
+        entry_bytes = make_entry_bytes(realm, components, key_data, keytype=18, vno8=3, vno32=3)
 
-        entry_buf = io.BytesIO()
-        entry_buf.write(struct.pack(">h", 2))
-        entry_buf.write(struct.pack(">h", len(realm)) + realm)
-        entry_buf.write(struct.pack(">h", len(comp1)) + comp1)
-        entry_buf.write(struct.pack(">h", len(comp2)) + comp2)
-        entry_buf.write(struct.pack(">I", 1))
-        entry_buf.write(struct.pack(">I", 1700000000))
-        entry_buf.write(struct.pack(">B", 3))
-        entry_buf.write(struct.pack(">h", 18))
-        entry_buf.write(struct.pack(">H", len(key_data)) + key_data)
-        entry_buf.write(struct.pack(">I", 3))
-
-        entry_bytes = entry_buf.getvalue()
         stream.write(struct.pack(">i", len(entry_bytes)))
         stream.write(entry_bytes)
 
@@ -49,6 +51,74 @@ class TestKeytabInspector(unittest.TestCase):
 
     def test_invalid_header_raises_error(self):
         stream = io.BytesIO(b"\x01\x02badheader")
+        with self.assertRaises(ValueError):
+            parse_keytab_stream(stream)
+
+    def test_skip_deleted_negative_size_entry(self):
+        stream = io.BytesIO()
+        stream.write(b"\x05\x02")
+        # Deleted hole of 8 bytes with non-zero residual data
+        stream.write(struct.pack(">i", -8))
+        stream.write(b"\x12\x34\x56\x78\x9a\xbc\xde\xf0")
+
+        # Valid entry following the deleted hole
+        valid_entry = make_entry_bytes(b"CORP.LOCAL", [b"krbtgt", b"CORP.LOCAL"], b"\xbb" * 32)
+        stream.write(struct.pack(">i", len(valid_entry)))
+        stream.write(valid_entry)
+
+        stream.seek(0)
+        entries = parse_keytab_stream(stream)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["principal"], "krbtgt/CORP.LOCAL@CORP.LOCAL")
+
+    def test_32bit_kvno_override(self):
+        stream = io.BytesIO()
+        stream.write(b"\x05\x02")
+        valid_entry = make_entry_bytes(b"CORP.LOCAL", [b"HTTP", b"app.corp.local"], b"\x11" * 16, keytype=17, vno8=5, vno32=500)
+        stream.write(struct.pack(">i", len(valid_entry)))
+        stream.write(valid_entry)
+
+        stream.seek(0)
+        entries = parse_keytab_stream(stream)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["vno"], 500)
+        self.assertEqual(entries[0]["enctype_name"], "aes128-cts-hmac-sha1-96")
+
+    def test_empty_components_principal(self):
+        stream = io.BytesIO()
+        stream.write(b"\x05\x02")
+        valid_entry = make_entry_bytes(b"CORP.LOCAL", [], b"\xcc" * 32)
+        stream.write(struct.pack(">i", len(valid_entry)))
+        stream.write(valid_entry)
+
+        stream.seek(0)
+        entries = parse_keytab_stream(stream)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["principal"], "@CORP.LOCAL")
+        self.assertEqual(entries[0]["components"], [])
+
+    def test_excessive_components_raises_value_error(self):
+        stream = io.BytesIO()
+        stream.write(b"\x05\x02")
+        entry_buf = io.BytesIO()
+        entry_buf.write(struct.pack(">h", 999))  # 999 > 256 MAX_COMPONENTS
+        entry_buf.write(struct.pack(">h", 4) + b"CORP")
+        entry_bytes = entry_buf.getvalue()
+        stream.write(struct.pack(">i", len(entry_bytes)))
+        stream.write(entry_bytes)
+
+        stream.seek(0)
+        with self.assertRaises(ValueError):
+            parse_keytab_stream(stream)
+
+    def test_malformed_truncated_entry_raises_value_error(self):
+        stream = io.BytesIO()
+        stream.write(b"\x05\x02")
+        # Says entry is 40 bytes, but only provides 10 bytes
+        stream.write(struct.pack(">i", 40))
+        stream.write(b"\x00" * 10)
+
+        stream.seek(0)
         with self.assertRaises(ValueError):
             parse_keytab_stream(stream)
 
