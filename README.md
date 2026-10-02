@@ -130,6 +130,7 @@ tanuki/
 │   └── kcm_parser.py          # SSSD KCM credential cache parser
 ├── references/
 │   ├── tactical_ladder.md     # 5-step operational ladder reference
+│   ├── dual_engine_architecture.md # Python vs Rust architectural evaluation
 │   ├── adcs_matrix.md         # ADCS certificate templates and PKINIT parameters
 │   ├── error_triage.md        # Kerberos and SSSD error resolution table
 │   └── nhi_mesh.md            # Workload identity and token exchange reference
@@ -149,6 +150,7 @@ tanuki/
 ## Technical References
 
 - [`references/tactical_ladder.md`](references/tactical_ladder.md): Detailed mechanics for each rung of the decision ladder.
+- [`references/dual_engine_architecture.md`](references/dual_engine_architecture.md): Technical evaluation of Python (LotL) vs Rust (Systems Core).
 - [`references/adcs_matrix.md`](references/adcs_matrix.md): Certificate misconfigurations (ESC1 to ESC11) and PKINIT parameters.
 - [`references/error_triage.md`](references/error_triage.md): Complete error code matrix for Kerberos, SSSD, and IAKerb.
 - [`references/nhi_mesh.md`](references/nhi_mesh.md): Workload identity federation, SPIFFE SVIDs, and RFC 8693 token exchange.
