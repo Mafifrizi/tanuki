@@ -51,37 +51,40 @@ Therefore, the pure Python implementation remains a critical operational tool fo
 
 ---
 
-## 4. Implementation Blueprint: Rust Core (`crates/tanuki-cli`)
+## 4. Implementation Structure: Rust Core (`crates/tanuki-cli`)
 
-The planned Rust implementation will be structured as follows:
+The Rust implementation is structured as follows:
 
 ```text
-crates/
-└── tanuki-cli/
-    ├── Cargo.toml
-    └── src/
-        ├── main.rs            # CLI interface and deterministic output formatter
-        ├── keytab/
-        │   ├── mod.rs
-        │   ├── parser.rs      # Zero-copy RFC 4120 binary keytab parser
-        │   └── types.rs       # Principal, KVNO, EncType representations
-        ├── kcm/
-        │   ├── mod.rs
-        │   └── ldb.rs         # Direct SSSD KCM CCACHE stream extractor
-        └── protocol/
-            ├── mod.rs
-            └── kerberos.rs    # Protocol constants and error triage dictionary
+tanuki/
+├── Cargo.toml                 # Workspace manifest
+└── crates/
+    └── tanuki-cli/
+        ├── Cargo.toml
+        └── src/
+            ├── lib.rs         # Safe library exports (#![forbid(unsafe_code)])
+            ├── main.rs        # CLI interface and deterministic output formatter
+            ├── keytab/
+            │   ├── mod.rs
+            │   ├── parser.rs  # Zero-copy RFC 4120 binary keytab parser
+            │   └── types.rs   # Principal, KVNO, EncType representations
+            ├── kcm/
+            │   ├── mod.rs
+            │   └── ldb.rs     # Direct SSSD KCM CCACHE stream extractor
+            └── protocol/
+                ├── mod.rs
+                └── kerberos.rs # Protocol constants and error triage dictionary
 ```
 
-### Key Technical Specifications for Rust Engine:
+### Key Technical Specifications of Rust Engine:
 1. **Target**: `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` to guarantee glibc independence.
-2. **Zero Unsafe**: Enforce `#![forbid(unsafe_code)]` across all parser modules.
-3. **Zero Third-Party Network Dependencies**: Pure protocol parsing using only audited crates (`nom` for parser combinators or standard library byte slices).
-4. **Deterministic JSON Output**: Support `--json` flag matching the Python tool output schema exactly for cross-engine compatibility.
+2. **Zero Unsafe**: Enforces `#![forbid(unsafe_code)]` across all parser modules.
+3. **Zero Third-Party Dependencies**: Pure protocol parsing using only Rust standard library byte manipulation.
+4. **Deterministic JSON Output**: Supports `--json` flag matching the Python tool output schema exactly for cross-engine compatibility.
 
 ---
 
 ## 5. Decision Summary
 
-- **Keep Python**: Essential for remote, agent-driven Living off the Land workflows without disk artifacts.
-- **Add Rust**: Optimal for standalone auditing, fast automated CI/CD checks, and production Kubernetes workloads where static binaries are preferred.
+- **Retain Python**: Essential for remote, agent-driven Living-off-the-Land workflows without disk artifacts.
+- **Implement Rust**: Standalone auditing, automated CI/CD checks, and Kubernetes workloads where static binaries are preferred.

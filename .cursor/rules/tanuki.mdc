@@ -18,5 +18,5 @@ When dealing with Linux environments, Active Directory, Kerberos, or cloud ident
    `[TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]`
 
 3. **Tooling & Helpers**:
-   - Utilize local helper scripts in `scripts/keytab_inspector.py` and `scripts/kcm_parser.py`.
+   - Utilize Rust systems binary (`crates/tanuki-cli`) or local helper scripts in `scripts/keytab_inspector.py` and `scripts/kcm_parser.py`.
    - Consult `references/` for error triage and AD CS matrix.
