@@ -20,6 +20,7 @@
 </p>
 
 <p align="center">
+  <a href="#quick-start">Quick Start</a> &bull;
   <a href="#dual-engine-architecture">Dual-Engine Architecture</a> &bull;
   <a href="#the-decision-ladder">Decision Ladder</a> &bull;
   <a href="#before--after">Before & After</a> &bull;
@@ -29,6 +30,43 @@
 </p>
 
 ---
+
+## Quick Start (1-Line Universal Install)
+
+Tanuki is 100% plug-and-play. One command installs the unified CLI and configures AI Agent Skills for Claude Code, Cursor, and Google Antigravity:
+
+### Linux & macOS
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.ps1 | iex
+```
+
+### Via Pipx / Pip / Cargo
+
+```bash
+# Pipx (Isolated CLI environment)
+pipx install git+https://github.com/Mafifrizi/tanuki.git
+
+# Local repository install
+pip install .
+
+# Rust binary install
+cargo install --path crates/tanuki-cli
+```
+
+Verify your installation:
+
+```bash
+tanuki --version
+tanuki ladder
+tanuki triage KRB_AP_ERR_SKEW
+```
 
 ## Dual-Engine Architecture
 
@@ -158,6 +196,9 @@ cargo test --workspace
 ```text
 tanuki/
 ├── Cargo.toml                 # Root workspace manifest
+├── pyproject.toml             # Python PEP 621 package specification
+├── install.sh                 # 1-line POSIX installer (Linux & macOS)
+├── install.ps1                # 1-line PowerShell installer (Windows)
 ├── crates/
 │   └── tanuki-cli/            # Rust systems core
 │       ├── Cargo.toml
@@ -169,6 +210,13 @@ tanuki/
 │       │   └── protocol/      # Kerberos constants and error triage dictionary
 │       └── tests/
 │           └── integration_tests.rs
+├── tanuki/                    # Unified Python package
+│   ├── __init__.py            # Library exports
+│   ├── __main__.py            # python -m tanuki execution
+│   ├── cli.py                 # Unified CLI matching Rust commands
+│   ├── keytab.py              # RFC 4120 keytab parser
+│   ├── kcm.py                 # SSSD KCM ticket stream parser
+│   └── protocol.py            # Error dictionary & decision ladder
 ├── assets/
 │   ├── logo.png               # Project logo (transparent background, light mode)
 │   └── logo-dark.png          # Project logo (transparent background, dark mode)
@@ -182,9 +230,11 @@ tanuki/
 │   ├── error_triage.md        # Kerberos and SSSD error resolution table
 │   └── nhi_mesh.md            # Workload identity and token exchange reference
 ├── tests/
+│   ├── test_unified_cli.py
 │   ├── test_keytab_inspector.py
 │   ├── test_kcm_parser.py
-│   └── test_rust_compatibility.py
+│   ├── test_rust_compatibility.py
+│   └── test_security_audit.py
 ├── SKILL.md                   # Universal skill definition
 ├── AGENTS.md                  # Multi-agent prompt file
 ├── CLAUDE.md                  # Claude Code project guide

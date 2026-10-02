@@ -129,6 +129,10 @@ def parse_keytab_stream(stream: io.BytesIO) -> List[Dict[str, Any]]:
     return entries
 
 
+def parse_keytab_bytes(data: bytes) -> List[Dict[str, Any]]:
+    return parse_keytab_stream(io.BytesIO(data))
+
+
 def parse_keytab_file(filepath: str) -> List[Dict[str, Any]]:
     with open(filepath, "rb") as f:
         return parse_keytab_stream(io.BytesIO(f.read()))
