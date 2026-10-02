@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tanuki"
+version = "1.1.0"
+description = "Deterministic Linux Active Directory & Kerberos Protocol Triage Engine"
+readme = "README.md"
+authors = [
+    { name = "Mafifrizi", email = "hazama3321@gmail.com" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+    "Topic :: Security",
+]
+keywords = ["kerberos", "keytab", "active-directory", "sssd", "security", "triage", "identity", "nhi"]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.scripts]
+tanuki = "tanuki.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Mafifrizi/tanuki"
+Repository = "https://github.com/Mafifrizi/tanuki.git"
+Issues = "https://github.com/Mafifrizi/tanuki/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tanuki*"]

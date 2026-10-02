@@ -27,15 +27,21 @@ class TestSecurityAudit(unittest.TestCase):
             "eval(",
             "exec(",
         ]
-        for script_name in ["keytab_inspector.py", "kcm_parser.py"]:
-            script_path = os.path.join(self.scripts_dir, script_name)
+        paths_to_audit = [
+            os.path.join(self.scripts_dir, "keytab_inspector.py"),
+            os.path.join(self.scripts_dir, "kcm_parser.py"),
+            os.path.join(self.root_dir, "tanuki", "keytab.py"),
+            os.path.join(self.root_dir, "tanuki", "kcm.py"),
+            os.path.join(self.root_dir, "tanuki", "protocol.py"),
+        ]
+        for script_path in paths_to_audit:
             with open(script_path, "r", encoding="utf-8") as f:
                 code = f.read()
                 for dangerous in dangerous_calls:
                     self.assertNotIn(
                         dangerous,
                         code,
-                        f"Found dangerous call '{dangerous}' in {script_name}. Protocol parsers must be pure stdlib without shell spawning."
+                        f"Found dangerous call '{dangerous}' in {script_path}. Protocol parsers must be pure stdlib without shell spawning."
                     )
 
     def test_rust_memory_safety_forbid_unsafe(self):

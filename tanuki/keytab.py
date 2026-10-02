@@ -1,11 +1,7 @@
-#!/usr/bin/env python3
-"""Inspect and triage binary Kerberos Keytab files (RFC 4120 / Keytab v2)."""
+"""RFC 4120 Binary Keytab Parser (Keytab v2)."""
 
-import argparse
 import io
-import json
 import struct
-import sys
 from typing import Any, Dict, List
 
 ENCTYPE_MAP = {
@@ -23,6 +19,7 @@ MAX_COMPONENTS = 256
 
 
 def parse_keytab_stream(stream: io.BytesIO) -> List[Dict[str, Any]]:
+    """Parse binary Keytab v2 stream into structured entry dictionaries."""
     header = stream.read(2)
     if len(header) < 2 or header[0] != 0x05 or header[1] != 0x02:
         raise ValueError("Invalid keytab format (expected Keytab v2 signature 0x0502)")
@@ -130,51 +127,11 @@ def parse_keytab_stream(stream: io.BytesIO) -> List[Dict[str, Any]]:
 
 
 def parse_keytab_bytes(data: bytes) -> List[Dict[str, Any]]:
+    """Parse raw bytes as Keytab v2 binary format."""
     return parse_keytab_stream(io.BytesIO(data))
 
 
 def parse_keytab_file(filepath: str) -> List[Dict[str, Any]]:
+    """Read file and parse Keytab v2 entries."""
     with open(filepath, "rb") as f:
         return parse_keytab_stream(io.BytesIO(f.read()))
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Tanuki Keytab Inspector: Parse binary keytab without external dependencies"
-    )
-    parser.add_argument("keytab_path", help="Path to /etc/krb5.keytab or custom keytab")
-    parser.add_argument(
-        "--json", action="store_true", help="Output parsed entries as JSON"
-    )
-    args = parser.parse_args()
-
-    try:
-        entries = parse_keytab_file(args.keytab_path)
-    except Exception as exc:
-        sys.stderr.write(f"Error parsing keytab: {exc}\n")
-        sys.exit(1)
-
-    if args.json:
-        print(json.dumps(entries, indent=2))
-        return
-
-    print("=" * 72)
-    print(" TANUKI KEYTAB TRIAGE REPORT")
-    print("=" * 72)
-    for idx, e in enumerate(entries, 1):
-        print(f"[{idx}] Principal : {e['principal']}")
-        print(f"    KVNO      : {e['vno']}")
-        print(f"    Enctype   : {e['enctype_name']} ({e['keytype']})")
-        print(f"    Key (Hex) : {e['key_hex'][:16]}... (length: {e['key_len']} bytes)")
-
-    aes_entries = [e for e in entries if e["keytype"] in (17, 18, 19, 20)]
-    if aes_entries:
-        sample = aes_entries[0]
-        print("\n[+] Recommended Non-Interactive TGT Acquisition (Modern AES):")
-        print(f"    $ kinit -k -t {args.keytab_path} {sample['principal']}")
-        print("    $ export KRB5CCNAME=/tmp/krb5cc_$(id -u)")
-    print("=" * 72)
-
-
-if __name__ == "__main__":
-    main()
