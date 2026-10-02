@@ -25,6 +25,8 @@ extracted_tickets/
 *.tmp
 *.swp
 *~
+.agents/
+
 
 # OS artifacts
 .DS_Store
