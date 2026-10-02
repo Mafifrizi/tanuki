@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Tanuki Logo" width="220" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <img src="assets/logo.png" alt="Tanuki Logo" width="220">
+  </picture>
 </p>
 
 # Tanuki
@@ -59,7 +62,8 @@ python3 -m unittest discover -s tests -v
 ```text
 tanuki/
 ├── assets/
-│   └── logo.jpg               # Project logo
+│   ├── logo.png               # Project logo (transparent background, light mode)
+│   └── logo-dark.png          # Project logo (transparent background, dark mode)
 ├── scripts/
 │   ├── keytab_inspector.py    # Binary keytab inspection script
 │   └── kcm_parser.py          # SSSD KCM credential cache parser
