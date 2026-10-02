@@ -1,3 +1,5 @@
+use crate::util::escape_json;
+
 pub fn enctype_name(keytype: i16) -> String {
     match keytype {
         1 => "des-cbc-crc".to_string(),
@@ -35,21 +37,26 @@ impl KeytabEntry {
     pub fn to_json(&self) -> String {
         let escaped_principal = escape_json(&self.principal);
         let escaped_realm = escape_json(&self.realm);
-        let comps_json = self
-            .components
-            .iter()
-            .map(|c| format!("\"{}\"", escape_json(c)))
-            .collect::<Vec<_>>()
-            .join(",\n      ");
+        let comps_json = if self.components.is_empty() {
+            "[]".to_string()
+        } else {
+            let formatted = self
+                .components
+                .iter()
+                .map(|c| format!("\"{}\"", escape_json(c)))
+                .collect::<Vec<_>>()
+                .join(",\n      ");
+            format!("[\n      {}\n    ]", formatted)
+        };
 
         format!(
-            "  {{\n    \"principal\": \"{}\",\n    \"realm\": \"{}\",\n    \"components\": [\n      {}\n    ],\n    \"vno\": {},\n    \"keytype\": {},\n    \"enctype_name\": \"{}\",\n    \"key_len\": {},\n    \"key_hex\": \"{}\",\n    \"timestamp\": {}\n  }}",
+            "  {{\n    \"principal\": \"{}\",\n    \"realm\": \"{}\",\n    \"components\": {},\n    \"vno\": {},\n    \"keytype\": {},\n    \"enctype_name\": \"{}\",\n    \"key_len\": {},\n    \"key_hex\": \"{}\",\n    \"timestamp\": {}\n  }}",
             escaped_principal,
             escaped_realm,
             comps_json,
             self.vno,
             self.keytype,
-            self.enctype_name,
+            escape_json(&self.enctype_name),
             self.key_len,
             self.key_hex,
             self.timestamp
@@ -67,19 +74,4 @@ pub fn entries_to_json(entries: &[KeytabEntry]) -> String {
         .collect::<Vec<_>>()
         .join(",\n");
     format!("[\n{}\n]", body)
-}
-
-fn escape_json(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for c in input.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            other => out.push(other),
-        }
-    }
-    out
 }

@@ -9,7 +9,7 @@ This document outlines the architectural rationale, security evaluation, and mul
 Tanuki adopts a **Dual-Engine Architecture**:
 
 1. **Lightweight Fallback (Pure Python 3)**: Retained for "Living off the Land" (LotL) triage on remote targets where dropping binaries is prohibited or monitored by endpoint detection systems.
-2. **High-Performance Core (Rust - Planned `crates/tanuki-cli`)**: Designed for security pipelines, container sidecars, and standalone operator workstations requiring sub-millisecond execution, zero glibc dependencies, and mathematically verified memory safety.
+2. **High-Performance Core (Rust - `crates/tanuki-cli`)**: Designed for security pipelines, container sidecars, and standalone operator workstations requiring sub-millisecond execution, zero glibc dependencies, and mathematically verified memory safety.
 
 ---
 

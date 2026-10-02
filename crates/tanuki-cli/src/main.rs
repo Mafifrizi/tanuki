@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    candidates_to_json, entries_to_json, find_error_resolution, parse_keytab_bytes,
-    save_candidates, scan_for_ccache_blobs, DECISION_LADDER, ERROR_DICTIONARY,
+    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution, ladder_to_json,
+    parse_keytab_bytes, save_candidates, scan_for_ccache_blobs, DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 fn print_usage() {
@@ -16,7 +16,7 @@ USAGE:
     tanuki <KEYTAB_PATH> [--json]
 
 COMMANDS:
-    keytab <PATH>       Inspect binary keytab file (RFC 4120)
+    keytab [PATH]       Inspect binary keytab file (RFC 4120)
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
@@ -31,71 +31,98 @@ OPTIONS:
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    if raw_args.is_empty() {
         print_usage();
         process::exit(1);
     }
 
-    let first = &args[1];
-    if first == "-h" || first == "--help" {
-        print_usage();
-        return;
-    }
-    if first == "-V" || first == "--version" {
-        println!("tanuki-cli {}", env!("CARGO_PKG_VERSION"));
-        return;
+    let mut global_json = false;
+    let mut explicit_command: Option<String> = None;
+    let mut positional_args: Vec<String> = Vec::new();
+    let mut file_opt: Option<String> = None;
+    let mut out_opt: Option<String> = None;
+
+    let mut i = 0;
+    while i < raw_args.len() {
+        match raw_args[i].as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                return;
+            }
+            "-V" | "--version" => {
+                println!("tanuki-cli {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--json" => {
+                global_json = true;
+            }
+            "-f" | "--file" => {
+                if i + 1 < raw_args.len() {
+                    file_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "-o" | "--out" => {
+                if i + 1 < raw_args.len() {
+                    out_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            cmd if explicit_command.is_none()
+                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder") =>
+            {
+                explicit_command = Some(cmd.to_string());
+            }
+            other if !other.starts_with('-') => {
+                positional_args.push(other.to_string());
+            }
+            other => {
+                eprintln!("Unknown option: {}", other);
+                print_usage();
+                process::exit(1);
+            }
+        }
+        i += 1;
     }
 
-    match first.as_str() {
+    let command = explicit_command.unwrap_or_else(|| {
+        if file_opt.is_some() || !positional_args.is_empty() {
+            "keytab".to_string()
+        } else {
+            "help".to_string()
+        }
+    });
+
+    match command.as_str() {
         "keytab" => {
-            handle_keytab(&args[2..]);
+            let target_path = file_opt.or_else(|| positional_args.first().cloned());
+            handle_keytab(target_path, global_json);
         }
         "kcm" => {
-            handle_kcm(&args[2..]);
+            let target_file = file_opt.or_else(|| positional_args.first().cloned());
+            let out_dir = out_opt.unwrap_or_else(|| "./extracted_ccache".to_string());
+            handle_kcm(target_file, &out_dir, global_json);
         }
         "triage" => {
-            handle_triage(&args[2..]);
+            let query = positional_args.first().cloned();
+            handle_triage(query.as_deref(), global_json);
         }
         "ladder" => {
-            handle_ladder();
+            handle_ladder(global_json);
         }
-        // Direct file path invocation
-        path if !path.starts_with('-') => {
-            let mut sub_args = vec![path.to_string()];
-            sub_args.extend_from_slice(&args[2..]);
-            handle_keytab(&sub_args);
+        "help" => {
+            print_usage();
         }
         _ => {
-            eprintln!("Unknown command: {}", first);
+            eprintln!("Unknown command: {}", command);
             print_usage();
             process::exit(1);
         }
     }
 }
 
-fn handle_keytab(args: &[String]) {
-    let mut file_path: Option<String> = None;
-    let mut json_output = false;
-
-    let mut idx = 0;
-    while idx < args.len() {
-        match args[idx].as_str() {
-            "--json" => json_output = true,
-            "-f" | "--file" => {
-                if idx + 1 < args.len() {
-                    file_path = Some(args[idx + 1].clone());
-                    idx += 1;
-                }
-            }
-            val if !val.starts_with('-') && file_path.is_none() => {
-                file_path = Some(val.to_string());
-            }
-            _ => {}
-        }
-        idx += 1;
-    }
-
+fn handle_keytab(file_path: Option<String>, json_output: bool) {
     let path = match file_path {
         Some(p) => p,
         None => {
@@ -149,33 +176,8 @@ fn handle_keytab(args: &[String]) {
     println!("========================================================================");
 }
 
-fn handle_kcm(args: &[String]) {
-    let mut file_path: Option<String> = None;
-    let mut out_dir = "./extracted_ccache".to_string();
-    let mut json_output = false;
-
-    let mut idx = 0;
-    while idx < args.len() {
-        match args[idx].as_str() {
-            "--json" => json_output = true,
-            "-f" | "--file" => {
-                if idx + 1 < args.len() {
-                    file_path = Some(args[idx + 1].clone());
-                    idx += 1;
-                }
-            }
-            "-o" | "--out" => {
-                if idx + 1 < args.len() {
-                    out_dir = args[idx + 1].clone();
-                    idx += 1;
-                }
-            }
-            _ => {}
-        }
-        idx += 1;
-    }
-
-    let out_path = PathBuf::from(&out_dir);
+fn handle_kcm(file_path: Option<String>, out_dir: &str, json_output: bool) {
+    let out_path = PathBuf::from(out_dir);
 
     if let Some(path) = file_path {
         let data = match fs::read(&path) {
@@ -271,48 +273,66 @@ fn scan_local_stores(out_path: &Path, json_output: bool) {
     }
 }
 
-fn handle_triage(args: &[String]) {
-    if args.is_empty() {
-        println!("========================================================================");
-        println!(" KERBEROS & SSSD ERROR RESOLUTION DICTIONARY");
-        println!("========================================================================");
-        for item in ERROR_DICTIONARY {
-            let event = item
-                .event_id
-                .map(|id| format!(" (Event {})", id))
-                .unwrap_or_default();
-            println!("\nError Code: {}{}", item.code, event);
-            println!("Root Cause: {}", item.root_cause);
-            println!("Tactical Resolution:\n{}", item.resolution);
-        }
-        println!("========================================================================");
-        return;
-    }
-
-    let query = &args[0];
-    match find_error_resolution(query) {
-        Some(res) => {
-            println!("Found matching error: {}", res.code);
-            if let Some(id) = res.event_id {
-                println!("Event ID: {}", id);
+fn handle_triage(query: Option<&str>, json_output: bool) {
+    match query {
+        Some(q) => match find_error_resolution(q) {
+            Some(res) => {
+                if json_output {
+                    println!("{}", res.to_json());
+                } else {
+                    println!("Found matching error: {}", res.code);
+                    if let Some(id) = res.event_id {
+                        println!("Event ID: {}", id);
+                    }
+                    println!("Root Cause: {}", res.root_cause);
+                    println!("Resolution:\n{}", res.resolution);
+                }
             }
-            println!("Root Cause: {}", res.root_cause);
-            println!("Resolution:\n{}", res.resolution);
-        }
+            None => {
+                if json_output {
+                    println!("null");
+                } else {
+                    eprintln!("No matching error resolution found for '{}'", q);
+                    eprintln!("Run 'tanuki triage' without arguments to see all known error codes.");
+                }
+                process::exit(1);
+            }
+        },
         None => {
-            eprintln!("No matching error resolution found for '{}'", query);
-            eprintln!("Run 'tanuki triage' without arguments to see all known error codes.");
+            if json_output {
+                let errors: Vec<_> = ERROR_DICTIONARY.iter().cloned().collect();
+                println!("{}", errors_to_json(&errors));
+            } else {
+                println!("========================================================================");
+                println!(" KERBEROS & SSSD ERROR RESOLUTION DICTIONARY");
+                println!("========================================================================");
+                for item in ERROR_DICTIONARY {
+                    let event = item
+                        .event_id
+                        .map(|id| format!(" (Event {})", id))
+                        .unwrap_or_default();
+                    println!("\nError Code: {}{}", item.code, event);
+                    println!("Root Cause: {}", item.root_cause);
+                    println!("Tactical Resolution:\n{}", item.resolution);
+                }
+                println!("========================================================================");
+            }
         }
     }
 }
 
-fn handle_ladder() {
+fn handle_ladder(json_output: bool) {
+    if json_output {
+        println!("{}", ladder_to_json());
+        return;
+    }
+
     println!("========================================================================");
     println!(" TANUKI 5-RUNG TACTICAL DECISION LADDER");
     println!("========================================================================");
-    for (name, desc) in DECISION_LADDER {
-        println!("[*] {}", name);
-        println!("    {}\n", desc);
+    for rung in DECISION_LADDER {
+        println!("[*] {}", rung.title);
+        println!("    {}\n", rung.description);
     }
     println!("Command Output Standard:");
     println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");

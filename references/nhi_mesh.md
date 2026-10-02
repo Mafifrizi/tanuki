@@ -1,9 +1,9 @@
-# Non-Human Identity (NHI) & Workload Federation (2026–2030 Architecture)
+# Non-Human Identity (NHI) & Workload Federation (2026-2030 Architecture)
 
 Strategic guide to evaluating ephemeral machine identities, autonomous AI agent credentials, and hybrid federation pathways operating on Linux substrates.
 
 ## 1. The NHI Paradigm Shift
-By 2026–2030, enterprise identities are dominated by non-human actors:
+By 2026-2030, enterprise identities are dominated by non-human actors:
 * Workload Identities (Kubernetes pods, cloud functions, microservices)
 * Ephemeral service tokens and certificates (SPIFFE/SPIRE SVIDs)
 * Autonomous AI agent runtimes interacting through Model Context Protocol (MCP) and dynamic token exchange

@@ -1,6 +1,8 @@
 use super::types::{enctype_name, KeytabEntry};
 use std::fmt;
 
+const MAX_COMPONENTS: i16 = 256;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum KeytabError {
     InvalidHeader,
@@ -30,11 +32,17 @@ pub fn parse_keytab_bytes(data: &[u8]) -> Result<Vec<KeytabEntry>, KeytabError> 
     let mut entries = Vec::new();
     let mut cursor = 2;
 
-    while cursor + 4 <= data.len() {
-        let size_bytes: [u8; 4] = data[cursor..cursor + 4]
-            .try_into()
-            .map_err(|_| KeytabError::UnexpectedEof)?;
-        let entry_size = i32::from_be_bytes(size_bytes);
+    while cursor < data.len() {
+        if cursor + 4 > data.len() {
+            return Err(KeytabError::UnexpectedEof);
+        }
+
+        let entry_size = i32::from_be_bytes([
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+        ]);
         cursor += 4;
 
         if entry_size == 0 {
@@ -42,9 +50,9 @@ pub fn parse_keytab_bytes(data: &[u8]) -> Result<Vec<KeytabEntry>, KeytabError> 
         }
 
         if entry_size < 0 {
-            let skip_len = (-entry_size) as usize;
+            let skip_len = entry_size.unsigned_abs() as usize;
             if cursor + skip_len > data.len() {
-                break;
+                return Err(KeytabError::UnexpectedEof);
             }
             cursor += skip_len;
             continue;
@@ -71,27 +79,24 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
     if offset + 2 > entry.len() {
         return Err(KeytabError::MalformedEntry("Missing component count".into()));
     }
-    let num_components = i16::from_be_bytes(
-        entry[offset..offset + 2]
-            .try_into()
-            .map_err(|_| KeytabError::UnexpectedEof)?,
-    );
+    let num_components = i16::from_be_bytes([entry[offset], entry[offset + 1]]);
     offset += 2;
 
-    if num_components <= 0 {
+    if num_components < 0 {
         return Err(KeytabError::MalformedEntry(
-            "Non-positive component count".into(),
+            "Negative component count".into(),
+        ));
+    }
+    if num_components > MAX_COMPONENTS {
+        return Err(KeytabError::MalformedEntry(
+            "Excessive component count".into(),
         ));
     }
 
     if offset + 2 > entry.len() {
         return Err(KeytabError::MalformedEntry("Missing realm length".into()));
     }
-    let realm_len = u16::from_be_bytes(
-        entry[offset..offset + 2]
-            .try_into()
-            .map_err(|_| KeytabError::UnexpectedEof)?,
-    ) as usize;
+    let realm_len = u16::from_be_bytes([entry[offset], entry[offset + 1]]) as usize;
     offset += 2;
 
     if offset + realm_len > entry.len() {
@@ -107,11 +112,7 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
                 "Missing component length".into(),
             ));
         }
-        let comp_len = u16::from_be_bytes(
-            entry[offset..offset + 2]
-                .try_into()
-                .map_err(|_| KeytabError::UnexpectedEof)?,
-        ) as usize;
+        let comp_len = u16::from_be_bytes([entry[offset], entry[offset + 1]]) as usize;
         offset += 2;
 
         if offset + comp_len > entry.len() {
@@ -124,28 +125,41 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
         offset += comp_len;
     }
 
-    let principal = format!("{}@{}", components.join("/"), realm);
+    let principal = if components.is_empty() {
+        format!("@{}", realm)
+    } else {
+        format!("{}@{}", components.join("/"), realm)
+    };
 
-    // Header fields: name_type (4), timestamp (4), vno8 (1), keytype (2), key_len (2) = 13 bytes
     if offset + 13 > entry.len() {
         return Err(KeytabError::MalformedEntry(
             "Missing key metadata fields".into(),
         ));
     }
 
-    let _name_type = u32::from_be_bytes(entry[offset..offset + 4].try_into().unwrap());
+    let _name_type = u32::from_be_bytes([
+        entry[offset],
+        entry[offset + 1],
+        entry[offset + 2],
+        entry[offset + 3],
+    ]);
     offset += 4;
 
-    let timestamp = u32::from_be_bytes(entry[offset..offset + 4].try_into().unwrap());
+    let timestamp = u32::from_be_bytes([
+        entry[offset],
+        entry[offset + 1],
+        entry[offset + 2],
+        entry[offset + 3],
+    ]);
     offset += 4;
 
     let vno8 = entry[offset];
     offset += 1;
 
-    let keytype = i16::from_be_bytes(entry[offset..offset + 2].try_into().unwrap());
+    let keytype = i16::from_be_bytes([entry[offset], entry[offset + 1]]);
     offset += 2;
 
-    let key_len = u16::from_be_bytes(entry[offset..offset + 2].try_into().unwrap());
+    let key_len = u16::from_be_bytes([entry[offset], entry[offset + 1]]);
     offset += 2;
 
     let key_len_usize = key_len as usize;
@@ -163,10 +177,26 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
 
     let mut vno = vno8 as u32;
     if entry.len() >= offset + 4 {
-        let vno32 = u32::from_be_bytes(entry[offset..offset + 4].try_into().unwrap());
+        let vno32 = u32::from_be_bytes([
+            entry[offset],
+            entry[offset + 1],
+            entry[offset + 2],
+            entry[offset + 3],
+        ]);
         if vno32 != 0 {
             vno = vno32;
         }
+        offset += 4;
+    } else if offset < entry.len() {
+        return Err(KeytabError::MalformedEntry(
+            "Incomplete 32-bit KVNO field".into(),
+        ));
+    }
+
+    if offset < entry.len() {
+        return Err(KeytabError::MalformedEntry(
+            "Extraneous bytes in keytab entry".into(),
+        ));
     }
 
     let enc_name = enctype_name(keytype);
@@ -204,8 +234,8 @@ mod tests {
             entry.extend_from_slice(&(c.len() as u16).to_be_bytes());
             entry.extend_from_slice(c.as_bytes());
         }
-        entry.extend_from_slice(&1u32.to_be_bytes()); // name_type
-        entry.extend_from_slice(&1700000000u32.to_be_bytes()); // timestamp
+        entry.extend_from_slice(&1u32.to_be_bytes());
+        entry.extend_from_slice(&1700000000u32.to_be_bytes());
         entry.push(vno8);
         entry.extend_from_slice(&keytype.to_be_bytes());
         entry.extend_from_slice(&(key.len() as u16).to_be_bytes());
@@ -267,11 +297,9 @@ mod tests {
     #[test]
     fn test_skip_deleted_negative_size_entry() {
         let mut data = vec![0x05, 0x02];
-        // Deleted entry with negative size (-8)
         data.extend_from_slice(&(-8i32).to_be_bytes());
         data.extend_from_slice(&[0x00; 8]);
 
-        // Followed by valid entry
         let key = vec![0xbb; 32];
         let valid_data = build_test_keytab(&["krbtgt", "CORP.LOCAL"], "CORP.LOCAL", 18, &key, 1, 1);
         data.extend_from_slice(&valid_data[2..]);
@@ -279,5 +307,35 @@ mod tests {
         let entries = parse_keytab_bytes(&data).expect("Should skip deleted hole");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].principal, "krbtgt/CORP.LOCAL@CORP.LOCAL");
+    }
+
+    #[test]
+    fn test_negative_entry_size_min_does_not_overflow() {
+        let mut data = vec![0x05, 0x02];
+        data.extend_from_slice(&i32::MIN.to_be_bytes());
+        assert_eq!(
+            parse_keytab_bytes(&data),
+            Err(KeytabError::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn test_trailing_residual_bytes_error() {
+        let mut data = vec![0x05, 0x02];
+        data.extend_from_slice(&[0x00, 0x01]);
+        assert_eq!(
+            parse_keytab_bytes(&data),
+            Err(KeytabError::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn test_zero_components_principal() {
+        let key = vec![0xcc; 32];
+        let bytes = build_test_keytab(&[], "CORP.LOCAL", 18, &key, 1, 1);
+        let entries = parse_keytab_bytes(&bytes).expect("Should parse empty components");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].principal, "@CORP.LOCAL");
+        assert!(entries[0].components.is_empty());
     }
 }
