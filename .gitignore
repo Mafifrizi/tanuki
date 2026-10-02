@@ -1,7 +1,35 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+
+# Rust
+/target/
+**/*.rs.bk
+
+# Ticket artifacts & dumps
 extracted_ccache/
 extracted_tickets/
+*.ccache
+
+# Environment & secrets
+.env
+.env.*
+
+# Logs & temporary files
 *.log
+*.tmp
+*.swp
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor (preserve .cursor/rules)
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
