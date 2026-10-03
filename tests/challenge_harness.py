@@ -57,14 +57,26 @@ def create_jwt(header: dict = None, claims: dict = None, sig: bytes = b"sig123")
 
 def run_cli(args: list, stdin_data: str = None) -> tuple:
     cmd = [sys.executable, "-m", "tanuki"] + args
-    proc = subprocess.run(
-        cmd,
-        cwd=ROOT_DIR,
-        input=stdin_data,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    if stdin_data is not None:
+        proc = subprocess.run(
+            cmd,
+            cwd=ROOT_DIR,
+            input=stdin_data,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
+    else:
+        proc = subprocess.run(
+            cmd,
+            cwd=ROOT_DIR,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
     return proc.returncode, proc.stdout, proc.stderr
 
 
