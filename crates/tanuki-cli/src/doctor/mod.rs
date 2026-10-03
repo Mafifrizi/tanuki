@@ -2,6 +2,7 @@ pub mod keytab;
 pub mod krb5_conf;
 pub mod sssd;
 pub mod ticket;
+pub mod tools;
 pub mod types;
 
 pub use types::{CheckResult, DoctorOptions, DoctorReport};
@@ -15,9 +16,11 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
         .keytab_path
         .as_deref()
         .unwrap_or("/etc/krb5.keytab");
+    let env_krb5_conf = std::env::var("KRB5_CONFIG").ok();
     let krb5_conf_path = opts
         .krb5_conf_path
         .as_deref()
+        .or(env_krb5_conf.as_deref())
         .unwrap_or("/etc/krb5.conf");
     let sssd_pipe = opts
         .sssd_pipe
@@ -32,8 +35,9 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
     let check2 = krb5_conf::audit_krb5_conf(krb5_conf_path);
     let check3 = sssd::audit_sssd(sssd_pipe, sssd_pid);
     let check4 = ticket::audit_ticket_lifetime(opts.ccache_path.as_deref());
+    let check5 = tools::audit_host_tools();
 
-    let checks = vec![check1, check2, check3, check4];
+    let checks = vec![check1, check2, check3, check4, check5];
 
     let passed = checks.iter().filter(|c| c.status == "PASS").count();
     let warnings = checks

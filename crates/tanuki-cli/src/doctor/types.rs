@@ -110,6 +110,7 @@ impl DoctorReport {
                 "realm_capitalization" => "Kerberos Configuration",
                 "sssd_subsystem" => "SSSD Subsystem        ",
                 "ticket_lifetime" => "Active Ticket Cache   ",
+                "host_tooling" => "Kerberos Host Tooling ",
                 other => other,
             };
             out.push_str(&format!("[{}] {} : {}\n", check.status, title, check.details));

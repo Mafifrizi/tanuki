@@ -170,9 +170,18 @@ def main() -> None:
     aes_entries = [e for e in entries if e["keytype"] in (17, 18, 19, 20)]
     if aes_entries:
         sample = aes_entries[0]
+        env_krb5_conf = os.environ.get("KRB5_CONFIG")
+        prefix = f"KRB5_CONFIG={env_krb5_conf} " if env_krb5_conf else ""
         print("\n[+] Recommended Non-Interactive TGT Acquisition (Modern AES):")
-        print(f"    $ kinit -k -t {args.keytab_path} {sample['principal']}")
+        print(f"    $ {prefix}kinit -k -t {args.keytab_path} {sample['principal']}")
         print("    $ export KRB5CCNAME=/tmp/krb5cc_$(id -u)")
+
+        import shutil
+        if not shutil.which("kinit"):
+            print("\n[!] Host Tooling Advisory:")
+            print("    'kinit' utility not found on PATH.")
+            print("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)")
+            print("    Unprivileged: Generate local config via 'tanuki config' and use portable client.")
     print("=" * 72)
 
 

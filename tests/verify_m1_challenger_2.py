@@ -232,13 +232,14 @@ def run_json_schema_tests() -> int:
     assert data["status"] in ("PASS", "WARN", "FAIL")
     assert isinstance(data["summary"], dict)
     assert all(k in data["summary"] for k in ("passed", "warnings", "failures"))
-    assert len(data["checks"]) == 4
+    assert len(data["checks"]) == 5
 
     expected_names = [
         "keytab_permissions",
         "realm_capitalization",
         "sssd_subsystem",
         "ticket_lifetime",
+        "host_tooling",
     ]
     actual_names = [c["name"] for c in data["checks"]]
     assert actual_names == expected_names, f"Checks mismatch: {actual_names}"
@@ -257,7 +258,7 @@ def run_json_schema_tests() -> int:
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     cli_data = json.loads(proc.stdout)
     assert cli_data["status"] in ("PASS", "WARN", "FAIL")
-    assert len(cli_data["checks"]) == 4
+    assert len(cli_data["checks"]) == 5
     passed += 1
     print("  [+] CLI stdout purity and strict JSON parsing (`python -m tanuki doctor --json`): PASS")
 

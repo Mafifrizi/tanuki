@@ -135,9 +135,10 @@ Run proactive pre-flight health diagnostics (<5ms, zero network packets):
 
 `tanuki doctor` runs deterministic, zero-network pre-flight diagnostics across local Active Directory components in under 5 milliseconds:
 - Keytab permissions and format: Audits `/etc/krb5.keytab` permissions (flags world-readable `0644`/`0666` permissions vs secure `0600`) and validates RFC 4120 binary header magic (`0x0502`).
-- Realm capitalization: Audits `/etc/krb5.conf` for lowercase realm declarations across `[libdefaults]` and `[realms]`.
+- Realm capitalization: Audits `/etc/krb5.conf` for lowercase realm declarations across `[libdefaults]` and `[realms]`, honoring `KRB5_CONFIG` environment variable precedence.
 - SSSD daemon and socket status: Validates `/var/lib/sss/pipes/kcm` socket presence and `/var/run/sssd.pid` daemon state.
 - Ticket cache lifetimes: Evaluates remaining ticket validity across MIT CCACHE v4 streams (`0x0504`) and Linux Kernel Keyring (`KEYRING:persistent:` / `/proc/keys`).
+- Host client tooling: Passively audits availability of `kinit`/`klist` on `$PATH` in <0.5ms and provides package recommendations for Debian/Kali (`krb5-user`) and RHEL (`krb5-workstation`).
 
 ```bash
 # Terminal checklist output
@@ -148,6 +149,16 @@ tanuki doctor --json
 
 # Custom target paths
 tanuki doctor --keytab /custom/krb5.keytab --krb5-conf /custom/krb5.conf
+```
+
+Generate zero-DNS unprivileged Kerberos configuration (RFC 4120):
+
+```bash
+# Generate unprivileged configuration directly targeting KDC IP (zero root, zero DNS dependency)
+tanuki config --realm CORP.LOCAL --kdc 192.168.56.106 -o ./krb5.conf
+
+# Activate in current unprivileged shell session
+export KRB5_CONFIG=$(pwd)/krb5.conf
 ```
 
 Inspect binary keytabs (RFC 4120):

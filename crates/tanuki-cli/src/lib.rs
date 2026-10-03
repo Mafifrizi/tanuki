@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod config;
 pub mod doctor;
 pub mod kcm;
 pub mod keytab;
@@ -7,6 +8,7 @@ pub mod nhi;
 pub mod protocol;
 pub mod util;
 
+pub use config::generate_krb5_conf;
 pub use doctor::{run_doctor, CheckResult, DoctorOptions, DoctorReport};
 pub use kcm::{candidates_to_json, save_candidates, scan_for_ccache_blobs, CcacheCandidate};
 pub use keytab::{entries_to_json, parse_keytab_bytes, KeytabEntry, KeytabError};

@@ -3,9 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution, ladder_to_json,
-    parse_and_validate_jwt, parse_keytab_bytes, run_doctor, save_candidates, scan_for_ccache_blobs,
-    validate_token_exchange, DoctorOptions, TokenExchangeParams, DECISION_LADDER, ERROR_DICTIONARY,
+    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution, generate_krb5_conf,
+    ladder_to_json, parse_and_validate_jwt, parse_keytab_bytes, run_doctor, save_candidates,
+    scan_for_ccache_blobs, validate_token_exchange, DoctorOptions, TokenExchangeParams,
+    DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 fn print_usage() {
@@ -22,14 +23,19 @@ COMMANDS:
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
     doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks
+    config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
 
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
-    -o, --out <DIR>     Output directory for extracted caches (default: ./extracted_ccache)
+    -o, --out <PATH>    Output directory for extracted caches or config path
     -a, --audience <AUD> Expected audience for workload validation
     -i, --issuer <ISS>   Expected issuer for workload validation
+    --realm <REALM>     Target Kerberos realm (mandates uppercase)
+    --kdc <HOST_OR_IP>  KDC address or hostname (zero-DNS routing)
+    --admin-server <HOST_OR_IP> Optional admin server for config
+    --stdout            Print generated config directly to stdout
     --keytab <PATH>     Target keytab path for doctor
     --krb5-conf <PATH>  Target krb5.conf path for doctor
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
@@ -113,6 +119,10 @@ fn main() {
     let mut ccache_opt: Option<String> = None;
     let mut audience_opt: Option<String> = None;
     let mut issuer_opt: Option<String> = None;
+    let mut realm_opt: Option<String> = None;
+    let mut kdc_opt: Option<String> = None;
+    let mut admin_server_opt: Option<String> = None;
+    let mut stdout_opt = false;
     let mut grant_type_opt: Option<String> = None;
     let mut subject_token_opt: Option<String> = None;
     let mut subject_token_type_opt: Option<String> = None;
@@ -210,8 +220,29 @@ fn main() {
                     i += 1;
                 }
             }
+            "--realm" => {
+                if i + 1 < raw_args.len() {
+                    realm_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--kdc" => {
+                if i + 1 < raw_args.len() {
+                    kdc_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--admin-server" => {
+                if i + 1 < raw_args.len() {
+                    admin_server_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--stdout" => {
+                stdout_opt = true;
+            }
             cmd if explicit_command.is_none()
-                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi") =>
+                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi" | "config") =>
             {
                 explicit_command = Some(cmd.to_string());
             }
@@ -267,6 +298,17 @@ fn main() {
                 sssd_pipe_opt,
                 sssd_pid_opt,
                 ccache_opt,
+            );
+        }
+        "config" => {
+            let out_target = out_opt.or(file_opt);
+            handle_config(
+                realm_opt,
+                kdc_opt,
+                admin_server_opt,
+                out_target,
+                stdout_opt,
+                global_json,
             );
         }
         "token" => {
@@ -378,10 +420,127 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
 
     let aes_entries: Vec<_> = entries.iter().filter(|e| e.is_modern_aes()).collect();
     if let Some(sample) = aes_entries.first() {
+        let env_krb5_conf = std::env::var("KRB5_CONFIG").ok();
+        let prefix = match &env_krb5_conf {
+            Some(p) => format!("KRB5_CONFIG={} ", p),
+            None => String::new(),
+        };
         println!("\n[+] Recommended Non-Interactive TGT Acquisition (Modern AES):");
-        println!("    $ kinit -k -t {} {}", path, sample.principal);
+        println!("    $ {}kinit -k -t {} {}", prefix, path, sample.principal);
         println!("    $ export KRB5CCNAME=/tmp/krb5cc_$(id -u)");
+
+        if tanuki::doctor::tools::has_binary_on_path("kinit").is_none() {
+            println!("\n[!] Host Tooling Advisory:");
+            println!("    'kinit' utility not found on PATH.");
+            println!("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)");
+            println!("    Unprivileged: Generate local config via 'tanuki config' and use portable client.");
+        }
     }
+    println!("========================================================================");
+}
+
+fn handle_config(
+    realm_opt: Option<String>,
+    kdc_opt: Option<String>,
+    admin_server_opt: Option<String>,
+    out_path: Option<String>,
+    stdout_mode: bool,
+    json_output: bool,
+) {
+    let realm = match realm_opt {
+        Some(r) => r,
+        None => {
+            emit_cli_error(
+                "Error: Realm required for configuration generation. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+    let kdc = match kdc_opt {
+        Some(k) => k,
+        None => {
+            emit_cli_error(
+                "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+
+    let content = match generate_krb5_conf(&realm, &kdc, admin_server_opt.as_deref()) {
+        Ok(c) => c,
+        Err(err) => {
+            emit_cli_error(
+                &format!("Error generating config: {}", err),
+                "CONFIG_ERROR",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                Some(&err),
+                json_output,
+            );
+        }
+    };
+
+    if stdout_mode && !json_output {
+        print!("{}", content);
+        return;
+    }
+
+    let target_file = out_path.unwrap_or_else(|| "./krb5.conf".to_string());
+    let abs_path = Path::new(&target_file)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&target_file));
+    let abs_str = abs_path.to_string_lossy().to_string();
+
+    if let Err(err) = fs::write(&target_file, &content) {
+        emit_cli_error(
+            &format!("Failed to write configuration file: {}", err),
+            "WRITE_ERROR",
+            "PARSE_FAILURE",
+            EXIT_PARSE_FAILURE,
+            Some(&target_file),
+            Some(&err.to_string()),
+            json_output,
+        );
+    }
+
+    let export_cmd = format!("export KRB5_CONFIG={}", abs_str);
+    let clean_realm = realm.trim().to_uppercase();
+    let target_admin = admin_server_opt.as_deref().unwrap_or(kdc.trim());
+
+    if json_output {
+        println!(
+            "{{\n  \"status\": \"SUCCESS\",\n  \"realm\": \"{}\",\n  \"kdc\": \"{}\",\n  \"admin_server\": \"{}\",\n  \"config_path\": \"{}\",\n  \"export_command\": \"{}\",\n  \"content\": \"{}\"\n}}",
+            clean_realm,
+            kdc.trim(),
+            target_admin,
+            abs_str.replace('\\', "\\\\").replace('"', "\\\""),
+            export_cmd.replace('\\', "\\\\").replace('"', "\\\""),
+            tanuki::escape_json(&content)
+        );
+        return;
+    }
+
+    println!("========================================================================");
+    println!(" TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR");
+    println!("========================================================================");
+    println!("[+] Output File    : {}", abs_str);
+    println!("[+] Target Realm   : {} (RFC 4120 uppercase convention)", clean_realm);
+    println!("[+] Target KDC     : {} (zero-DNS direct routing)", kdc.trim());
+    println!("[+] Admin Server   : {}", target_admin);
+    println!("\n[+] To activate in your current session (unprivileged / no root required):");
+    println!("    $ {}", export_cmd);
+    println!("    $ kinit -k -t <keytab> <principal>");
     println!("========================================================================");
 }
 
