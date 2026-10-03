@@ -23,19 +23,22 @@ from .nhi import (
 from .protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
 from .telemetry import format_telemetry_inline, format_telemetry_terminal
 
-USAGE_TEXT = """Tanuki CLI - Linux Active Directory Triage Engine
-
-USAGE:
+def _build_usage_text() -> str:
+    header_lines = render_card_header(
+        f"Tanuki CLI · Tactical Identity Operator (v{__version__})",
+        "Autonomous Non-Human Identity (NHI) & Hybrid Active Directory Engine",
+    )
+    return "\n".join(header_lines) + "\n\n" + """USAGE:
     tanuki <COMMAND> [OPTIONS]
     tanuki <KEYTAB_PATH> [--json]
 
 COMMANDS:
+    doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks (<5ms)
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
+    config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
-    doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks
-    config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
     skill [OPTIONS]     Display AI agent skill manifest and operational contract
@@ -57,6 +60,8 @@ OPTIONS:
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"""
+
+USAGE_TEXT = _build_usage_text()
 
 
 EXIT_SUCCESS = 0

@@ -28,7 +28,8 @@ def render_card_header(title: str, subtitle: Optional[str] = None, width: int = 
     h_bar, v_bar = ("─", "│") if use_uni else ("-", "|")
     dot = "·" if use_uni else "-"
 
-    t_str = f" {title} "
+    clean_title = title.replace("·", dot)
+    t_str = f" {clean_title} "
     rem = max(2, width - len(t_str) - 3)
     res = [f"{tl}{h_bar}{h_bar}{t_str}{h_bar * rem}{tr}"]
     if subtitle:

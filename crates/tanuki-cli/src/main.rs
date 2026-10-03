@@ -9,21 +9,36 @@ use tanuki::{
     DECISION_LADDER, ERROR_DICTIONARY,
 };
 
-fn print_usage() {
-    println!(
-        r#"Tanuki CLI - Linux Active Directory Triage Engine
+fn print_card_header(title: &str, subtitle: Option<&str>, width: usize) {
+    let t_str = format!(" {} ", title);
+    let rem = if width > t_str.len() + 3 { width - t_str.len() - 3 } else { 2 };
+    println!("+--{}{}+", t_str, "-".repeat(rem));
+    if let Some(sub) = subtitle {
+        let pad = if width > sub.len() + 4 { width - sub.len() - 4 } else { 0 };
+        println!("| {}{} |", sub, " ".repeat(pad));
+    }
+    println!("+{}+", "-".repeat(width - 2));
+}
 
+fn print_usage() {
+    print_card_header(
+        &format!("Tanuki CLI | Tactical Identity Operator (v{})", env!("CARGO_PKG_VERSION")),
+        Some("Autonomous Non-Human Identity (NHI) & Hybrid Active Directory Engine"),
+        72,
+    );
+    println!(
+        r#"
 USAGE:
     tanuki <COMMAND> [OPTIONS]
     tanuki <KEYTAB_PATH> [--json]
 
 COMMANDS:
+    doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks (<5ms)
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
+    config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
-    doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks
-    config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
     skill [OPTIONS]     Display AI agent skill manifest and operational contract
@@ -53,17 +68,6 @@ const EXIT_USAGE_ERROR: i32 = 1;
 const EXIT_POLICY_STOP: i32 = 2;
 const EXIT_RESOURCE_MISSING: i32 = 3;
 const EXIT_PARSE_FAILURE: i32 = 4;
-
-fn print_card_header(title: &str, subtitle: Option<&str>, width: usize) {
-    let t_str = format!(" {} ", title);
-    let rem = if width > t_str.len() + 3 { width - t_str.len() - 3 } else { 2 };
-    println!("+--{}{}+", t_str, "-".repeat(rem));
-    if let Some(sub) = subtitle {
-        let pad = if width > sub.len() + 4 { width - sub.len() - 4 } else { 0 };
-        println!("| {}{} |", sub, " ".repeat(pad));
-    }
-    println!("+{}+", "-".repeat(width - 2));
-}
 
 fn emit_cli_error(
     message: &str,
