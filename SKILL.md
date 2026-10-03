@@ -61,7 +61,11 @@ Before proposing or executing any identity or directory operation, you MUST walk
 
 ### Phase 1: Local Credential Triage & Pre-flight Diagnostics
 When presented with a Linux environment:
-1. Run `tanuki doctor` (or `tanuki doctor --json`) to verify keytab permissions (`0600` vs world-readable), `/etc/krb5.conf` realm uppercase consistency, SSSD socket status, and active ticket cache lifetimes.
+1. Run `tanuki doctor` (or `tanuki doctor --json`) for sub-5ms, zero-network pre-flight diagnostics:
+   - Keytab permissions & magic: Flags insecure world-readable permissions (`0644`/`0666` vs secure `0600`) and validates RFC 4120 header magic (`0x0502`) on `/etc/krb5.keytab`.
+   - Realm capitalization: Flags lowercase realm declarations in `/etc/krb5.conf` (`[libdefaults]` and `[realms]`).
+   - SSSD subsystem status: Validates `/var/lib/sss/pipes/kcm` socket responsiveness and `/var/run/sssd.pid` daemon state.
+   - Active ticket lifetimes: Computes remaining lifetime across MIT CCACHE v4 streams (`0x0504`) and Linux Kernel Keyring (`KEYRING:persistent:` / `/proc/keys`).
 2. Parse the host keytab using either the unified CLI (`tanuki keytab /etc/krb5.keytab`) or the standalone script (`python3 scripts/keytab_inspector.py /etc/krb5.keytab`) to identify principal names and encryption keys.
 3. Scan for unencrypted SSSD KCM ticket blobs in `/var/lib/sss/secrets/secrets.ldb` using `tanuki kcm` or `python3 scripts/kcm_parser.py`.
 4. If valid tickets exist, set:
@@ -71,12 +75,22 @@ When presented with a Linux environment:
 
 ### Phase 2: Surgical Directory Traversal & Dual-Use Telemetry
 1. Consult `references/adcs_matrix.md` for certificate template assessment parameters via Certipy.
-2. Consult `references/error_triage.md` immediately whenever Kerberos error codes (such as `KRB_AP_ERR_SKEW` or `KDC_ERR_ETYPE_NOSUPP`) appear, or run `tanuki triage <CODE>`. Every triage output includes corresponding Auditd watch rules, Windows Security Event IDs, and Sigma signatures.
+2. Consult `references/error_triage.md` immediately whenever Kerberos error codes appear, or run `tanuki triage <CODE>`. Every triage lookup couples tactical remediation with defender telemetry:
+   - Auditd watch rules: Monitored system paths and keytab access rules (such as `-w /etc/krb5.keytab -p r -k keytab_read` and `-w /etc/localtime -p wa`).
+   - Windows Event IDs: Maps all 10 Kerberos errors to Domain Controller Security Event IDs (4768 TGT Request, 4769 TGS Request, 4771 Pre-Authentication Failed, 4624/4625 Logon).
+   - Sigma rules & Falco signatures: Community detection rules and syscall signatures (such as `proc_creation_win_susp_kerberos_ticket_request` and `read_sensitive_file_untrusted`).
+   - Output display: Emits `[BLUE TELEMETRY]` alongside `[TACTICAL CMD]` in terminal, and full `telemetry` JSON blocks with `--json`.
 
 ### Phase 3: Non-Human Identity (NHI) & Workload Token Exchange
 1. When operating on Kubernetes, AWS IAM Roles Anywhere, or SPIFFE environments, validate workload tokens using:
    ```bash
    tanuki token /var/run/secrets/kubernetes.io/serviceaccount/token
    ```
-2. Verify RFC 8693 token exchange requests and detect over-scoped audience (`aud: "*"`) or broad subjects via `tanuki nhi exchange --subject-token <JWT>`.
-3. Consult `references/nhi_mesh.md` for workload federation pathways.
+2. Inspect workload claims and enforce security policies without network calls using standard library base64 and JSON:
+   - Flags dangerous wildcard audience scopes (`aud: "*"` or wildcard array elements).
+   - Flags overly broad subject patterns (`system:serviceaccount:*:*`, `arn:aws:iam::*:role/*`, `spiffe://*`).
+3. Validate RFC 8693 OAuth 2.0 Token Exchange parameters:
+   ```bash
+   tanuki nhi exchange --subject-token <JWT> --audience https://sts.corp.local
+   ```
+4. Consult `references/nhi_mesh.md` for workload federation pathways.

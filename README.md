@@ -126,12 +126,21 @@ cargo build --release --manifest-path crates/tanuki-cli/Cargo.toml
 
 Run proactive pre-flight health diagnostics (<5ms, zero network packets):
 
+`tanuki doctor` runs deterministic, zero-network pre-flight diagnostics across local Active Directory components in under 5 milliseconds:
+- Keytab permissions and format: Audits `/etc/krb5.keytab` permissions (flags world-readable `0644`/`0666` permissions vs secure `0600`) and validates RFC 4120 binary header magic (`0x0502`).
+- Realm capitalization: Audits `/etc/krb5.conf` for lowercase realm declarations across `[libdefaults]` and `[realms]`.
+- SSSD daemon and socket status: Validates `/var/lib/sss/pipes/kcm` socket presence and `/var/run/sssd.pid` daemon state.
+- Ticket cache lifetimes: Evaluates remaining ticket validity across MIT CCACHE v4 streams (`0x0504`) and Linux Kernel Keyring (`KEYRING:persistent:` / `/proc/keys`).
+
 ```bash
 # Terminal checklist output
 tanuki doctor
 
-# Structured JSON export for agent pipelines
+# Structured JSON export for automated agent ingestion
 tanuki doctor --json
+
+# Custom target paths
+tanuki doctor --keytab /custom/krb5.keytab --krb5-conf /custom/krb5.conf
 ```
 
 Inspect binary keytabs (RFC 4120):
@@ -156,22 +165,42 @@ tanuki kcm -f /var/lib/sss/secrets/secrets.ldb -o ./extracted_ccache
 
 Query the Kerberos error triage dictionary with dual-use SOC detection telemetry:
 
+Tanuki couples every tactical remediation (Rung 5) and all 10 Kerberos error codes with defender detection telemetry:
+- Auditd watch rules: Exact audit rules for monitored paths (such as `-w /etc/krb5.keytab -p r -k keytab_read` and `-w /etc/localtime -p wa`).
+- Domain Controller Security Event IDs: Windows Event IDs (4768 TGT Request, 4769 TGS Request, 4771 Pre-Authentication Failed, 4624/4625 Logon).
+- Sigma rules: Detection rule identifiers (such as `proc_creation_win_susp_kerberos_ticket_request`).
+- Falco signatures: Syscall monitoring signatures (such as `read_sensitive_file_untrusted`).
+- Terminal display: Emits `[BLUE TELEMETRY]` alongside `[TACTICAL CMD]`.
+- Structured JSON: Full `telemetry` schema blocks in `tanuki triage <ERROR> --json` and `tanuki ladder --json`.
+
 ```bash
-# Lookup resolution with [TACTICAL CMD] and [BLUE TELEMETRY] (Auditd / Event ID / Sigma)
+# Lookup resolution with [TACTICAL CMD] and [BLUE TELEMETRY]
 tanuki triage KRB_AP_ERR_SKEW
 
-# Lookup by Active Directory Event ID
-tanuki triage 14
+# Lookup by Active Directory Event ID with structured JSON export
+tanuki triage 14 --json
 ```
 
 Validate Non-Human Identity (NHI) workload tokens (RFC 8693):
+
+Tanuki validates modern cloud and workload identity tokens undergoing RFC 8693 OAuth 2.0 Token Exchange to Kerberos tickets:
+- Zero external runtime dependencies: Parses and validates JWT claims (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`) using standard library base64 and JSON without network calls.
+- Supported identity classes: Evaluates Kubernetes ServiceAccount tokens, AWS IAM Roles Anywhere credentials, SPIFFE SVIDs, and GitHub Actions OIDC tokens.
+- Security policy auditing: Detects dangerous wildcard audience scopes (`aud: "*"` or wildcard array elements) and overly broad subject patterns (`system:serviceaccount:*:*`, `arn:aws:iam::*:role/*`, `spiffe://*`).
+- Token exchange parameter validation: Verifies RFC 8693 parameters (`grant_type`, `subject_token`, `subject_token_type`, `requested_token_type`, `audience`).
 
 ```bash
 # Validate Kubernetes ServiceAccount or cloud workload JWT
 tanuki token /var/run/secrets/kubernetes.io/serviceaccount/token
 
-# Verify token exchange request and flag wildcard audience scopes
-tanuki nhi exchange --subject-token <JWT>
+# Validate with audience check and JSON export
+tanuki token <JWT> --audience https://sts.corp.local --json
+
+# Inspect workload token claims and detect broad subject patterns
+tanuki nhi inspect <JWT>
+
+# Validate RFC 8693 token exchange request parameters
+tanuki nhi exchange --subject-token <JWT> --audience https://sts.corp.local
 ```
 
 ### 2. Python Fallback Scripts (`scripts/`)

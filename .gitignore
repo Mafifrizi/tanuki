@@ -26,6 +26,9 @@ extracted_tickets/
 *.swp
 *~
 .agents/
+scratch/
+*.scratch
+.scratch/
 
 
 # OS artifacts

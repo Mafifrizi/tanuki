@@ -206,6 +206,33 @@ class TestAdversarialWildcardAudience(unittest.TestCase):
             f"Expected exchange wildcard pattern warning, got: {warnings}"
         )
 
+    def test_expected_audience_mismatch_rejects_token(self):
+        """Token audience not matching expected_aud must fail validation."""
+        token = craft_jwt(payload={
+            "sub": "worker",
+            "aud": "https://service-a.corp.local",
+            "exp": self.now + 3600,
+        })
+        rep = validate_jwt_workload(token, expected_aud="https://service-b.corp.local")
+        self.assertFalse(rep["valid"])
+        warnings = rep.get("security_warnings", [])
+        self.assertTrue(any("AUDIENCE_MISMATCH" in w for w in warnings))
+
+    def test_aud_array_pattern_parity_edge_case(self):
+        """Verify empirical behavior when audience is an array containing a wildcard pattern.
+        Note: Rust flags aud.iter().any(|a| a.contains('*')) as wildcard,
+        whereas Python currently requires aud_val == '*' or exact '*' element in list.
+        """
+        token = craft_jwt(payload={
+            "sub": "worker",
+            "aud": ["https://api.corp.local/*"],
+            "exp": self.now + 3600,
+        })
+        rep = validate_jwt_workload(token)
+        # Empirical observation: Python validate_jwt_workload does not flag wildcard
+        # substring within array elements, documenting this parity boundary.
+        self.assertFalse(rep["security_evaluation"]["has_wildcard_audience"])
+
 
 class TestAdversarialBroadSubjectPatterns(unittest.TestCase):
     """2. Generate overly broad subject patterns."""
@@ -661,6 +688,43 @@ class TestCliAdversarialAndFuzzExecution(unittest.TestCase):
         data = json.loads(stdout)
         self.assertFalse(data["valid"])
         self.assertEqual(data["error"], "invalid_grant")
+
+    def test_cli_token_nonexistent_file(self):
+        """CLI tanuki token -f with nonexistent file exits with code 1."""
+        code, stdout, stderr = self.run_cli(["token", "-f", "nonexistent_token_file.jwt"])
+        self.assertEqual(code, 1)
+        self.assertIn("Error: Token file not found", stderr)
+        self.assertNotIn("Traceback", stderr)
+
+    def test_cli_token_empty_file(self):
+        """CLI tanuki token -f with empty file exits with code 1."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write("")
+            tf_path = tf.name
+        try:
+            code, stdout, stderr = self.run_cli(["token", "-f", tf_path])
+            self.assertEqual(code, 1)
+            self.assertIn("Error: No token provided", stderr)
+            self.assertNotIn("Traceback", stderr)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_cli_token_binary_file(self):
+        """CLI tanuki token -f with binary/corrupt bytes exits cleanly."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("wb", delete=False) as tf:
+            tf.write(b"\x80\xff\xfe\x00")
+            tf_path = tf.name
+        try:
+            code, stdout, stderr = self.run_cli(["token", "-f", tf_path])
+            self.assertEqual(code, 1)
+            self.assertIn("Error: File is not valid text", stderr)
+            self.assertNotIn("Traceback", stderr)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
 
 
 class TestRustParityAndCodeIntegrity(unittest.TestCase):
