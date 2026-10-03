@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/standards-RFC_4120-orange.svg" alt="RFC 4120">
-  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
+  <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0">
 </p>
 
 <p align="center">
@@ -361,7 +361,9 @@ tanuki/
 ├── AGENTS.md                  # Multi-agent prompt file
 ├── CLAUDE.md                  # Claude Code project guide
 ├── .cursor/rules/tanuki.mdc   # Cursor rule definition
-├── LICENSE                    # MIT License
+├── LICENSE                    # Dual license declaration
+├── LICENSE-APACHE             # Apache License 2.0
+├── LICENSE-MIT                # MIT License
 └── README.md
 ```
 
@@ -390,4 +392,9 @@ Tanuki draws inspiration and tradecraft from two projects:
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Tanuki is dual-licensed under either:
+
+- **MIT License** ([`LICENSE-MIT`](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- **Apache License, Version 2.0** ([`LICENSE-APACHE`](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+
+You may choose to use this project under the terms of either license.

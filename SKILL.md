@@ -3,7 +3,7 @@ name: tanuki
 version: 1.2.0
 description: Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.
 author: Tanuki Open Source Initiative
-license: MIT
+license: "MIT OR Apache-2.0"
 lineage:
   pioneer_unix_tradecraft: "Tim Brown (@timb-machine), creator of Linikatz"
   pioneer_agentic_ladder: "Dietrich Gebert (@dietrichayala), creator of Ponytail"
