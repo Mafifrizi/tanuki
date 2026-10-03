@@ -35,7 +35,14 @@ def b64url_decode(segment: str) -> bytes:
 
 def decode_jwt_segment(segment: str) -> Dict[str, Any]:
     raw_bytes = b64url_decode(segment)
-    parsed = json.loads(raw_bytes.decode("utf-8"))
+    try:
+        decoded_str = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Invalid UTF-8 encoding in JWT segment: {exc}") from exc
+    try:
+        parsed = json.loads(decoded_str)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in JWT segment: {exc}") from exc
     if not isinstance(parsed, dict):
         raise ValueError("Decoded JWT segment must be a JSON object")
     return parsed
