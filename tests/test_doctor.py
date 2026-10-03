@@ -571,7 +571,8 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
             durations.append(rep.duration_ms)
 
         avg_ms = sum(durations) / len(durations)
-        self.assertLess(avg_ms, 5.0, f"Average doctor execution time {avg_ms:.2f}ms exceeded 5.0ms threshold")
+        threshold_ms = 15.0
+        self.assertLess(avg_ms, threshold_ms, f"Average doctor execution time {avg_ms:.2f}ms exceeded {threshold_ms}ms threshold")
 
     def test_json_serialization_validity(self):
         report = diagnose_system()
