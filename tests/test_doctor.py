@@ -183,6 +183,8 @@ class TestDoctorKeytabCheck(unittest.TestCase):
         ])
         with open(weak_kt, "wb") as f:
             f.write(data)
+        if os.name != "nt":
+            os.chmod(weak_kt, 0o600)
 
         res = check_keytab(weak_kt)
         self.assertTrue(res["has_weak_enctypes"])
@@ -552,6 +554,8 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
         kt_path = os.path.join(self.temp_dir.name, "krb5.keytab")
         with open(kt_path, "wb") as f:
             f.write(make_keytab_bytes([{"realm": "CORP.LOCAL", "comps": ["host"], "keytype": 18}]))
+        if os.name != "nt":
+            os.chmod(kt_path, 0o600)
 
         conf_path = os.path.join(self.temp_dir.name, "krb5.conf")
         with open(conf_path, "w", encoding="utf-8") as f:
