@@ -160,7 +160,7 @@ Couples tactical remediation commands with Blue Team detection telemetry (Auditd
 Visualizes the complete OPSEC hierarchy in a pristine, zero-noise terminal interface:
 
 <p align="center">
-  <img src="assets/naga_ladder_run.png" alt="5-Rung Tactical Decision Ladder" width="850">
+  <img src="assets/lab-validation-ladder.png" alt="5-Rung Tactical Decision Ladder" width="850">
 </p>
 
 ### 9. AI Agent Skill Manifest (`tanuki skill`)
@@ -485,9 +485,9 @@ tanuki/
 │   ├── lab-validation-doctor-env.png
 │   ├── lab-validation-keytab.png
 │   ├── lab-validation-keytab-json.png
+│   ├── lab-validation-ladder.png
 │   ├── lab-validation-skill.png
-│   ├── lab-validation-triage.png
-│   └── naga_ladder_run.png
+│   └── lab-validation-triage.png
 ├── scripts/
 │   ├── keytab_inspector.py    # Python Living-off-the-Land keytab parser
 │   └── kcm_parser.py          # Python SSSD KCM credential cache parser
