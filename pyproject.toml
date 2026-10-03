@@ -10,7 +10,8 @@ readme = "README.md"
 authors = [
     { name = "Mafifrizi", email = "hazama3321@gmail.com" }
 ]
-license = { text = "MIT" }
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE*", "LICENSE-MIT", "LICENSE-APACHE"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
