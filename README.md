@@ -370,7 +370,14 @@ tanuki/
 │   └── protocol.py            # Error dictionary & decision ladder
 ├── assets/
 │   ├── logo.png               # Project logo (transparent background, light mode)
-│   └── logo-dark.png          # Project logo (transparent background, dark mode)
+│   ├── logo-dark.png          # Project logo (transparent background, dark mode)
+│   ├── social-preview.png     # Social preview banner
+│   ├── dc01-ktpass-export-real.png # Windows Server ktpass keytab export proof
+│   ├── lab-validation-keytab.png   # Kali Linux keytab inspection proof
+│   ├── lab-validation-keytab-json.png # Machine-readable keytab JSON contract
+│   ├── lab-validation-doctor-both-pass.png # Pre-flight diagnostic check passing
+│   ├── lab-validation-triage.png   # Protocol error triage with blue telemetry
+│   └── naga_ladder_run.png    # 5-Rung tactical decision ladder execution
 ├── scripts/
 │   ├── keytab_inspector.py    # Python Living-off-the-Land keytab parser
 │   └── kcm_parser.py          # Python SSSD KCM credential cache parser
@@ -400,6 +407,37 @@ tanuki/
 ```
 
 </details>
+
+---
+
+## Empirical Lab Validation (Active Directory & Kali Linux)
+
+Tanuki has been empirically validated in a live heterogeneous laboratory environment consisting of Windows Server 2022 (`DC01.lab.local`, Active Directory Domain Controller) and Kali Linux 2024 (`kraii@kraiiandreyy`, Linux 6.18):
+
+### 1. Active Directory Keytab Export (`ktpass`)
+Windows Server Domain Controller exporting an RFC 4120 Kerberos keytab for account `LAB\tanuki-nhi` with AES-256 (`aes256-cts-hmac-sha1-96`):
+
+![Windows Server ktpass Export](assets/dc01-ktpass-export-real.png)
+
+### 2. Live Keytab Ingestion & Parsing
+Zero-dependency keytab triage on Kali Linux extracting principal components, encryption types, and recommended non-interactive ticket acquisition:
+
+![Kali Linux Keytab Triage](assets/lab-validation-keytab.png)
+
+### 3. Pre-Flight Diagnostic Health Check (`tanuki doctor`)
+Deterministic pre-flight validation running in **6.85 ms** with **0 network packets emitted**, accurately enforcing secure file permissions (`0600`) and verifying Kerberos configuration:
+
+![Pre-Flight Doctor Health Check](assets/lab-validation-doctor-both-pass.png)
+
+### 4. Protocol Triage with Blue Telemetry Coupling
+Resolving `KDC_ERR_PREAUTH_FAILED` with Event ID 24, tactical remediation command, and Blue Team detection telemetry (Auditd rules, Windows Event IDs 4771/4768, Sigma, and Falco signatures):
+
+![Protocol Triage Telemetry](assets/lab-validation-triage.png)
+
+### 5. 5-Rung Tactical Decision Ladder
+Executing `tanuki ladder` inside the operator environment:
+
+![Tactical Decision Ladder](assets/naga_ladder_run.png)
 
 ---
 
