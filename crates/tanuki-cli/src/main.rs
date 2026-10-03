@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
     candidates_to_json, entries_to_json, errors_to_json, find_error_resolution, ladder_to_json,
-    parse_keytab_bytes, save_candidates, scan_for_ccache_blobs, DECISION_LADDER, ERROR_DICTIONARY,
+    parse_and_validate_jwt, parse_keytab_bytes, run_doctor, save_candidates, scan_for_ccache_blobs,
+    validate_token_exchange, DoctorOptions, TokenExchangeParams, DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 fn print_usage() {
@@ -20,10 +21,20 @@ COMMANDS:
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
+    doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks
+    token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
+    nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
 
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
     -o, --out <DIR>     Output directory for extracted caches (default: ./extracted_ccache)
+    -a, --audience <AUD> Expected audience for workload validation
+    -i, --issuer <ISS>   Expected issuer for workload validation
+    --keytab <PATH>     Target keytab path for doctor
+    --krb5-conf <PATH>  Target krb5.conf path for doctor
+    --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
+    --sssd-pid <PATH>   Target SSSD pid path for doctor
+    --ccache <PATH>     Target ccache path for doctor
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"#
@@ -42,6 +53,17 @@ fn main() {
     let mut positional_args: Vec<String> = Vec::new();
     let mut file_opt: Option<String> = None;
     let mut out_opt: Option<String> = None;
+    let mut keytab_opt: Option<String> = None;
+    let mut krb5_conf_opt: Option<String> = None;
+    let mut sssd_pipe_opt: Option<String> = None;
+    let mut sssd_pid_opt: Option<String> = None;
+    let mut ccache_opt: Option<String> = None;
+    let mut audience_opt: Option<String> = None;
+    let mut issuer_opt: Option<String> = None;
+    let mut grant_type_opt: Option<String> = None;
+    let mut subject_token_opt: Option<String> = None;
+    let mut subject_token_type_opt: Option<String> = None;
+    let mut requested_token_type_opt: Option<String> = None;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -69,8 +91,74 @@ fn main() {
                     i += 1;
                 }
             }
+            "-a" | "--audience" => {
+                if i + 1 < raw_args.len() {
+                    audience_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "-i" | "--issuer" => {
+                if i + 1 < raw_args.len() {
+                    issuer_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--grant-type" => {
+                if i + 1 < raw_args.len() {
+                    grant_type_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--subject-token" => {
+                if i + 1 < raw_args.len() {
+                    subject_token_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--subject-token-type" => {
+                if i + 1 < raw_args.len() {
+                    subject_token_type_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--requested-token-type" => {
+                if i + 1 < raw_args.len() {
+                    requested_token_type_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--keytab" => {
+                if i + 1 < raw_args.len() {
+                    keytab_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--krb5-conf" => {
+                if i + 1 < raw_args.len() {
+                    krb5_conf_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--sssd-pipe" => {
+                if i + 1 < raw_args.len() {
+                    sssd_pipe_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--sssd-pid" => {
+                if i + 1 < raw_args.len() {
+                    sssd_pid_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--ccache" => {
+                if i + 1 < raw_args.len() {
+                    ccache_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
             cmd if explicit_command.is_none()
-                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder") =>
+                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi") =>
             {
                 explicit_command = Some(cmd.to_string());
             }
@@ -110,6 +198,41 @@ fn main() {
         }
         "ladder" => {
             handle_ladder(global_json);
+        }
+        "doctor" => {
+            let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
+            handle_doctor(
+                global_json,
+                target_kt,
+                krb5_conf_opt,
+                sssd_pipe_opt,
+                sssd_pid_opt,
+                ccache_opt,
+            );
+        }
+        "token" => {
+            let token_target = positional_args.first().cloned();
+            handle_token(token_target, file_opt, audience_opt, issuer_opt, global_json);
+        }
+        "nhi" => {
+            let subcmd = positional_args.first().map(|s| s.as_str()).unwrap_or("inspect");
+            let remaining = if positional_args.len() > 1 {
+                &positional_args[1..]
+            } else {
+                &[]
+            };
+            handle_nhi(
+                subcmd,
+                remaining,
+                file_opt,
+                audience_opt,
+                issuer_opt,
+                grant_type_opt,
+                subject_token_opt,
+                subject_token_type_opt,
+                requested_token_type_opt,
+                global_json,
+            );
         }
         "help" => {
             print_usage();
@@ -286,6 +409,11 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     }
                     println!("Root Cause: {}", res.root_cause);
                     println!("Resolution:\n{}", res.resolution);
+                    println!();
+                    println!("[TACTICAL CMD]");
+                    println!("    $ {}", res.tactical_cmd);
+                    println!();
+                    println!("{}", res.telemetry.format_terminal());
                 }
             }
             None => {
@@ -314,6 +442,8 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     println!("\nError Code: {}{}", item.code, event);
                     println!("Root Cause: {}", item.root_cause);
                     println!("Tactical Resolution:\n{}", item.resolution);
+                    println!("[TACTICAL CMD]:\n    $ {}", item.tactical_cmd);
+                    println!("[BLUE TELEMETRY]:\n    {}", item.telemetry.format_inline());
                 }
                 println!("========================================================================");
             }
@@ -332,9 +462,176 @@ fn handle_ladder(json_output: bool) {
     println!("========================================================================");
     for rung in DECISION_LADDER {
         println!("[*] {}", rung.title);
-        println!("    {}\n", rung.description);
+        println!("    {}", rung.description);
+        println!("    [BLUE TELEMETRY] {}\n", rung.telemetry.format_inline());
     }
     println!("Command Output Standard:");
-    println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
+    println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
     println!("========================================================================");
+}
+
+fn handle_doctor(
+    json_output: bool,
+    keytab_path: Option<String>,
+    krb5_conf: Option<String>,
+    sssd_pipe: Option<String>,
+    sssd_pid: Option<String>,
+    ccache_path: Option<String>,
+) {
+    let opts = DoctorOptions {
+        keytab_path: keytab_path.or_else(|| Some("/etc/krb5.keytab".to_string())),
+        krb5_conf_path: krb5_conf.or_else(|| Some("/etc/krb5.conf".to_string())),
+        sssd_pipe: sssd_pipe.or_else(|| Some("/var/lib/sss/pipes/kcm".to_string())),
+        sssd_pid: sssd_pid.or_else(|| Some("/var/run/sssd.pid".to_string())),
+        ccache_path,
+    };
+
+    let report = run_doctor(&opts);
+    if json_output {
+        println!("{}", report.to_json());
+    } else {
+        println!("{}", report.format_checklist());
+    }
+
+    if report.status == "FAIL" {
+        process::exit(1);
+    }
+}
+
+fn handle_token(
+    token_arg: Option<String>,
+    file_path: Option<String>,
+    audience: Option<String>,
+    _issuer: Option<String>,
+    json_output: bool,
+) {
+    let raw_token = if let Some(path) = file_path {
+        match fs::read_to_string(&path) {
+            Ok(s) => s.trim().to_string(),
+            Err(e) => {
+                eprintln!("Error reading token file at '{}': {}", path, e);
+                process::exit(1);
+            }
+        }
+    } else if let Some(arg) = token_arg {
+        if arg.is_empty() {
+            eprintln!("Error: Token string cannot be empty");
+            process::exit(1);
+        }
+        if Path::new(&arg).is_file() {
+            fs::read_to_string(&arg)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|_| arg)
+        } else {
+            arg
+        }
+    } else {
+        use std::io::Read;
+        let mut buf = String::new();
+        if std::io::stdin().read_to_string(&mut buf).is_ok() && !buf.trim().is_empty() {
+            buf.trim().to_string()
+        } else {
+            eprintln!("Error: No token provided. Pass as argument, -f/--file, or via stdin.");
+            process::exit(1);
+        }
+    };
+
+    if raw_token.is_empty() {
+        eprintln!("Error: Token string cannot be empty");
+        process::exit(1);
+    }
+
+    match parse_and_validate_jwt(&raw_token, audience.as_deref()) {
+        Ok(report) => {
+            if json_output {
+                println!("{}", report.to_json());
+            } else {
+                println!("{}", report.format_terminal());
+            }
+        }
+        Err(e) => {
+            eprintln!("Error parsing token: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+fn handle_nhi(
+    subcmd: &str,
+    positional_args: &[String],
+    file_path: Option<String>,
+    audience: Option<String>,
+    issuer: Option<String>,
+    grant_type: Option<String>,
+    subject_token: Option<String>,
+    subject_token_type: Option<String>,
+    requested_token_type: Option<String>,
+    json_output: bool,
+) {
+    match subcmd {
+        "inspect" => {
+            let token_arg = positional_args.first().cloned();
+            handle_token(token_arg, file_path, audience, issuer, json_output);
+        }
+        "exchange" => {
+            let sub_tok = if let Some(st) = subject_token {
+                Some(st)
+            } else if let Some(fp) = &file_path {
+                fs::read_to_string(fp).ok().map(|s| s.trim().to_string())
+            } else {
+                positional_args.first().cloned()
+            };
+
+            let params = TokenExchangeParams {
+                grant_type,
+                subject_token: sub_tok,
+                subject_token_type,
+                requested_token_type,
+                audience,
+                resource: None,
+                scope: None,
+            };
+
+            let report = validate_token_exchange(&params);
+            if json_output {
+                println!("{}", report.to_json());
+            } else {
+                println!("{}", report.format_terminal());
+            }
+            if !report.valid {
+                process::exit(1);
+            }
+        }
+        "scan" => {
+            let known_paths = [
+                "/var/run/secrets/kubernetes.io/serviceaccount/token",
+                "/run/secrets/kubernetes.io/serviceaccount/token",
+            ];
+            let mut found = Vec::new();
+            for p in &known_paths {
+                if Path::new(p).is_file() {
+                    found.push(p.to_string());
+                }
+            }
+            if json_output {
+                let items: Vec<String> = found.iter().map(|p| format!("\"{}\"", p)).collect();
+                println!("{{\n  \"discovered_tokens\": [{}]\n}}", items.join(", "));
+            } else {
+                println!("========================================================================");
+                println!(" TANUKI NHI PASSIVE TOKEN SCANNER");
+                println!("========================================================================");
+                if found.is_empty() {
+                    println!("No standard workload tokens discovered on local filesystem.");
+                } else {
+                    for p in &found {
+                        println!("[FOUND] {}", p);
+                    }
+                }
+                println!("========================================================================");
+            }
+        }
+        other => {
+            handle_token(Some(other.to_string()), file_path, audience, issuer, json_output);
+        }
+    }
 }
