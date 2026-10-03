@@ -81,6 +81,8 @@ class TestTier1DoctorFeatures(unittest.TestCase):
         kt_path = os.path.join(self.dir_path, "krb5.keytab")
         with open(kt_path, "wb") as f:
             f.write(build_synthetic_keytab())
+        if os.name != "nt":
+            os.chmod(kt_path, 0o600)
         conf_path = os.path.join(self.dir_path, "krb5.conf")
         with open(conf_path, "w", encoding="utf-8") as f:
             f.write(build_synthetic_krb5_conf(default_realm="CORP.LOCAL"))
