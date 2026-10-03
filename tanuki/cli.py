@@ -6,6 +6,7 @@ import sys
 from typing import List, Optional
 
 from . import __version__
+from .config import generate_krb5_conf
 from .doctor import diagnose_system
 from .kcm import (
     save_recovered_ticket,
@@ -34,14 +35,19 @@ COMMANDS:
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
     doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks
+    config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
 
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
-    -o, --out <DIR>     Output directory for extracted caches (default: ./extracted_ccache)
+    -o, --out <PATH>    Output directory for extracted caches or target config path
     -a, --audience <AUD> Expected audience for workload validation
     -i, --issuer <ISS>   Expected issuer for workload validation
+    --realm <REALM>     Target Kerberos realm (mandates uppercase)
+    --kdc <HOST_OR_IP>  KDC address or hostname (zero-DNS routing)
+    --admin-server <HOST_OR_IP> Optional admin server for config
+    --stdout            Print generated config directly to stdout
     --keytab <PATH>     Target keytab path for doctor
     --krb5-conf <PATH>  Target krb5.conf path for doctor
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
@@ -154,9 +160,18 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
     aes_entries = [e for e in entries if e["keytype"] in (17, 18, 19, 20)]
     if aes_entries:
         sample = aes_entries[0]
+        env_krb5_conf = os.environ.get("KRB5_CONFIG")
+        prefix = f"KRB5_CONFIG={env_krb5_conf} " if env_krb5_conf else ""
         print("\n[+] Recommended Non-Interactive TGT Acquisition (Modern AES):")
-        print(f"    $ kinit -k -t {file_path} {sample['principal']}")
+        print(f"    $ {prefix}kinit -k -t {file_path} {sample['principal']}")
         print("    $ export KRB5CCNAME=/tmp/krb5cc_$(id -u)")
+
+        import shutil
+        if not shutil.which("kinit"):
+            print("\n[!] Host Tooling Advisory:")
+            print("    'kinit' utility not found on PATH.")
+            print("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)")
+            print("    Unprivileged: Generate local config via 'tanuki config' and use portable client.")
     print("=" * 72)
 
 
@@ -320,6 +335,88 @@ def handle_doctor(
             sys.exit(EXIT_RESOURCE_MISSING)
 
         sys.exit(EXIT_POLICY_STOP)
+
+
+def handle_config(
+    realm_opt: Optional[str],
+    kdc_opt: Optional[str],
+    admin_server_opt: Optional[str],
+    out_path: Optional[str],
+    stdout_mode: bool,
+    json_output: bool,
+) -> None:
+    if not realm_opt:
+        emit_cli_error(
+            "Error: Realm required for configuration generation. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    if not kdc_opt:
+        emit_cli_error(
+            "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+
+    clean_realm = realm_opt.strip().upper()
+    target_kdc = kdc_opt.strip()
+    target_admin = admin_server_opt.strip() if admin_server_opt else target_kdc
+
+    content = generate_krb5_conf(clean_realm, target_kdc, target_admin)
+
+    if stdout_mode and not json_output:
+        sys.stdout.write(content)
+        return
+
+    target_file = out_path or "./krb5.conf"
+    abs_path = os.path.abspath(target_file)
+    try:
+        parent_dir = os.path.dirname(abs_path)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError as exc:
+        emit_cli_error(
+            f"Failed to write configuration file: {exc}",
+            reason_code="WRITE_ERROR",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=target_file,
+            details=str(exc),
+            json_output=json_output,
+        )
+
+    export_cmd = f"export KRB5_CONFIG={abs_path}"
+
+    if json_output:
+        res = {
+            "status": "SUCCESS",
+            "realm": clean_realm,
+            "kdc": target_kdc,
+            "admin_server": target_admin,
+            "config_path": abs_path,
+            "export_command": export_cmd,
+            "content": content,
+        }
+        print(json.dumps(res, indent=2))
+        return
+
+    print("=" * 72)
+    print(" TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR")
+    print("=" * 72)
+    print(f"[+] Output File    : {abs_path}")
+    print(f"[+] Target Realm   : {clean_realm} (RFC 4120 uppercase convention)")
+    print(f"[+] Target KDC     : {target_kdc} (zero-DNS direct routing)")
+    print(f"[+] Admin Server   : {target_admin}")
+    print("\n[+] To activate in your current session (unprivileged / no root required):")
+    print(f"    $ {export_cmd}")
+    print("    $ kinit -k -t <keytab> <principal>")
+    print("=" * 72)
 
 
 def handle_token(
@@ -494,6 +591,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     ccache_opt: Optional[str] = None
     audience_opt: Optional[str] = None
     issuer_opt: Optional[str] = None
+    realm_opt: Optional[str] = None
+    kdc_opt: Optional[str] = None
+    admin_server_opt: Optional[str] = None
+    stdout_opt: bool = False
     grant_type_opt: Optional[str] = None
     subject_token_opt: Optional[str] = None
     subject_token_type_opt: Optional[str] = None
@@ -526,6 +627,20 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 issuer_opt = argv[i + 1]
                 i += 1
+        elif arg == "--realm":
+            if i + 1 < len(argv):
+                realm_opt = argv[i + 1]
+                i += 1
+        elif arg == "--kdc":
+            if i + 1 < len(argv):
+                kdc_opt = argv[i + 1]
+                i += 1
+        elif arg == "--admin-server":
+            if i + 1 < len(argv):
+                admin_server_opt = argv[i + 1]
+                i += 1
+        elif arg == "--stdout":
+            stdout_opt = True
         elif arg == "--grant-type":
             if i + 1 < len(argv):
                 grant_type_opt = argv[i + 1]
@@ -562,7 +677,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 ccache_opt = argv[i + 1]
                 i += 1
-        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi"):
+        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config"):
             explicit_command = arg
         elif not arg.startswith("-"):
             positional_args.append(arg)
@@ -619,6 +734,15 @@ def main(argv: Optional[List[str]] = None) -> None:
             subject_token_type_opt,
             requested_token_type_opt,
             global_json,
+        )
+    elif command == "config":
+        handle_config(
+            realm_opt=realm_opt,
+            kdc_opt=kdc_opt,
+            admin_server_opt=admin_server_opt,
+            out_path=out_opt or file_opt,
+            stdout_mode=stdout_opt,
+            json_output=global_json,
         )
     else:
         sys.stderr.write(f"Unknown command: {command}\n")

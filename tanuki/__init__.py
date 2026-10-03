@@ -13,6 +13,8 @@ __all__ = [
     "DECISION_LADDER",
     "diagnose_system",
     "DoctorReport",
+    "check_host_tools",
+    "generate_krb5_conf",
     "format_telemetry_terminal",
     "validate_jwt_workload",
     "validate_token_exchange",
@@ -21,7 +23,8 @@ __all__ = [
 from .keytab import parse_keytab_bytes, parse_keytab_stream, parse_keytab_file
 from .kcm import scan_for_ccache_blobs, try_parse_default_principal
 from .protocol import find_error_resolution, ERROR_DICTIONARY, DECISION_LADDER
-from .doctor import diagnose_system, DoctorReport
+from .doctor import diagnose_system, DoctorReport, check_host_tools
+from .config import generate_krb5_conf
 from .telemetry import format_telemetry_terminal
 from .nhi import validate_jwt_workload, validate_token_exchange
 

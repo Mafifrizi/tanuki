@@ -63,12 +63,18 @@ Before proposing or executing any identity or directory operation, you MUST walk
 When presented with a Linux environment:
 1. Run `tanuki doctor` (or `tanuki doctor --json`) for sub-5ms, zero-network pre-flight diagnostics:
    - Keytab permissions & magic: Flags insecure world-readable permissions (`0644`/`0666` vs secure `0600`) and validates RFC 4120 header magic (`0x0502`) on `/etc/krb5.keytab`.
-   - Realm capitalization: Flags lowercase realm declarations in `/etc/krb5.conf` (`[libdefaults]` and `[realms]`).
+   - Realm capitalization: Flags lowercase realm declarations in `/etc/krb5.conf` (`[libdefaults]` and `[realms]`), with automatic `KRB5_CONFIG` environment variable precedence.
    - SSSD subsystem status: Validates `/var/lib/sss/pipes/kcm` socket responsiveness and `/var/run/sssd.pid` daemon state.
    - Active ticket lifetimes: Computes remaining lifetime across MIT CCACHE v4 streams (`0x0504`) and Linux Kernel Keyring (`KEYRING:persistent:` / `/proc/keys`).
-2. Parse the host keytab using either the unified CLI (`tanuki keytab /etc/krb5.keytab`) or the standalone script (`python3 scripts/keytab_inspector.py /etc/krb5.keytab`) to identify principal names and encryption keys.
-3. Scan for unencrypted SSSD KCM ticket blobs in `/var/lib/sss/secrets/secrets.ldb` using `tanuki kcm` or `python3 scripts/kcm_parser.py`.
-4. If valid tickets exist, set:
+   - Host client tooling: Audits presence of `kinit`/`klist` on PATH (<0.5ms) and provides distro-specific remediation (`krb5-user` on Debian/Kali, `krb5-workstation` on RHEL).
+2. If operating as an unprivileged user without root access to `/etc/krb5.conf` or without Active Directory DNS SRV resolution:
+   ```bash
+   tanuki config --realm CORP.LOCAL --kdc 192.168.56.106 -o ./krb5.conf
+   export KRB5_CONFIG=$(pwd)/krb5.conf
+   ```
+3. Parse the host keytab using either the unified CLI (`tanuki keytab /etc/krb5.keytab`) or the standalone script (`python3 scripts/keytab_inspector.py /etc/krb5.keytab`) to identify principal names and encryption keys.
+4. Scan for unencrypted SSSD KCM ticket blobs in `/var/lib/sss/secrets/secrets.ldb` using `tanuki kcm` or `python3 scripts/kcm_parser.py`.
+5. If valid tickets exist, set:
    ```bash
    export KRB5CCNAME=/path/to/extracted.ccache
    ```

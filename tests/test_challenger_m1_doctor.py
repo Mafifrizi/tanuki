@@ -413,13 +413,14 @@ class TestDoctorJsonStrictValidation(unittest.TestCase):
         self.assertIn("checks", data)
         checks = data["checks"]
         self.assertIsInstance(checks, list)
-        self.assertEqual(len(checks), 4)
+        self.assertEqual(len(checks), 5)
 
         expected_names = [
             "keytab_permissions",
             "realm_capitalization",
             "sssd_subsystem",
             "ticket_lifetime",
+            "host_tooling",
         ]
         actual_names = [c["name"] for c in checks]
         self.assertEqual(actual_names, expected_names)

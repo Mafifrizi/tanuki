@@ -73,6 +73,7 @@ class DoctorReport:
                 "realm_capitalization": "Kerberos Configuration",
                 "sssd_subsystem": "SSSD Subsystem        ",
                 "ticket_lifetime": "Active Ticket Cache   ",
+                "host_tooling": "Kerberos Host Tooling ",
             }
             display_title = title_map.get(name, name.replace("_", " ").title().ljust(22))
 
@@ -245,14 +246,24 @@ def check_keytab(keytab_path: str = "/etc/krb5.keytab") -> Dict[str, Any]:
     return result
 
 
-def check_krb5_conf(krb5_conf_path: str = "/etc/krb5.conf") -> Dict[str, Any]:
+def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
     """Parse /etc/krb5.conf sections and verify uppercase realm names per RFC 4120 § 6.1."""
+    env_krb5_conf = os.environ.get("KRB5_CONFIG")
+    is_env_source = False
+    if krb5_conf_path is None:
+        if env_krb5_conf:
+            krb5_conf_path = env_krb5_conf
+            is_env_source = True
+        else:
+            krb5_conf_path = "/etc/krb5.conf"
+
     result: Dict[str, Any] = {
         "name": "realm_capitalization",
         "status": "PASS",
         "details": "",
         "recommendation": None,
         "path": krb5_conf_path,
+        "source": "KRB5_CONFIG" if is_env_source else "path",
         "exists": False,
         "default_realm": None,
         "is_realm_uppercase": True,
@@ -264,7 +275,9 @@ def check_krb5_conf(krb5_conf_path: str = "/etc/krb5.conf") -> Dict[str, Any]:
     if not os.path.exists(krb5_conf_path):
         result["status"] = "N_A"
         result["details"] = f"Configuration file not found: {krb5_conf_path}"
-        result["recommendation"] = f"Install krb5-user or configure {krb5_conf_path}"
+        result["recommendation"] = (
+            f"Install krb5-user or configure {krb5_conf_path} (unprivileged: generate via 'tanuki config' and export KRB5_CONFIG)"
+        )
         result["issues"].append(f"File not found: {krb5_conf_path}")
         return result
 
@@ -780,21 +793,116 @@ def check_ticket_lifetime(
     return result
 
 
+def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
+    """Audit host availability of Kerberos client utilities (kinit, klist, kvno)."""
+    exts = [".exe", ""] if os.name == "nt" else [""]
+    path_dirs = (search_path or os.environ.get("PATH", "")).split(os.pathsep)
+
+    kinit_path: Optional[str] = None
+    klist_path: Optional[str] = None
+    kvno_path: Optional[str] = None
+
+    for d in path_dirs:
+        if not d:
+            continue
+        for ext in exts:
+            cand = os.path.join(d, "kinit" + ext)
+            if os.path.isfile(cand):
+                kinit_path = cand
+                break
+        if kinit_path:
+            break
+
+    if kinit_path:
+        bin_dir = os.path.dirname(kinit_path)
+        for ext in exts:
+            p_list = os.path.join(bin_dir, "klist" + ext)
+            if os.path.isfile(p_list):
+                klist_path = p_list
+            p_vno = os.path.join(bin_dir, "kvno" + ext)
+            if os.path.isfile(p_vno):
+                kvno_path = p_vno
+
+    result: Dict[str, Any] = {
+        "name": "host_tooling",
+        "status": "PASS" if kinit_path else "WARN",
+        "details": "",
+        "recommendation": None,
+        "kinit_present": bool(kinit_path),
+        "kinit_path": kinit_path,
+        "klist_present": bool(klist_path),
+        "klist_path": klist_path,
+        "kvno_present": bool(kvno_path),
+        "kvno_path": kvno_path,
+        "os_family": "windows" if os.name == "nt" else "posix",
+        "package_hint": "krb5-user",
+        "issues": [],
+    }
+
+    if kinit_path:
+        tools_found = ["kinit"]
+        if klist_path:
+            tools_found.append("klist")
+        if kvno_path:
+            tools_found.append("kvno")
+        result["status"] = "PASS"
+        result["details"] = f"Utilities available: {', '.join(tools_found)} (kinit: {kinit_path})"
+        return result
+
+    result["status"] = "WARN"
+    result["details"] = "Kerberos client utility ('kinit') not found on PATH"
+    result["issues"].append("kinit missing from PATH")
+
+    install_cmd = "Install krb5-user (Debian/Kali) or krb5-workstation (RHEL)"
+    if os.name != "nt" and os.path.isfile("/etc/os-release"):
+        try:
+            with open("/etc/os-release", "r", encoding="utf-8", errors="replace") as f:
+                os_release_text = f.read().lower()
+            if any(d in os_release_text for d in ("debian", "ubuntu", "kali")):
+                result["os_family"] = "debian"
+                install_cmd = "sudo apt install krb5-user"
+            elif any(r in os_release_text for r in ("rhel", "centos", "fedora", "rocky", "alma")):
+                result["os_family"] = "rhel"
+                result["package_hint"] = "krb5-workstation"
+                install_cmd = "sudo dnf install krb5-workstation"
+            elif "alpine" in os_release_text:
+                result["os_family"] = "alpine"
+                result["package_hint"] = "krb5"
+                install_cmd = "apk add krb5"
+            elif "arch" in os_release_text:
+                result["os_family"] = "arch"
+                result["package_hint"] = "krb5"
+                install_cmd = "pacman -S krb5"
+        except OSError:
+            pass
+    elif os.name == "nt":
+        install_cmd = "Use native Windows Kerberos / PowerShell"
+
+    result["recommendation"] = (
+        f"Install client tools: {install_cmd} (unprivileged: use portable client with KRB5_CONFIG)"
+    )
+    return result
+
+
 def diagnose_system(
     keytab_path: str = "/etc/krb5.keytab",
-    krb5_conf_path: str = "/etc/krb5.conf",
+    krb5_conf_path: Optional[str] = None,
     sssd_pipe: str = "/var/lib/sss/pipes/kcm",
     sssd_pid: str = "/var/run/sssd.pid",
     ccache_path: Optional[str] = None,
+    tools_search_path: Optional[str] = None,
 ) -> DoctorReport:
     """Run all pre-flight diagnostic probes deterministically in <5ms without network emissions."""
     t0 = time.perf_counter()
 
+    resolved_krb5_conf = krb5_conf_path or os.environ.get("KRB5_CONFIG", "/etc/krb5.conf")
+
     checks = [
         check_keytab(keytab_path),
-        check_krb5_conf(krb5_conf_path),
+        check_krb5_conf(resolved_krb5_conf),
         check_sssd(sssd_pipe, sssd_pid),
         check_ticket_lifetime(ccache_path),
+        check_host_tools(tools_search_path),
     ]
 
     has_fail = any(c.get("status") == "FAIL" for c in checks)

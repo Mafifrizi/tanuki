@@ -10,9 +10,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
         return CheckResult {
             name: "realm_capitalization".to_string(),
             status: "N_A".to_string(),
-            details: format!("Configuration file not found: {}", krb5_conf_path),
-            recommendation: Some(format!("Install krb5-user or configure {}", krb5_conf_path)),
-            remaining_seconds: None,
+            recommendation: Some(format!(
+                "Install krb5-user or configure {} (unprivileged: generate via 'tanuki config' and export KRB5_CONFIG)",
+                krb5_conf_path
+            )),
             extra_fields: vec![
                 ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
                 ("exists".to_string(), "false".to_string()),

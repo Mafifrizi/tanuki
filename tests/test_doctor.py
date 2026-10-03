@@ -543,7 +543,7 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
         )
 
         self.assertIsInstance(report, DoctorReport)
-        self.assertEqual(len(report.checks), 4)
+        self.assertEqual(len(report.checks), 5)
         self.assertIn("status", report.to_dict())
         self.assertIn("summary", report.to_dict())
         self.assertIn("timestamp", report.to_dict())
@@ -584,12 +584,12 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
         self.assertIn("warnings", parsed["summary"])
         self.assertIn("failures", parsed["summary"])
         self.assertIsInstance(parsed["checks"], list)
-        self.assertEqual(len(parsed["checks"]), 4)
+        self.assertEqual(len(parsed["checks"]), 5)
 
         names = [c["name"] for c in parsed["checks"]]
         self.assertEqual(
             names,
-            ["keytab_permissions", "realm_capitalization", "sssd_subsystem", "ticket_lifetime"]
+            ["keytab_permissions", "realm_capitalization", "sssd_subsystem", "ticket_lifetime", "host_tooling"]
         )
 
     def test_format_checklist_contains_headers_and_summary(self):
