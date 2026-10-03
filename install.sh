@@ -88,10 +88,25 @@ EOF
 chmod +x "${SHIM_PATH}"
 echo -e "  [+] Configured CLI launcher at ${SHIM_PATH}"
 
-# Check PATH
+# Check and configure shell PATH
 if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
-    echo -e "  ${YELLOW}[!] Note: Add ${BIN_DIR} to your PATH to run 'tanuki' from any directory:${NC}"
-    echo "      export PATH=\"${BIN_DIR}:\$PATH\""
+    SHELL_CONFIGURED=false
+    if [ -f "${HOME}/.zshrc" ] && ! grep -q "export PATH=.*\.local/bin" "${HOME}/.zshrc"; then
+        echo -e "\n# Added by Tanuki installer\nexport PATH=\"${BIN_DIR}:\$PATH\"" >> "${HOME}/.zshrc"
+        SHELL_CONFIGURED=true
+        echo -e "  [+] Automatically registered ${BIN_DIR} in ~/.zshrc"
+    fi
+    if [ -f "${HOME}/.bashrc" ] && ! grep -q "export PATH=.*\.local/bin" "${HOME}/.bashrc"; then
+        echo -e "\n# Added by Tanuki installer\nexport PATH=\"${BIN_DIR}:\$PATH\"" >> "${HOME}/.bashrc"
+        SHELL_CONFIGURED=true
+        echo -e "  [+] Automatically registered ${BIN_DIR} in ~/.bashrc"
+    fi
+    if [ "${SHELL_CONFIGURED}" = true ]; then
+        echo -e "  ${YELLOW}[!] Note: Reload your shell with: source ~/.zshrc (or source ~/.bashrc)${NC}"
+    else
+        echo -e "  ${YELLOW}[!] Note: Add ${BIN_DIR} to your PATH to run 'tanuki' from any directory:${NC}"
+        echo "      export PATH=\"${BIN_DIR}:\$PATH\""
+    fi
 fi
 
 # 2. Configure AI Agent Skills
@@ -128,6 +143,7 @@ echo -e "  [+] Cursor rule linked -> ${CURSOR_RULES_DIR}/tanuki.mdc"
 
 echo -e "\n${BOLD}${GREEN}[+] Tanuki successfully installed & integrated!${NC}"
 echo "Quick Verification:"
-echo "  $ tanuki --version"
+echo "  $ tanuki --version  (or: python3 -m tanuki --version)"
+echo "  $ tanuki doctor"
 echo "  $ tanuki ladder"
 echo "  $ tanuki triage KRB_AP_ERR_SKEW"
