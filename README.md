@@ -57,6 +57,9 @@ pipx install git+https://github.com/Mafifrizi/tanuki.git
 # Local repository install
 pip install .
 
+# Note for Linux (Kali, Debian, Ubuntu): If ~/.local/bin is not in your PATH:
+export PATH="$HOME/.local/bin:$PATH"
+
 # Rust binary install
 cargo install --path crates/tanuki-cli
 ```
@@ -64,7 +67,11 @@ cargo install --path crates/tanuki-cli
 Verify your installation:
 
 ```bash
+# Direct CLI binary or universal Python module
 tanuki --version
+python3 -m tanuki --version
+
+tanuki doctor
 tanuki ladder
 tanuki triage KRB_AP_ERR_SKEW
 ```
