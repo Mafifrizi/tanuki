@@ -23,6 +23,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#dual-engine-architecture">Dual-Engine Architecture</a> &bull;
+  <a href="#live-lab-empirical-validation">Live Lab Validation</a> &bull;
   <a href="#the-decision-ladder">Decision Ladder</a> &bull;
   <a href="#before--after">Before & After</a> &bull;
   <a href="#tooling--usage">Tooling & Usage</a> &bull;
@@ -84,6 +85,83 @@ Tanuki ships two complementary implementations:
 2. **Python Fallback Engine (`scripts/`)**: A zero-dependency script suite using only the Python standard library (`struct`, `io`, `sys`). It operates directly on remote target systems where dropping compiled binaries is prohibited or monitored by endpoint detection.
 
 Both engines share an identical JSON schema and parsing specification.
+
+---
+
+## Live Lab Empirical Validation
+
+All protocol parsers, diagnostics, and CLI workflows are empirically validated across live virtualized lab environments:
+- **Active Directory Domain Controller**: Windows Server 2022 (`DC01.lab.local`, IP: `192.168.56.106`)
+- **Operator Workstation**: Kali Linux 2024 (`kraii@kraiiandreyy`, IP: `192.168.56.105`)
+
+### 1. Active Directory Keytab Export (`ktpass`)
+
+Official RFC 4120 binary keytab export on the Domain Controller for service account `LAB\tanuki-nhi` with modern AES-256 (`aes256-cts-hmac-sha1-96`, KVNO 4):
+
+<p align="center">
+  <img src="assets/dc01-ktpass-export-real.png" alt="Windows Server ktpass Export" width="850">
+</p>
+
+### 2. Unprivileged Zero-DNS Kerberos Configuration Generator (`tanuki config`)
+
+Generates a local Kerberos configuration file (`lab_krb5.conf`) enforcing RFC 4120 § 6.1 uppercase realm conventions, zero-DNS direct KDC IP routing, and instant unprivileged session activation:
+
+<p align="center">
+  <img src="assets/lab-validation-config.png" alt="Unprivileged Kerberos Config Generator" width="850">
+</p>
+
+### 3. Pre-Flight Health Diagnostic Audit (`tanuki doctor`)
+
+Passive, zero-packet pre-flight health diagnostic executing in **4.27 ms**:
+- Verifies keytab permissions (`0600 (secure)`) and RFC 4120 binary header integrity.
+- Audits Kerberos configuration realm syntax (`Default realm: LAB.LOCAL`).
+- Validates SSSD daemon and KCM socket availability.
+- Evaluates active ticket lifetimes across file caches and kernel keyrings.
+- Passively audits host client tooling (`kinit`/`klist`) and provides tailored package manager recommendations.
+
+<p align="center">
+  <img src="assets/lab-validation-doctor.png" alt="Pre-Flight Doctor Health Check" width="850">
+</p>
+
+### 4. Zero-Root Session Precedence (`KRB5_CONFIG`)
+
+Validates automatic environment variable precedence, enabling unprivileged operators to triage custom realms without `/etc/krb5.conf` root write permissions in **3.53 ms**:
+
+<p align="center">
+  <img src="assets/lab-validation-doctor-env.png" alt="Doctor with KRB5_CONFIG Precedence" width="850">
+</p>
+
+### 5. RFC 4120 Keytab Ingestion & Dynamic Triage (`tanuki keytab`)
+
+Parses binary keytab structures, extracts AES-256 principals, injects active `KRB5_CONFIG` prefixes into non-interactive `kinit` commands, and flags missing host tooling:
+
+<p align="center">
+  <img src="assets/lab-validation-keytab.png" alt="Keytab Triage Report" width="850">
+</p>
+
+### 6. Structured Machine Contract (`tanuki keytab --json`)
+
+Emits deterministic, machine-readable JSON schemas for automated AI agent workflows and CI/CD pipelines:
+
+<p align="center">
+  <img src="assets/lab-validation-keytab-json.png" alt="Structured JSON Keytab Contract" width="850">
+</p>
+
+### 7. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
+
+Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4771/4768/4625, Sigma rules, and Falco signatures):
+
+<p align="center">
+  <img src="assets/lab-validation-triage.png" alt="Protocol Error Triage and Telemetry" width="850">
+</p>
+
+### 8. 5-Rung Tactical Decision Ladder (`tanuki ladder`)
+
+Visualizes the complete OPSEC hierarchy in a pristine, zero-noise terminal interface:
+
+<p align="center">
+  <img src="assets/naga_ladder_run.png" alt="5-Rung Tactical Decision Ladder" width="850">
+</p>
 
 ---
 
@@ -381,7 +459,16 @@ tanuki/
 │   └── protocol.py            # Error dictionary & decision ladder
 ├── assets/
 │   ├── logo.png               # Project logo (transparent background, light mode)
-│   └── logo-dark.png          # Project logo (transparent background, dark mode)
+│   ├── logo-dark.png          # Project logo (transparent background, dark mode)
+│   ├── social-preview.png     # Repository social preview banner
+│   ├── dc01-ktpass-export-real.png
+│   ├── lab-validation-config.png
+│   ├── lab-validation-doctor.png
+│   ├── lab-validation-doctor-env.png
+│   ├── lab-validation-keytab.png
+│   ├── lab-validation-keytab-json.png
+│   ├── lab-validation-triage.png
+│   └── naga_ladder_run.png
 ├── scripts/
 │   ├── keytab_inspector.py    # Python Living-off-the-Land keytab parser
 │   └── kcm_parser.py          # Python SSSD KCM credential cache parser
