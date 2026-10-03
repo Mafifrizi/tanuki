@@ -305,6 +305,10 @@ flowchart TD
 
 ```text
 tanuki/
+├── .github/
+│   └── workflows/
+│       └── release.yml        # CI/CD test, release asset, and GHCR container packaging
+├── Dockerfile                 # Distroless/slim container specification
 ├── Cargo.toml                 # Root workspace manifest
 ├── pyproject.toml             # Python PEP 621 package specification (v1.2.0)
 ├── install.sh                 # 1-line POSIX installer (Linux & macOS)
