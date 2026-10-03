@@ -163,6 +163,14 @@ Visualizes the complete OPSEC hierarchy in a pristine, zero-noise terminal inter
   <img src="assets/naga_ladder_run.png" alt="5-Rung Tactical Decision Ladder" width="850">
 </p>
 
+### 9. AI Agent Skill Manifest (`tanuki skill`)
+
+Exports the autonomous agent skill manifest, intellectual lineage, operational triggers, and deterministic execution standard:
+
+<p align="center">
+  <img src="assets/lab-validation-skill.png" alt="AI Agent Skill Manifest" width="850">
+</p>
+
 ---
 
 ## The Decision Ladder
@@ -477,6 +485,7 @@ tanuki/
 │   ├── lab-validation-doctor-env.png
 │   ├── lab-validation-keytab.png
 │   ├── lab-validation-keytab-json.png
+│   ├── lab-validation-skill.png
 │   ├── lab-validation-triage.png
 │   └── naga_ladder_run.png
 ├── scripts/
