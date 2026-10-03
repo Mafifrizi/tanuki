@@ -98,14 +98,16 @@ impl DoctorReport {
             .unwrap_or_else(|_| "localhost".to_string());
 
         let title = "TANUKI PRE-FLIGHT DOCTOR (v1.2.1)";
-        let subtitle = format!("Host: {} | Mode: Passive Diagnostic (0 network packets)", hostname);
+        let subtitle = format!("Host: {} · Mode: Passive Diagnostic (0 network packets)", hostname);
         let width = 72;
         let t_str = format!(" {} ", title);
-        let rem = if width > t_str.len() + 3 { width - t_str.len() - 3 } else { 2 };
-        out.push_str(&format!("+--{}{}+\n", t_str, "-".repeat(rem)));
-        let pad = if width > subtitle.len() + 4 { width - subtitle.len() - 4 } else { 0 };
-        out.push_str(&format!("| {}{} |\n", subtitle, " ".repeat(pad)));
-        out.push_str(&format!("+{}+\n", "-".repeat(width - 2)));
+        let title_chars = t_str.chars().count();
+        let rem = if width > title_chars + 3 { width - title_chars - 3 } else { 2 };
+        out.push_str(&format!("┌──{}{}{}\n", t_str, "─".repeat(rem), "┐"));
+        let sub_chars = subtitle.chars().count();
+        let pad = if width > sub_chars + 4 { width - sub_chars - 4 } else { 0 };
+        out.push_str(&format!("│ {}{} │\n", subtitle, " ".repeat(pad)));
+        out.push_str(&format!("└{}┘\n", "─".repeat(width - 2)));
 
         for check in &self.checks {
             let title = match check.name.as_str() {
@@ -122,7 +124,7 @@ impl DoctorReport {
             }
         }
 
-        out.push_str(&"-".repeat(72));
+        out.push_str(&"─".repeat(72));
         out.push('\n');
         out.push_str(&format!(
             "OVERALL HEALTH: {} ({} passed, {} warnings, {} failures)\n",
@@ -132,7 +134,7 @@ impl DoctorReport {
             "Execution Time: {:.2} ms | Network Packets Emitted: 0\n",
             self.duration_ms
         ));
-        out.push_str(&"-".repeat(72));
+        out.push_str(&"─".repeat(72));
         out
     }
 }
