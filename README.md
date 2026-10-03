@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg" alt="Version 1.2.0">
   <img src="https://img.shields.io/badge/rust-1.75+-dea584.svg" alt="Rust 1.75+">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
@@ -123,34 +124,54 @@ Build the standalone binary:
 cargo build --release --manifest-path crates/tanuki-cli/Cargo.toml
 ```
 
-Inspect binary keytabs:
+Run proactive pre-flight health diagnostics (<5ms, zero network packets):
+
+```bash
+# Terminal checklist output
+tanuki doctor
+
+# Structured JSON export for agent pipelines
+tanuki doctor --json
+```
+
+Inspect binary keytabs (RFC 4120):
 
 ```bash
 # Human-readable report
-./target/release/tanuki keytab /etc/krb5.keytab
+tanuki keytab /etc/krb5.keytab
 
 # Deterministic JSON schema
-./target/release/tanuki keytab /etc/krb5.keytab --json
+tanuki keytab /etc/krb5.keytab --json
 ```
 
 Extract SSSD KCM credential cache streams:
 
 ```bash
 # Scan local default SSSD database paths
-./target/release/tanuki kcm
+tanuki kcm
 
 # Parse a specific LDB database and save recovered tickets
-./target/release/tanuki kcm -f /var/lib/sss/secrets/secrets.ldb -o ./extracted_ccache
+tanuki kcm -f /var/lib/sss/secrets/secrets.ldb -o ./extracted_ccache
 ```
 
-Query the Kerberos error triage dictionary:
+Query the Kerberos error triage dictionary with dual-use SOC detection telemetry:
 
 ```bash
-# Lookup resolution for clock skew
-./target/release/tanuki triage KRB_AP_ERR_SKEW
+# Lookup resolution with [TACTICAL CMD] and [BLUE TELEMETRY] (Auditd / Event ID / Sigma)
+tanuki triage KRB_AP_ERR_SKEW
 
 # Lookup by Active Directory Event ID
-./target/release/tanuki triage 14
+tanuki triage 14
+```
+
+Validate Non-Human Identity (NHI) workload tokens (RFC 8693):
+
+```bash
+# Validate Kubernetes ServiceAccount or cloud workload JWT
+tanuki token /var/run/secrets/kubernetes.io/serviceaccount/token
+
+# Verify token exchange request and flag wildcard audience scopes
+tanuki nhi exchange --subject-token <JWT>
 ```
 
 ### 2. Python Fallback Scripts (`scripts/`)
@@ -196,7 +217,7 @@ cargo test --workspace
 ```text
 tanuki/
 ├── Cargo.toml                 # Root workspace manifest
-├── pyproject.toml             # Python PEP 621 package specification
+├── pyproject.toml             # Python PEP 621 package specification (v1.2.0)
 ├── install.sh                 # 1-line POSIX installer (Linux & macOS)
 ├── install.ps1                # 1-line PowerShell installer (Windows)
 ├── crates/
@@ -205,15 +226,20 @@ tanuki/
 │       ├── src/
 │       │   ├── lib.rs         # Library entry point (#![forbid(unsafe_code)])
 │       │   ├── main.rs        # CLI entry point and formatters
+│       │   ├── doctor/        # Sub-5ms pre-flight health diagnostic probe
+│       │   ├── nhi/           # RFC 8693 workload token validator
 │       │   ├── keytab/        # RFC 4120 keytab binary parser
 │       │   ├── kcm/           # SSSD KCM CCACHE stream extractor
-│       │   └── protocol/      # Kerberos constants and error triage dictionary
+│       │   └── protocol/      # Kerberos constants, error triage & telemetry
 │       └── tests/
 │           └── integration_tests.rs
 ├── tanuki/                    # Unified Python package
-│   ├── __init__.py            # Library exports
+│   ├── __init__.py            # Library exports (v1.2.0)
 │   ├── __main__.py            # python -m tanuki execution
 │   ├── cli.py                 # Unified CLI matching Rust commands
+│   ├── doctor.py              # Pre-flight health check engine (<5ms, zero packets)
+│   ├── nhi.py                 # Non-Human Identity & RFC 8693 token exchange
+│   ├── telemetry.py           # Dual-use SOC detection telemetry (Auditd, Event ID, Sigma)
 │   ├── keytab.py              # RFC 4120 keytab parser
 │   ├── kcm.py                 # SSSD KCM ticket stream parser
 │   └── protocol.py            # Error dictionary & decision ladder
@@ -230,7 +256,10 @@ tanuki/
 │   ├── error_triage.md        # Kerberos and SSSD error resolution table
 │   └── nhi_mesh.md            # Workload identity and token exchange reference
 ├── tests/
-│   ├── test_unified_cli.py
+│   ├── test_doctor.py         # Pre-flight health check unit tests
+│   ├── test_telemetry.py      # Dual-use detection telemetry unit tests
+│   ├── test_nhi.py            # RFC 8693 workload token validator tests
+│   ├── test_unified_cli.py    # Unified CLI command coverage
 │   ├── test_keytab_inspector.py
 │   ├── test_kcm_parser.py
 │   ├── test_rust_compatibility.py
