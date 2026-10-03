@@ -58,7 +58,7 @@ class DoctorReport:
         )
         lines: List[str] = []
         lines.append("=" * 72)
-        lines.append(" TANUKI PRE-FLIGHT DOCTOR (v1.2.0)")
+        lines.append(" TANUKI PRE-FLIGHT DOCTOR (v1.2.1)")
         lines.append(f" Host: {hostname} | Mode: Passive Diagnostic")
         lines.append("=" * 72)
 

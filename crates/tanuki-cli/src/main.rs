@@ -41,11 +41,64 @@ OPTIONS:
     );
 }
 
+const EXIT_SUCCESS: i32 = 0;
+const EXIT_USAGE_ERROR: i32 = 1;
+const EXIT_POLICY_STOP: i32 = 2;
+const EXIT_RESOURCE_MISSING: i32 = 3;
+const EXIT_PARSE_FAILURE: i32 = 4;
+
+fn emit_cli_error(
+    message: &str,
+    reason_code: &str,
+    category: &str,
+    exit_code: i32,
+    target: Option<&str>,
+    details: Option<&str>,
+    json_output: bool,
+) -> ! {
+    if json_output {
+        let status = if exit_code == EXIT_POLICY_STOP { "REFUSED" } else { "ERROR" };
+        let mut out = format!(
+            "{{\n  \"status\": \"{}\",\n  \"reason_code\": \"{}\",\n  \"category\": \"{}\",\n  \"exit_code\": {},\n  \"message\": \"{}\"",
+            status,
+            reason_code,
+            category,
+            exit_code,
+            message.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        if let Some(t) = target {
+            out.push_str(&format!(",\n  \"target\": \"{}\"", t.replace('\\', "\\\\").replace('"', "\\\"")));
+        }
+        if let Some(d) = details {
+            out.push_str(&format!(",\n  \"details\": \"{}\"", d.replace('\\', "\\\\").replace('"', "\\\"")));
+        }
+        out.push_str("\n}");
+        println!("{}", out);
+    } else {
+        let prefix = match exit_code {
+            EXIT_POLICY_STOP => "[POLICY STOP]",
+            EXIT_RESOURCE_MISSING => "[RESOURCE MISSING]",
+            EXIT_PARSE_FAILURE => "[PARSE FAILURE]",
+            EXIT_USAGE_ERROR => "[USAGE ERROR]",
+            _ => "[ERROR]",
+        };
+        if message.starts_with("Error:") || message.starts_with("Error ") {
+            eprintln!("{} {}", prefix, message);
+        } else {
+            eprintln!("{} Error: {}", prefix, message);
+        }
+        if let Some(d) = details {
+            eprintln!("  Details: {}", d);
+        }
+    }
+    process::exit(exit_code);
+}
+
 fn main() {
     let raw_args: Vec<String> = env::args().skip(1).collect();
     if raw_args.is_empty() {
         print_usage();
-        process::exit(1);
+        process::exit(EXIT_USAGE_ERROR);
     }
 
     let mut global_json = false;
@@ -166,9 +219,15 @@ fn main() {
                 positional_args.push(other.to_string());
             }
             other => {
-                eprintln!("Unknown option: {}", other);
-                print_usage();
-                process::exit(1);
+                emit_cli_error(
+                    &format!("Unknown option: {}", other),
+                    "UNKNOWN_OPTION",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    Some(other),
+                    None,
+                    global_json,
+                );
             }
         }
         i += 1;
@@ -238,9 +297,15 @@ fn main() {
             print_usage();
         }
         _ => {
-            eprintln!("Unknown command: {}", command);
-            print_usage();
-            process::exit(1);
+            emit_cli_error(
+                &format!("Unknown command: {}", command),
+                "UNKNOWN_COMMAND",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                Some(&command),
+                None,
+                global_json,
+            );
         }
     }
 }
@@ -249,24 +314,45 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
     let path = match file_path {
         Some(p) => p,
         None => {
-            eprintln!("Error: Keytab path required. Example: tanuki keytab /etc/krb5.keytab");
-            process::exit(1);
+            emit_cli_error(
+                "Error: Keytab path required. Example: tanuki keytab /etc/krb5.keytab",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
         }
     };
 
     let data = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(err) => {
-            eprintln!("Error reading keytab at '{}': {}", path, err);
-            process::exit(1);
+            emit_cli_error(
+                &format!("Error reading keytab at '{}': {}", path, err),
+                "MISSING_KEYTAB",
+                "RESOURCE_MISSING",
+                EXIT_RESOURCE_MISSING,
+                Some(&path),
+                Some(&err.to_string()),
+                json_output,
+            );
         }
     };
 
     let entries = match parse_keytab_bytes(&data) {
         Ok(list) => list,
         Err(err) => {
-            eprintln!("Error parsing keytab: {}", err);
-            process::exit(1);
+            emit_cli_error(
+                &format!("Error parsing keytab: {}", err),
+                "CORRUPT_KEYTAB",
+                "PARSE_FAILURE",
+                EXIT_PARSE_FAILURE,
+                Some(&path),
+                Some(&err.to_string()),
+                json_output,
+            );
         }
     };
 
@@ -306,8 +392,15 @@ fn handle_kcm(file_path: Option<String>, out_dir: &str, json_output: bool) {
         let data = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(err) => {
-                eprintln!("Error reading database '{}': {}", path, err);
-                process::exit(1);
+                emit_cli_error(
+                    &format!("Error reading database '{}': {}", path, err),
+                    "MISSING_RESOURCE",
+                    "RESOURCE_MISSING",
+                    EXIT_RESOURCE_MISSING,
+                    Some(&path),
+                    Some(&err.to_string()),
+                    json_output,
+                );
             }
         };
 
@@ -494,7 +587,24 @@ fn handle_doctor(
     }
 
     if report.status == "FAIL" {
-        process::exit(1);
+        let has_policy_stop = report.checks.iter().any(|c| {
+            c.status == "FAIL"
+                && (!c.is_secure_permissions.unwrap_or(true) || c.has_weak_enctypes.unwrap_or(false))
+        });
+        if has_policy_stop {
+            process::exit(EXIT_POLICY_STOP);
+        }
+
+        let has_missing_resource = report.checks.iter().any(|c| {
+            (c.status == "FAIL" || c.status == "N_A")
+                && !c.exists.unwrap_or(true)
+                && (c.name == "keytab_permissions" || c.name == "sssd_subsystem")
+        });
+        if has_missing_resource {
+            process::exit(EXIT_RESOURCE_MISSING);
+        }
+
+        process::exit(EXIT_POLICY_STOP);
     }
 }
 
@@ -509,14 +619,28 @@ fn handle_token(
         match fs::read_to_string(&path) {
             Ok(s) => s.trim().to_string(),
             Err(e) => {
-                eprintln!("Error reading token file at '{}': {}", path, e);
-                process::exit(1);
+                emit_cli_error(
+                    &format!("Error: Token file not found: {}", path),
+                    "MISSING_RESOURCE",
+                    "RESOURCE_MISSING",
+                    EXIT_USAGE_ERROR,
+                    Some(&path),
+                    Some(&e.to_string()),
+                    json_output,
+                );
             }
         }
     } else if let Some(arg) = token_arg {
         if arg.is_empty() {
-            eprintln!("Error: Token string cannot be empty");
-            process::exit(1);
+            emit_cli_error(
+                "Error: Token string cannot be empty",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
         }
         if Path::new(&arg).is_file() {
             fs::read_to_string(&arg)
@@ -531,14 +655,28 @@ fn handle_token(
         if std::io::stdin().read_to_string(&mut buf).is_ok() && !buf.trim().is_empty() {
             buf.trim().to_string()
         } else {
-            eprintln!("Error: No token provided. Pass as argument, -f/--file, or via stdin.");
-            process::exit(1);
+            emit_cli_error(
+                "Error: No token provided. Pass as argument, -f/--file, or via stdin.",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
         }
     };
 
     if raw_token.is_empty() {
-        eprintln!("Error: Token string cannot be empty");
-        process::exit(1);
+        emit_cli_error(
+            "Error: Token string cannot be empty",
+            "MISSING_ARGUMENT",
+            "USAGE_ERROR",
+            EXIT_USAGE_ERROR,
+            None,
+            None,
+            json_output,
+        );
     }
 
     match parse_and_validate_jwt(&raw_token, audience.as_deref()) {
@@ -550,8 +688,15 @@ fn handle_token(
             }
         }
         Err(e) => {
-            eprintln!("Error parsing token: {}", e);
-            process::exit(1);
+            emit_cli_error(
+                &format!("Error parsing token: {}", e),
+                "CORRUPT_DATA",
+                "PARSE_FAILURE",
+                EXIT_USAGE_ERROR,
+                None,
+                Some(&e.to_string()),
+                json_output,
+            );
         }
     }
 }
@@ -599,7 +744,7 @@ fn handle_nhi(
                 println!("{}", report.format_terminal());
             }
             if !report.valid {
-                process::exit(1);
+                process::exit(EXIT_USAGE_ERROR);
             }
         }
         "scan" => {
