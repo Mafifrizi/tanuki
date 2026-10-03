@@ -85,6 +85,23 @@ class TestUnifiedCLI(unittest.TestCase):
         self.assertEqual(data[0]["rung"], 1)
         self.assertEqual(data[4]["rung"], 5)
 
+    def test_cli_skill_text(self):
+        res = self.run_cli_subprocess(["skill"])
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("TANUKI AI AGENT SKILL MANIFEST", res.stdout)
+        self.assertIn("Tim Brown", res.stdout)
+        self.assertIn("Dietrich Gebert", res.stdout)
+        self.assertIn("5-Rung Operator Tactical Decision Ladder", res.stdout)
+
+    def test_cli_skill_json(self):
+        res = self.run_cli_subprocess(["skill", "--json"])
+        self.assertEqual(res.returncode, 0)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["name"], "tanuki")
+        self.assertIn("triggers", data)
+        self.assertIn("lineage", data)
+        self.assertEqual(len(data["ladder"]), 5)
+
     def test_cli_triage_lookup_by_code(self):
         res = self.run_cli_subprocess(["triage", "KRB_AP_ERR_SKEW"])
         self.assertEqual(res.returncode, 0)

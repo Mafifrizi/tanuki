@@ -97,12 +97,15 @@ impl DoctorReport {
             .or_else(|_| std::env::var("COMPUTERNAME"))
             .unwrap_or_else(|_| "localhost".to_string());
 
-        out.push_str(&"=".repeat(72));
-        out.push('\n');
-        out.push_str(" TANUKI PRE-FLIGHT DOCTOR (v1.2.1)\n");
-        out.push_str(&format!(" Host: {} | Mode: Passive Diagnostic\n", hostname));
-        out.push_str(&"=".repeat(72));
-        out.push('\n');
+        let title = "TANUKI PRE-FLIGHT DOCTOR (v1.2.1)";
+        let subtitle = format!("Host: {} | Mode: Passive Diagnostic (0 network packets)", hostname);
+        let width = 72;
+        let t_str = format!(" {} ", title);
+        let rem = if width > t_str.len() + 3 { width - t_str.len() - 3 } else { 2 };
+        out.push_str(&format!("+--{}{}+\n", t_str, "-".repeat(rem)));
+        let pad = if width > subtitle.len() + 4 { width - subtitle.len() - 4 } else { 0 };
+        out.push_str(&format!("| {}{} |\n", subtitle, " ".repeat(pad)));
+        out.push_str(&format!("+{}+\n", "-".repeat(width - 2)));
 
         for check in &self.checks {
             let title = match check.name.as_str() {
@@ -129,7 +132,7 @@ impl DoctorReport {
             "Execution Time: {:.2} ms | Network Packets Emitted: 0\n",
             self.duration_ms
         ));
-        out.push_str(&"=".repeat(72));
+        out.push_str(&"-".repeat(72));
         out
     }
 }

@@ -299,6 +299,16 @@ tanuki nhi inspect <JWT>
 tanuki nhi exchange --subject-token <JWT> --audience https://sts.corp.local
 ```
 
+Export AI Agent Skill Manifest & Operational Contract (`tanuki skill`):
+
+```bash
+# Terminal card manifest for human operators
+tanuki skill
+
+# Structured JSON export for autonomous agents (Claude Code, Cursor, Antigravity)
+tanuki skill --json
+```
+
 ### 2. Operator CLI Contract & Semantic Exit Codes
 
 Tanuki guarantees deterministic exit codes and machine-readable error envelopes across both Python and Rust engines. Operators and automated orchestration agents can distinguish missing artifacts from policy refusals without parsing conversational text:
