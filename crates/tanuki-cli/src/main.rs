@@ -26,6 +26,7 @@ COMMANDS:
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
+    skill [OPTIONS]     Display AI agent skill manifest and operational contract
 
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
@@ -52,6 +53,17 @@ const EXIT_USAGE_ERROR: i32 = 1;
 const EXIT_POLICY_STOP: i32 = 2;
 const EXIT_RESOURCE_MISSING: i32 = 3;
 const EXIT_PARSE_FAILURE: i32 = 4;
+
+fn print_card_header(title: &str, subtitle: Option<&str>, width: usize) {
+    let t_str = format!(" {} ", title);
+    let rem = if width > t_str.len() + 3 { width - t_str.len() - 3 } else { 2 };
+    println!("+--{}{}+", t_str, "-".repeat(rem));
+    if let Some(sub) = subtitle {
+        let pad = if width > sub.len() + 4 { width - sub.len() - 4 } else { 0 };
+        println!("| {}{} |", sub, " ".repeat(pad));
+    }
+    println!("+{}+", "-".repeat(width - 2));
+}
 
 fn emit_cli_error(
     message: &str,
@@ -242,7 +254,7 @@ fn main() {
                 stdout_opt = true;
             }
             cmd if explicit_command.is_none()
-                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi" | "config") =>
+                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi" | "config" | "skill") =>
             {
                 explicit_command = Some(cmd.to_string());
             }
@@ -335,6 +347,9 @@ fn main() {
                 global_json,
             );
         }
+        "skill" => {
+            handle_skill(global_json);
+        }
         "help" => {
             print_usage();
         }
@@ -403,19 +418,21 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
         return;
     }
 
-    println!("========================================================================");
-    println!(" TANUKI KEYTAB TRIAGE REPORT");
-    println!("========================================================================");
+    print_card_header(
+        "TANUKI KEYTAB TRIAGE REPORT",
+        Some(&format!("File: {} | RFC 4120 Binary Structure", path)),
+        72,
+    );
     for (idx, e) in entries.iter().enumerate() {
         println!("[{}] Principal : {}", idx + 1, e.principal);
-        println!("    KVNO      : {}", e.vno);
-        println!("    Enctype   : {} ({})", e.enctype_name, e.keytype);
+        println!("    |- KVNO      : {}", e.vno);
+        println!("    |- Enctype   : {} ({})", e.enctype_name, e.keytype);
         let preview = if e.key_hex.len() > 16 {
             &e.key_hex[..16]
         } else {
             &e.key_hex
         };
-        println!("    Key (Hex) : {}... (length: {} bytes)", preview, e.key_len);
+        println!("    `- Key (Hex) : {}... (length: {} bytes)", preview, e.key_len);
     }
 
     let aes_entries: Vec<_> = entries.iter().filter(|e| e.is_modern_aes()).collect();
@@ -436,7 +453,7 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
             println!("    Unprivileged: Generate local config via 'tanuki config' and use portable client.");
         }
     }
-    println!("========================================================================");
+    println!("{}", "-".repeat(72));
 }
 
 fn handle_config(
@@ -531,17 +548,19 @@ fn handle_config(
         return;
     }
 
-    println!("========================================================================");
-    println!(" TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR");
-    println!("========================================================================");
+    print_card_header(
+        "TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR",
+        Some("Zero-DNS Direct Routing | RFC 4120 Compliant"),
+        72,
+    );
     println!("[+] Output File    : {}", abs_str);
-    println!("[+] Target Realm   : {} (RFC 4120 uppercase convention)", clean_realm);
-    println!("[+] Target KDC     : {} (zero-DNS direct routing)", kdc.trim());
-    println!("[+] Admin Server   : {}", target_admin);
+    println!("    |- Target Realm   : {} (RFC 4120 uppercase convention)", clean_realm);
+    println!("    |- Target KDC     : {} (zero-DNS direct routing)", kdc.trim());
+    println!("    `- Admin Server   : {}", target_admin);
     println!("\n[+] To activate in your current session (unprivileged / no root required):");
     println!("    $ {}", export_cmd);
     println!("    $ kinit -k -t <keytab> <principal>");
-    println!("========================================================================");
+    println!("{}", "-".repeat(72));
 }
 
 fn handle_kcm(file_path: Option<String>, out_dir: &str, json_output: bool) {
@@ -655,6 +674,12 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                 if json_output {
                     println!("{}", res.to_json());
                 } else {
+                    let sub = res.event_id.map(|id| format!("Event ID: {} | Root Cause Diagnostic", id));
+                    print_card_header(
+                        &format!("TANUKI PROTOCOL TRIAGE: {}", res.code),
+                        sub.as_deref().or(Some("RFC / SSSD Error Vector Diagnostic")),
+                        72,
+                    );
                     println!("Found matching error: {}", res.code);
                     if let Some(id) = res.event_id {
                         println!("Event ID: {}", id);
@@ -666,6 +691,7 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     println!("    $ {}", res.tactical_cmd);
                     println!();
                     println!("{}", res.telemetry.format_terminal());
+                    println!("{}", "-".repeat(72));
                 }
             }
             None => {
@@ -683,9 +709,11 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                 let errors: Vec<_> = ERROR_DICTIONARY.iter().cloned().collect();
                 println!("{}", errors_to_json(&errors));
             } else {
-                println!("========================================================================");
-                println!(" KERBEROS & SSSD ERROR RESOLUTION DICTIONARY");
-                println!("========================================================================");
+                print_card_header(
+                    "KERBEROS & SSSD ERROR RESOLUTION DICTIONARY",
+                    Some("10 Pre-compiled Protocol Vectors | Dual-Use Detection Telemetry"),
+                    72,
+                );
                 for item in ERROR_DICTIONARY {
                     let event = item
                         .event_id
@@ -697,7 +725,7 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     println!("[TACTICAL CMD]:\n    $ {}", item.tactical_cmd);
                     println!("[BLUE TELEMETRY]:\n    {}", item.telemetry.format_inline());
                 }
-                println!("========================================================================");
+                println!("{}", "-".repeat(72));
             }
         }
     }
@@ -709,9 +737,11 @@ fn handle_ladder(json_output: bool) {
         return;
     }
 
-    println!("========================================================================");
-    println!(" TANUKI 5-RUNG TACTICAL DECISION LADDER");
-    println!("========================================================================");
+    print_card_header(
+        "TANUKI 5-RUNG TACTICAL DECISION LADDER",
+        Some("Disciplined Agent SOP | Zero-Noise OPSEC Standard"),
+        72,
+    );
     for rung in DECISION_LADDER {
         println!("[*] {}", rung.title);
         println!("    {}", rung.description);
@@ -719,7 +749,7 @@ fn handle_ladder(json_output: bool) {
     }
     println!("Command Output Standard:");
     println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
-    println!("========================================================================");
+    println!("{}", "-".repeat(72));
 }
 
 fn handle_doctor(
@@ -921,9 +951,7 @@ fn handle_nhi(
                 let items: Vec<String> = found.iter().map(|p| format!("\"{}\"", p)).collect();
                 println!("{{\n  \"discovered_tokens\": [{}]\n}}", items.join(", "));
             } else {
-                println!("========================================================================");
-                println!(" TANUKI NHI PASSIVE TOKEN SCANNER");
-                println!("========================================================================");
+                print_card_header("TANUKI NHI PASSIVE TOKEN SCANNER", Some("Filesystem Workload Identity Probes"), 72);
                 if found.is_empty() {
                     println!("No standard workload tokens discovered on local filesystem.");
                 } else {
@@ -931,11 +959,53 @@ fn handle_nhi(
                         println!("[FOUND] {}", p);
                     }
                 }
-                println!("========================================================================");
+                println!("{}", "-".repeat(72));
             }
         }
         other => {
             handle_token(Some(other.to_string()), file_path, audience, issuer, json_output);
         }
     }
+}
+
+fn handle_skill(json_output: bool) {
+    if json_output {
+        let mut out = String::new();
+        out.push_str("{\n");
+        out.push_str("  \"name\": \"tanuki\",\n");
+        out.push_str(&format!("  \"version\": \"{}\",\n", env!("CARGO_PKG_VERSION")));
+        out.push_str("  \"description\": \"Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.\",\n");
+        out.push_str("  \"author\": \"Tanuki Open Source Initiative\",\n");
+        out.push_str("  \"lineage\": {\n");
+        out.push_str("    \"pioneer_unix_tradecraft\": \"Tim Brown (@timb-machine), creator of Linikatz\",\n");
+        out.push_str("    \"pioneer_agentic_ladder\": \"Dietrich Gebert (@dietrichayala), creator of Ponytail\"\n");
+        out.push_str("  },\n");
+        out.push_str("  \"triggers\": [\n");
+        out.push_str("    \"active directory\",\n    \"kerberos\",\n    \"keytab\",\n    \"sssd\",\n    \"kcm\",\n    \"certipy\",\n    \"ad cs\",\n    \"shadow credentials\",\n    \"rbcd\",\n    \"workload identity\",\n    \"tanuki doctor\",\n    \"pre-flight\",\n    \"telemetry\",\n    \"auditd\",\n    \"rfc 8693\",\n    \"token exchange\"\n");
+        out.push_str("  ],\n");
+        out.push_str("  \"output_standard\": \"[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]\",\n");
+        out.push_str(&format!("  \"ladder\": {}\n", ladder_to_json()));
+        out.push_str("}");
+        println!("{}", out);
+        return;
+    }
+
+    print_card_header(
+        "TANUKI AI AGENT SKILL MANIFEST",
+        Some(&format!("v{} | Dual-Engine Non-Human Identity Operator", env!("CARGO_PKG_VERSION"))),
+        72,
+    );
+    println!("[*] Intellectual Lineage & Pioneers:");
+    println!("    |- Tim Brown (@timb-machine)     : Linikatz & UNIX Active Directory Assessment");
+    println!("    `- Dietrich Gebert (@dietrichayala) : Ponytail Decision Ladder Methodology\n");
+    println!("[*] Tactical Activation Triggers:");
+    println!("    active directory, kerberos, keytab, sssd, kcm, certipy, ad cs, shadow credentials, ...\n");
+    println!("[*] 5-Rung Operator Tactical Decision Ladder:");
+    for rung in DECISION_LADDER {
+        println!("    [{}] {}", rung.rung, rung.title);
+    }
+    println!();
+    println!("[*] Deterministic Command Output Standard:");
+    println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
+    println!("{}", "-".repeat(72));
 }

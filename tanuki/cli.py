@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from . import __version__
 from .config import generate_krb5_conf
-from .doctor import diagnose_system
+from .doctor import diagnose_system, render_card_header, supports_unicode
 from .kcm import (
     save_recovered_ticket,
     scan_for_ccache_blobs,
@@ -38,6 +38,7 @@ COMMANDS:
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
+    skill [OPTIONS]     Display AI agent skill manifest and operational contract
 
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
@@ -147,15 +148,22 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
         print(json.dumps(entries, indent=2))
         return
 
-    print("=" * 72)
-    print(" TANUKI KEYTAB TRIAGE REPORT")
-    print("=" * 72)
+    for line in render_card_header(
+        "TANUKI KEYTAB TRIAGE REPORT",
+        f"File: {file_path} · RFC 4120 Binary Structure",
+    ):
+        print(line)
+
+    use_uni = supports_unicode()
+    div = "─" * 72 if use_uni else "-" * 72
+    t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
     for idx, e in enumerate(entries, 1):
         print(f"[{idx}] Principal : {e['principal']}")
-        print(f"    KVNO      : {e['vno']}")
-        print(f"    Enctype   : {e['enctype_name']} ({e['keytype']})")
+        print(f"    {t_branch} KVNO      : {e['vno']}")
+        print(f"    {t_branch} Enctype   : {e['enctype_name']} ({e['keytype']})")
         key_preview = e["key_hex"][:16] if len(e["key_hex"]) > 16 else e["key_hex"]
-        print(f"    Key (Hex) : {key_preview}... (length: {e['key_len']} bytes)")
+        print(f"    {l_branch} Key (Hex) : {key_preview}... (length: {e['key_len']} bytes)")
 
     aes_entries = [e for e in entries if e["keytype"] in (17, 18, 19, 20)]
     if aes_entries:
@@ -172,7 +180,7 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
             print("    'kinit' utility not found on PATH.")
             print("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)")
             print("    Unprivileged: Generate local config via 'tanuki config' and use portable client.")
-    print("=" * 72)
+    print(div)
 
 
 def handle_kcm(file_path: Optional[str], out_dir: str, json_output: bool) -> None:
@@ -233,6 +241,14 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
             if json_output:
                 print(json.dumps(res, indent=2))
             else:
+                for line in render_card_header(
+                    f"TANUKI PROTOCOL TRIAGE: {res['code']}",
+                    f"Event ID: {res['event_id']} · Root Cause Diagnostic" if res.get("event_id") else "RFC / SSSD Error Vector Diagnostic",
+                ):
+                    print(line)
+                use_uni = supports_unicode()
+                div = "─" * 72 if use_uni else "-" * 72
+
                 print(f"Found matching error: {res['code']}")
                 if res["event_id"]:
                     print(f"Event ID: {res['event_id']}")
@@ -245,6 +261,7 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                 if "telemetry" in res:
                     print()
                     print(format_telemetry_terminal(res["telemetry"]))
+                print(div)
         else:
             if json_output:
                 print("null")
@@ -256,9 +273,14 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
         if json_output:
             print(json.dumps(ERROR_DICTIONARY, indent=2))
         else:
-            print("=" * 72)
-            print(" KERBEROS & SSSD ERROR RESOLUTION DICTIONARY")
-            print("=" * 72)
+            for line in render_card_header(
+                "KERBEROS & SSSD ERROR RESOLUTION DICTIONARY",
+                "10 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
+            ):
+                print(line)
+            use_uni = supports_unicode()
+            div = "─" * 72 if use_uni else "-" * 72
+
             for item in ERROR_DICTIONARY:
                 event = f" (Event {item['event_id']})" if item["event_id"] else ""
                 print(f"\nError Code: {item['code']}{event}")
@@ -268,7 +290,7 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                     print(f"[TACTICAL CMD]:\n    $ {item['tactical_cmd']}")
                 if "telemetry" in item:
                     print(f"[BLUE TELEMETRY]:\n    {format_telemetry_inline(item['telemetry'])}")
-            print("=" * 72)
+            print(div)
 
 
 def handle_ladder(json_output: bool) -> None:
@@ -276,9 +298,15 @@ def handle_ladder(json_output: bool) -> None:
         print(json.dumps(DECISION_LADDER, indent=2))
         return
 
-    print("=" * 72)
-    print(" TANUKI 5-RUNG TACTICAL DECISION LADDER")
-    print("=" * 72)
+    for line in render_card_header(
+        "TANUKI 5-RUNG TACTICAL DECISION LADDER",
+        "Disciplined Agent SOP · Zero-Noise OPSEC Standard",
+    ):
+        print(line)
+
+    use_uni = supports_unicode()
+    div = "─" * 72 if use_uni else "-" * 72
+
     for rung in DECISION_LADDER:
         print(f"[*] {rung['title']}")
         print(f"    {rung['description']}")
@@ -288,7 +316,7 @@ def handle_ladder(json_output: bool) -> None:
             print()
     print("Command Output Standard:")
     print("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]")
-    print("=" * 72)
+    print(div)
 
 
 def handle_doctor(
@@ -406,17 +434,24 @@ def handle_config(
         print(json.dumps(res, indent=2))
         return
 
-    print("=" * 72)
-    print(" TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR")
-    print("=" * 72)
+    for line in render_card_header(
+        "TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR",
+        "Zero-DNS Direct Routing · RFC 4120 Compliant",
+    ):
+        print(line)
+
+    use_uni = supports_unicode()
+    div = "─" * 72 if use_uni else "-" * 72
+    t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
     print(f"[+] Output File    : {abs_path}")
-    print(f"[+] Target Realm   : {clean_realm} (RFC 4120 uppercase convention)")
-    print(f"[+] Target KDC     : {target_kdc} (zero-DNS direct routing)")
-    print(f"[+] Admin Server   : {target_admin}")
+    print(f"    {t_branch} Target Realm   : {clean_realm} (RFC 4120 uppercase convention)")
+    print(f"    {t_branch} Target KDC     : {target_kdc} (zero-DNS direct routing)")
+    print(f"    {l_branch} Admin Server   : {target_admin}")
     print("\n[+] To activate in your current session (unprivileged / no root required):")
     print(f"    $ {export_cmd}")
     print("    $ kinit -k -t <keytab> <principal>")
-    print("=" * 72)
+    print(div)
 
 
 def handle_token(
@@ -558,17 +593,84 @@ def handle_nhi(
         if json_output:
             print(json.dumps({"discovered_tokens": found}, indent=2))
         else:
-            print("=" * 72)
-            print(" TANUKI NHI PASSIVE TOKEN SCANNER")
-            print("=" * 72)
+            for line in render_card_header(
+                "TANUKI NHI PASSIVE TOKEN SCANNER",
+                "Filesystem Workload Identity Probes",
+            ):
+                print(line)
+            use_uni = supports_unicode()
+            div = "─" * 72 if use_uni else "-" * 72
             if found:
                 for p in found:
                     print(f"[FOUND] {p}")
             else:
                 print("No standard workload tokens discovered on local filesystem.")
-            print("=" * 72)
+            print(div)
     else:
         handle_token(subcmd, file_path, audience, issuer, json_output)
+
+
+def handle_skill(json_output: bool) -> None:
+    manifest = {
+        "name": "tanuki",
+        "version": __version__,
+        "description": "Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.",
+        "author": "Tanuki Open Source Initiative",
+        "lineage": {
+            "pioneer_unix_tradecraft": "Tim Brown (@timb-machine), creator of Linikatz",
+            "pioneer_agentic_ladder": "Dietrich Gebert (@dietrichayala), creator of Ponytail",
+        },
+        "triggers": [
+            "active directory",
+            "kerberos",
+            "keytab",
+            "sssd",
+            "kcm",
+            "certipy",
+            "ad cs",
+            "shadow credentials",
+            "rbcd",
+            "workload identity",
+            "tanuki doctor",
+            "pre-flight",
+            "telemetry",
+            "auditd",
+            "rfc 8693",
+            "token exchange",
+        ],
+        "output_standard": "[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]",
+        "ladder": DECISION_LADDER,
+    }
+
+    if json_output:
+        print(json.dumps(manifest, indent=2))
+        return
+
+    for line in render_card_header(
+        "TANUKI AI AGENT SKILL MANIFEST",
+        f"v{__version__} · Dual-Engine Non-Human Identity Operator",
+    ):
+        print(line)
+
+    use_uni = supports_unicode()
+    div = "─" * 72 if use_uni else "-" * 72
+    t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
+    print("[*] Intellectual Lineage & Pioneers:")
+    print(f"    {t_branch} Tim Brown (@timb-machine)     : Linikatz & UNIX Active Directory Assessment")
+    print(f"    {l_branch} Dietrich Gebert (@dietrichayala) : Ponytail Decision Ladder Methodology\n")
+
+    print("[*] Tactical Activation Triggers:")
+    triggers_str = ", ".join(manifest["triggers"][:8]) + ", ..."
+    print(f"    {triggers_str}\n")
+
+    print("[*] 5-Rung Operator Tactical Decision Ladder:")
+    for rung in DECISION_LADDER:
+        print(f"    [{rung['rung']}] {rung['title']}")
+    print()
+    print("[*] Deterministic Command Output Standard:")
+    print(f"    {manifest['output_standard']}")
+    print(div)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -677,7 +779,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 ccache_opt = argv[i + 1]
                 i += 1
-        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config"):
+        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill"):
             explicit_command = arg
         elif not arg.startswith("-"):
             positional_args.append(arg)
@@ -744,6 +846,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             stdout_mode=stdout_opt,
             json_output=global_json,
         )
+    elif command == "skill":
+        handle_skill(global_json)
     else:
         sys.stderr.write(f"Unknown command: {command}\n")
         print_usage()
