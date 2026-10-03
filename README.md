@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg" alt="Version 1.2.0">
+  <img src="https://img.shields.io/badge/version-1.2.1-blue.svg" alt="Version 1.2.1">
   <img src="https://img.shields.io/badge/rust-1.75+-dea584.svg" alt="Rust 1.75+">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
@@ -203,7 +203,32 @@ tanuki nhi inspect <JWT>
 tanuki nhi exchange --subject-token <JWT> --audience https://sts.corp.local
 ```
 
-### 2. Python Fallback Scripts (`scripts/`)
+### 2. Operator CLI Contract & Semantic Exit Codes
+
+Tanuki guarantees deterministic exit codes and machine-readable error envelopes across both Python and Rust engines. Operators and automated orchestration agents can distinguish missing artifacts from policy refusals without parsing conversational text:
+
+| Exit Code | Constant | Meaning | JSON Reason Code |
+| :--- | :--- | :--- | :--- |
+| `0` | `EXIT_SUCCESS` | Command completed successfully or pre-flight healthy | `SUCCESS` |
+| `1` | `EXIT_USAGE_ERROR` | Syntax error, unknown option, or missing argument | `USAGE_ERROR` |
+| `2` | `EXIT_POLICY_STOP` | Refusal due to security guardrail (e.g. insecure keytab 0644, weak ciphers) | `POLICY_STOP` |
+| `3` | `EXIT_RESOURCE_MISSING` | Target keytab file, SSSD pipe, or ccache not found | `MISSING_KEYTAB` / `MISSING_RESOURCE` |
+| `4` | `EXIT_PARSE_FAILURE` | Corrupted binary magic, truncated bytes, or invalid encoding | `CORRUPT_KEYTAB` / `PARSE_FAILURE` |
+
+When `--json` is supplied, errors emit a structured JSON envelope to standard output:
+
+```json
+{
+  "status": "ERROR",
+  "reason_code": "MISSING_KEYTAB",
+  "category": "RESOURCE_MISSING",
+  "exit_code": 3,
+  "message": "Error reading keytab at '/etc/krb5.keytab': No such file or directory",
+  "target": "/etc/krb5.keytab"
+}
+```
+
+### 3. Python Fallback Scripts (`scripts/`)
 
 Used for remote living-off-the-land workflows where dropping binaries is prohibited. No third-party packages or network access are required.
 
@@ -216,7 +241,7 @@ python3 scripts/keytab_inspector.py /etc/krb5.keytab --json
 python3 scripts/kcm_parser.py -o ./extracted_ccache
 ```
 
-### 3. Automated Test Suites
+### 4. Automated Test Suites
 
 Verify both engines:
 
@@ -310,7 +335,7 @@ tanuki/
 │       └── release.yml        # CI/CD test, release asset, and GHCR container packaging
 ├── Dockerfile                 # Distroless/slim container specification
 ├── Cargo.toml                 # Root workspace manifest
-├── pyproject.toml             # Python PEP 621 package specification (v1.2.0)
+├── pyproject.toml             # Python PEP 621 package specification (v1.2.1)
 ├── install.sh                 # 1-line POSIX installer (Linux & macOS)
 ├── install.ps1                # 1-line PowerShell installer (Windows)
 ├── crates/
@@ -327,7 +352,7 @@ tanuki/
 │       └── tests/
 │           └── integration_tests.rs
 ├── tanuki/                    # Unified Python package
-│   ├── __init__.py            # Library exports (v1.2.0)
+│   ├── __init__.py            # Library exports (v1.2.1)
 │   ├── __main__.py            # python -m tanuki execution
 │   ├── cli.py                 # Unified CLI matching Rust commands
 │   ├── doctor.py              # Pre-flight health check engine (<5ms, zero packets)

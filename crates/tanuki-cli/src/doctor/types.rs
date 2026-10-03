@@ -99,7 +99,7 @@ impl DoctorReport {
 
         out.push_str(&"=".repeat(72));
         out.push('\n');
-        out.push_str(" TANUKI PRE-FLIGHT DOCTOR (v1.2.0)\n");
+        out.push_str(" TANUKI PRE-FLIGHT DOCTOR (v1.2.1)\n");
         out.push_str(&format!(" Host: {} | Mode: Passive Diagnostic\n", hostname));
         out.push_str(&"=".repeat(72));
         out.push('\n');

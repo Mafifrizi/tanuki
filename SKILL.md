@@ -1,6 +1,6 @@
 ---
 name: tanuki
-version: 1.2.0
+version: 1.2.1
 description: Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.
 author: Tanuki Open Source Initiative
 license: "MIT OR Apache-2.0"
@@ -94,3 +94,11 @@ When presented with a Linux environment:
    tanuki nhi exchange --subject-token <JWT> --audience https://sts.corp.local
    ```
 4. Consult `references/nhi_mesh.md` for workload federation pathways.
+
+### Phase 4: Deterministic Operator Contract & Error Handling
+When invoking `tanuki` programmatically, pass `--json` to receive structured error envelopes without conversational prose:
+- Exit code 0 (`EXIT_SUCCESS`): Step completed or environment healthy.
+- Exit code 1 (`EXIT_USAGE_ERROR`): Invalid flag or missing argument.
+- Exit code 2 (`EXIT_POLICY_STOP`): Refused due to OPSEC or security policy guardrail.
+- Exit code 3 (`EXIT_RESOURCE_MISSING`): Target keytab, socket, or cache file does not exist.
+- Exit code 4 (`EXIT_PARSE_FAILURE`): Corrupt binary structure or invalid magic bytes.

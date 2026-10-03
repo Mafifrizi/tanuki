@@ -178,6 +178,85 @@ class TestUnifiedCLI(unittest.TestCase):
                 if os.path.exists(tf_path):
                     os.remove(tf_path)
 
+    def test_cli_keytab_missing_file_semantic_exit_and_json_reason(self):
+        missing_path = "/nonexistent/test/path/krb5.keytab"
+        res = self.run_cli_subprocess(["keytab", missing_path])
+        self.assertEqual(res.returncode, 3)
+        self.assertIn("[RESOURCE MISSING]", res.stderr)
+        self.assertIn("Error reading keytab", res.stderr)
+
+        res_json = self.run_cli_subprocess(["keytab", missing_path, "--json"])
+        self.assertEqual(res_json.returncode, 3)
+        data = json.loads(res_json.stdout)
+        self.assertEqual(data["status"], "ERROR")
+        self.assertEqual(data["reason_code"], "MISSING_KEYTAB")
+        self.assertEqual(data["category"], "RESOURCE_MISSING")
+        self.assertEqual(data["exit_code"], 3)
+        self.assertEqual(data["target"], missing_path)
+
+    def test_cli_keytab_corrupt_file_semantic_exit_and_json_reason(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(b"\x05\x02corruptedbytes")
+            tf_path = tf.name
+
+        try:
+            res = self.run_cli_subprocess(["keytab", tf_path])
+            self.assertEqual(res.returncode, 4)
+            self.assertIn("[PARSE FAILURE]", res.stderr)
+            self.assertIn("Error parsing keytab", res.stderr)
+
+            res_json = self.run_cli_subprocess(["keytab", tf_path, "--json"])
+            self.assertEqual(res_json.returncode, 4)
+            data = json.loads(res_json.stdout)
+            self.assertEqual(data["status"], "ERROR")
+            self.assertEqual(data["reason_code"], "CORRUPT_KEYTAB")
+            self.assertEqual(data["category"], "PARSE_FAILURE")
+            self.assertEqual(data["exit_code"], 4)
+            self.assertIn("details", data)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_cli_doctor_policy_stop_semantic_exit(self):
+        kt_data = build_synthetic_keytab("CORP.LOCAL", ["host", "srv01.corp.local"], b"\x01" * 32, keytype=18, kvno=1)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as kt_file:
+            kt_file.write(kt_data)
+            kt_path = kt_file.name
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".conf") as conf_file:
+            conf_file.write("[libdefaults]\ndefault_realm = lowercase.realm.local\n")
+            conf_path = conf_file.name
+
+        try:
+            res = self.run_cli_subprocess(["doctor", "--keytab", kt_path, "--krb5-conf", conf_path, "--json"])
+            self.assertEqual(res.returncode, 2)
+            data = json.loads(res.stdout)
+            self.assertEqual(data["status"], "FAIL")
+        finally:
+            if os.path.exists(kt_path):
+                os.remove(kt_path)
+            if os.path.exists(conf_path):
+                os.remove(conf_path)
+
+    def test_cli_kcm_missing_resource_semantic_exit(self):
+        missing_db = "/nonexistent/test/path/secrets.ldb"
+        res = self.run_cli_subprocess(["kcm", "-f", missing_db])
+        self.assertEqual(res.returncode, 3)
+        self.assertIn("[RESOURCE MISSING]", res.stderr)
+
+        res_json = self.run_cli_subprocess(["kcm", "-f", missing_db, "--json"])
+        self.assertEqual(res_json.returncode, 3)
+        data = json.loads(res_json.stdout)
+        self.assertEqual(data["status"], "ERROR")
+        self.assertEqual(data["reason_code"], "MISSING_RESOURCE")
+        self.assertEqual(data["category"], "RESOURCE_MISSING")
+        self.assertEqual(data["exit_code"], 3)
+        self.assertEqual(data["target"], missing_db)
+
+    def test_cli_unknown_option_semantic_exit_code(self):
+        res = self.run_cli_subprocess(["--invalid-flag"])
+        self.assertEqual(res.returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

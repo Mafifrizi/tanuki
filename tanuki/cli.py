@@ -52,24 +52,90 @@ OPTIONS:
     -V, --version       Print version information"""
 
 
+EXIT_SUCCESS = 0
+EXIT_USAGE_ERROR = 1
+EXIT_POLICY_STOP = 2
+EXIT_RESOURCE_MISSING = 3
+EXIT_PARSE_FAILURE = 4
+
+
+def emit_cli_error(
+    message: str,
+    reason_code: str,
+    category: str,
+    exit_code: int,
+    target: Optional[str] = None,
+    details: Optional[str] = None,
+    json_output: bool = False,
+    telemetry: Optional[dict] = None,
+) -> None:
+    if json_output:
+        payload = {
+            "status": "REFUSED" if exit_code == EXIT_POLICY_STOP else "ERROR",
+            "reason_code": reason_code,
+            "category": category,
+            "exit_code": exit_code,
+            "message": message,
+        }
+        if target:
+            payload["target"] = target
+        if details:
+            payload["details"] = details
+        if telemetry:
+            payload["telemetry"] = telemetry
+        print(json.dumps(payload, indent=2))
+    else:
+        prefix = {
+            EXIT_POLICY_STOP: "[POLICY STOP]",
+            EXIT_RESOURCE_MISSING: "[RESOURCE MISSING]",
+            EXIT_PARSE_FAILURE: "[PARSE FAILURE]",
+            EXIT_USAGE_ERROR: "[USAGE ERROR]",
+        }.get(exit_code, "[ERROR]")
+        if message.startswith("Error:") or message.startswith("Error "):
+            sys.stderr.write(f"{prefix} {message}\n")
+        else:
+            sys.stderr.write(f"{prefix} Error: {message}\n")
+        if details:
+            sys.stderr.write(f"  Details: {details}\n")
+    sys.exit(exit_code)
+
+
 def print_usage() -> None:
     print(USAGE_TEXT)
 
 
 def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
     if not file_path:
-        sys.stderr.write("Error: Keytab path required. Example: tanuki keytab /etc/krb5.keytab\n")
-        sys.exit(1)
+        emit_cli_error(
+            "Error: Keytab path required. Example: tanuki keytab /etc/krb5.keytab",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
 
     if not os.path.exists(file_path):
-        sys.stderr.write(f"Error reading keytab at '{file_path}': No such file or directory\n")
-        sys.exit(1)
+        emit_cli_error(
+            f"Error reading keytab at '{file_path}': No such file or directory",
+            reason_code="MISSING_KEYTAB",
+            category="RESOURCE_MISSING",
+            exit_code=EXIT_RESOURCE_MISSING,
+            target=file_path,
+            json_output=json_output,
+        )
 
     try:
         entries = parse_keytab_file(file_path)
     except Exception as exc:
-        sys.stderr.write(f"Error parsing keytab: {exc}\n")
-        sys.exit(1)
+        emit_cli_error(
+            f"Error parsing keytab: {exc}",
+            reason_code="CORRUPT_KEYTAB",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=file_path,
+            details=str(exc),
+            json_output=json_output,
+        )
 
     if json_output:
         print(json.dumps(entries, indent=2))
@@ -97,16 +163,29 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
 def handle_kcm(file_path: Optional[str], out_dir: str, json_output: bool) -> None:
     if file_path:
         if not os.path.exists(file_path):
-            sys.stderr.write(f"File not found: {file_path}\n")
-            sys.exit(1)
+            emit_cli_error(
+                f"Credential cache database not found: {file_path}",
+                reason_code="MISSING_RESOURCE",
+                category="RESOURCE_MISSING",
+                exit_code=EXIT_RESOURCE_MISSING,
+                target=file_path,
+                json_output=json_output,
+            )
 
         os.makedirs(out_dir, exist_ok=True)
         try:
             with open(file_path, "rb") as f:
                 data = f.read()
         except Exception as exc:
-            sys.stderr.write(f"Error reading database '{file_path}': {exc}\n")
-            sys.exit(1)
+            emit_cli_error(
+                f"Error reading database '{file_path}': {exc}",
+                reason_code="CORRUPT_DATA",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_PARSE_FAILURE,
+                target=file_path,
+                details=str(exc),
+                json_output=json_output,
+            )
 
         blobs = scan_for_ccache_blobs(data)
         if json_output:
@@ -224,7 +303,23 @@ def handle_doctor(
         print(report.format_checklist())
 
     if report.status == "FAIL":
-        sys.exit(1)
+        has_policy_stop = any(
+            c.get("status") == "FAIL"
+            and (not c.get("is_secure_permissions", True) or c.get("has_weak_enctypes", False))
+            for c in report.checks
+        )
+        if has_policy_stop:
+            sys.exit(EXIT_POLICY_STOP)
+
+        has_missing_resource = any(
+            c.get("status") in ("FAIL", "N_A") and not c.get("exists", True)
+            for c in report.checks
+            if c.get("name") in ("keytab_permissions", "sssd_subsystem")
+        )
+        if has_missing_resource:
+            sys.exit(EXIT_RESOURCE_MISSING)
+
+        sys.exit(EXIT_POLICY_STOP)
 
 
 def handle_token(
@@ -237,21 +332,45 @@ def handle_token(
     raw_token: Optional[str] = None
     if file_path:
         if not os.path.exists(file_path):
-            sys.stderr.write(f"Error: Token file not found: {file_path}\n")
-            sys.exit(1)
+            emit_cli_error(
+                f"Error: Token file not found: {file_path}",
+                reason_code="MISSING_RESOURCE",
+                category="RESOURCE_MISSING",
+                exit_code=EXIT_USAGE_ERROR,
+                target=file_path,
+                json_output=json_output,
+            )
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 raw_token = f.read().strip()
         except UnicodeDecodeError:
-            sys.stderr.write(f"Error: File is not valid text: {file_path}\n")
-            sys.exit(1)
+            emit_cli_error(
+                f"Error: File is not valid text: {file_path}",
+                reason_code="CORRUPT_DATA",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_USAGE_ERROR,
+                target=file_path,
+                json_output=json_output,
+            )
         except Exception as exc:
-            sys.stderr.write(f"Error reading token file: {exc}\n")
-            sys.exit(1)
+            emit_cli_error(
+                f"Error reading token file: {exc}",
+                reason_code="CORRUPT_DATA",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_USAGE_ERROR,
+                target=file_path,
+                details=str(exc),
+                json_output=json_output,
+            )
     elif token_arg is not None:
         if token_arg == "":
-            sys.stderr.write("Error: Token string cannot be empty\n")
-            sys.exit(1)
+            emit_cli_error(
+                "Error: Token string cannot be empty",
+                reason_code="MISSING_ARGUMENT",
+                category="USAGE_ERROR",
+                exit_code=EXIT_USAGE_ERROR,
+                json_output=json_output,
+            )
         if os.path.isfile(token_arg):
             try:
                 with open(token_arg, "r", encoding="utf-8") as f:
@@ -264,14 +383,25 @@ def handle_token(
         raw_token = sys.stdin.read().strip()
 
     if not raw_token:
-        sys.stderr.write("Error: No token provided. Pass as argument, -f/--file, or via stdin.\n")
-        sys.exit(1)
+        emit_cli_error(
+            "Error: No token provided. Pass as argument, -f/--file, or via stdin.",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
 
     try:
         report = validate_jwt_workload(raw_token, expected_aud=audience)
     except Exception as exc:
-        sys.stderr.write(f"Error parsing token: {exc}\n")
-        sys.exit(1)
+        emit_cli_error(
+            f"Error parsing token: {exc}",
+            reason_code="CORRUPT_DATA",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_USAGE_ERROR,
+            details=str(exc),
+            json_output=json_output,
+        )
 
     if json_output:
         print(report.to_json())
@@ -318,7 +448,7 @@ def handle_nhi(
         else:
             print(report.format_terminal())
         if not report.get("valid"):
-            sys.exit(1)
+            sys.exit(EXIT_USAGE_ERROR)
     elif subcmd == "scan":
         known_paths = [
             "/var/run/secrets/kubernetes.io/serviceaccount/token",
