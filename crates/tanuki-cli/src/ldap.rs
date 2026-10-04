@@ -1,6 +1,6 @@
 use crate::util::escape_json;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 pub const TAG_BOOLEAN: u8 = 0x01;

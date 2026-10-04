@@ -1,7 +1,7 @@
 use crate::util::escape_json;
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Seek, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
