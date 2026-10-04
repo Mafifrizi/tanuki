@@ -35,6 +35,7 @@ scratch/
 
 # OS artifacts & media recordings
 *.mp4
+*.gif
 .DS_Store
 Thumbs.db
 desktop.ini
