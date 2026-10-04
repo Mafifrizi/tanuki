@@ -14,6 +14,7 @@ struct ParsedTicket {
     renew_till: u32,
     has_weak_enctypes: bool,
     tickets_count: usize,
+    enctypes: Vec<String>,
 }
 
 fn read_principal(data: &[u8], cursor: &mut usize) -> Option<String> {
@@ -85,6 +86,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
     let mut best_ticket: Option<ParsedTicket> = None;
     let mut has_weak_enctypes = false;
     let mut tickets_count = 0;
+    let mut enctypes: Vec<String> = Vec::new();
 
     while cursor < data.len() {
         let client = match read_principal(data, &mut cursor) {
@@ -111,6 +113,10 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             break;
         }
         cursor += key_data_len;
+        let enc_name = crate::keytab::types::enctype_name(enctype as i16);
+        if !enctypes.contains(&enc_name) {
+            enctypes.push(enc_name);
+        }
         if enctype == 23 || enctype == 1 || enctype == 2 || enctype == 3 {
             has_weak_enctypes = true;
         }
@@ -165,9 +171,11 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             data[cursor + 3],
         ]) as usize;
         cursor += 4;
+        let mut addr_corrupt = false;
         for _ in 0..addr_count {
             if cursor + 6 > data.len() {
-                return best_ticket;
+                addr_corrupt = true;
+                break;
             }
             let alen = u32::from_be_bytes([
                 data[cursor + 2],
@@ -177,8 +185,12 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             ]) as usize;
             cursor += 6 + alen;
             if cursor > data.len() {
-                return best_ticket;
+                addr_corrupt = true;
+                break;
             }
+        }
+        if addr_corrupt {
+            break;
         }
 
         if cursor + 4 > data.len() {
@@ -191,9 +203,11 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             data[cursor + 3],
         ]) as usize;
         cursor += 4;
+        let mut ad_corrupt = false;
         for _ in 0..ad_count {
             if cursor + 6 > data.len() {
-                return best_ticket;
+                ad_corrupt = true;
+                break;
             }
             let adlen = u32::from_be_bytes([
                 data[cursor + 2],
@@ -203,8 +217,12 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             ]) as usize;
             cursor += 6 + adlen;
             if cursor > data.len() {
-                return best_ticket;
+                ad_corrupt = true;
+                break;
             }
+        }
+        if ad_corrupt {
+            break;
         }
 
         if cursor + 4 > data.len() {
@@ -247,6 +265,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             renew_till,
             has_weak_enctypes,
             tickets_count,
+            enctypes: enctypes.clone(),
         };
 
         if let Some(ref current_best) = best_ticket {
@@ -269,6 +288,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
     if let Some(mut bt) = best_ticket {
         bt.has_weak_enctypes = has_weak_enctypes;
         bt.tickets_count = tickets_count;
+        bt.enctypes = enctypes;
         Some(bt)
     } else {
         Some(ParsedTicket {
@@ -279,6 +299,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             renew_till: 0,
             has_weak_enctypes,
             tickets_count,
+            enctypes,
         })
     }
 }
@@ -472,6 +493,7 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                     ("is_expired".to_string(), is_expired.to_string()),
                     ("has_weak_enctypes".to_string(), ticket.has_weak_enctypes.to_string()),
                     ("tickets_found".to_string(), ticket.tickets_count.to_string()),
+                    ("encryption_types".to_string(), format!("[{}]", ticket.enctypes.iter().map(|e| format!("\"{}\"", escape_json(e))).collect::<Vec<_>>().join(", "))),
                     ("renewable_until".to_string(), match renew_time {
                         Some(t) => format!("\"{}\"", escape_json(&t)),
                         None => "null".to_string(),

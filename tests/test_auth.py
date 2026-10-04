@@ -140,6 +140,40 @@ class TestAuthEngine(unittest.TestCase):
             self.assertEqual(res["method"], "ctypes")
             self.assertEqual(res["principal"], "admin@CORP.LOCAL")
 
+    def test_acquire_tgt_with_krb5_conf(self):
+        kt_bytes = build_synthetic_keytab(realm="CORP.LOCAL", principal_comps=["user1"])
+        kt_path = os.path.join(self.temp_dir.name, "test.keytab")
+        with open(kt_path, "wb") as f:
+            f.write(kt_bytes)
+
+        conf_path = os.path.join(self.temp_dir.name, "custom_krb5.conf")
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.write("[libdefaults]\n    default_realm = CORP.LOCAL\n")
+
+        with patch("shutil.which", return_value="/usr/bin/kinit"), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            res = acquire_tgt(kt_path, principal="user1@CORP.LOCAL", krb5_conf=conf_path)
+            self.assertEqual(res["status"], "SUCCESS")
+            # Verify KRB5_CONFIG was passed in environment
+            _, kwargs = mock_run.call_args
+            self.assertEqual(kwargs["env"]["KRB5_CONFIG"], os.path.abspath(conf_path))
+
+    def test_acquire_tgt_kinit_failed_and_ctypes_missing(self):
+        kt_bytes = build_synthetic_keytab(realm="CORP.LOCAL", principal_comps=["user1"])
+        kt_path = os.path.join(self.temp_dir.name, "test.keytab")
+        with open(kt_path, "wb") as f:
+            f.write(kt_bytes)
+
+        with patch("shutil.which", return_value="/usr/bin/kinit"), \
+             patch("subprocess.run") as mock_run, \
+             patch("tanuki.auth.find_krb5_library", return_value=None):
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="kinit: Clock skew too great while getting initial credentials")
+            res = acquire_tgt(kt_path, principal="user1@CORP.LOCAL")
+            self.assertEqual(res["status"], "ERROR")
+            self.assertEqual(res["reason_code"], "AUTH_FAILED")
+            self.assertIn("Clock skew too great", res["message"])
+
 
 class TestAuthCLI(unittest.TestCase):
     """CLI and subprocess integration tests for tanuki auth."""
@@ -169,6 +203,12 @@ class TestAuthCLI(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         data = json.loads(proc.stdout)
         self.assertEqual(data["status"], "ERROR")
+        self.assertEqual(data["reason_code"], "MISSING_KEYTAB")
+
+    def test_cli_auth_with_krb5_conf_forwarded(self):
+        proc = self.run_cli(["--keytab", "nonexistent.keytab", "--krb5-conf", "/tmp/fake.conf", "--json"])
+        self.assertNotEqual(proc.returncode, 0)
+        data = json.loads(proc.stdout)
         self.assertEqual(data["reason_code"], "MISSING_KEYTAB")
 
 

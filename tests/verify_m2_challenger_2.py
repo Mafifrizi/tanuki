@@ -367,7 +367,7 @@ class TestRustParityAndAntislop(unittest.TestCase):
             if os.path.isfile(t):
                 with open(t, "r", encoding="utf-8") as f:
                     txt = f.read()
-                self.assertNotIn("—", txt, f"Banned em dash found in {t}")
+                self.assertNotIn("\u2014", txt, f"Banned em dash found in {t}")
 
 
 class TestAdversarialQueryFuzzing(unittest.TestCase):

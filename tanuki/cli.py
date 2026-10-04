@@ -561,6 +561,7 @@ def handle_auth(
     ccache_path: Optional[str],
     json_output: bool,
     force_ctypes: bool = False,
+    krb5_conf: Optional[str] = None,
 ) -> None:
     if not keytab_path:
         emit_cli_error(
@@ -576,6 +577,7 @@ def handle_auth(
         principal=principal,
         ccache_path=ccache_path,
         force_ctypes=force_ctypes,
+        krb5_conf=krb5_conf,
     )
 
     if res.get("status") == "SUCCESS":
@@ -1013,6 +1015,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             ccache_path=target_ccache,
             json_output=global_json,
             force_ctypes=force_ctypes_opt,
+            krb5_conf=krb5_conf_opt,
         )
     elif command == "kcm":
         target = file_opt or (positional_args[0] if positional_args else None)
@@ -1056,7 +1059,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             realm_opt=realm_opt,
             kdc_opt=kdc_opt,
             admin_server_opt=admin_server_opt,
-            out_path=out_opt or file_opt,
+            out_path=out_opt or file_opt or (positional_args[0] if positional_args else None),
             stdout_mode=stdout_opt,
             json_output=global_json,
             keytab_opt=keytab_opt,
