@@ -18,6 +18,8 @@ __all__ = [
     "format_telemetry_terminal",
     "validate_jwt_workload",
     "validate_token_exchange",
+    "acquire_tgt",
+    "acquire_tgt_via_ctypes",
 ]
 
 from .keytab import parse_keytab_bytes, parse_keytab_stream, parse_keytab_file
@@ -27,4 +29,5 @@ from .doctor import diagnose_system, DoctorReport, check_host_tools
 from .config import generate_krb5_conf
 from .telemetry import format_telemetry_terminal
 from .nhi import validate_jwt_workload, validate_token_exchange
+from .auth import acquire_tgt, acquire_tgt_via_ctypes
 

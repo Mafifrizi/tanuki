@@ -45,6 +45,21 @@ class TestKrb5ConfigGenerator(unittest.TestCase):
             self.assertTrue(os.path.isfile(target))
             self.assertIn("export KRB5_CONFIG=", res["export_command"])
 
+    def test_generate_krb5_conf_hardening_clockskew_and_multiple_kdcs(self):
+        conf = generate_krb5_conf(
+            "corp.local",
+            ["kdc1.corp.local", "kdc2.corp.local"],
+            clockskew=300,
+            enforce_aes=True,
+        )
+        self.assertIn("udp_preference_limit = 0", conf)
+        self.assertIn("rdns = false", conf)
+        self.assertIn("clockskew = 300", conf)
+        self.assertIn("default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96", conf)
+        self.assertIn("permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96", conf)
+        self.assertIn("kdc = kdc1.corp.local", conf)
+        self.assertIn("kdc = kdc2.corp.local", conf)
+
 
 class TestHostToolingProbe(unittest.TestCase):
     """Unit tests for check_host_tools availability and recommendations."""
@@ -115,6 +130,45 @@ class TestConfigCLIIntegration(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("default_realm = CORP.LOCAL", proc.stdout)
         self.assertIn("kdc = 192.168.56.106", proc.stdout)
+
+    def test_cli_config_clock_skew_and_enforce_aes(self):
+        cmd = [
+            sys.executable,
+            "-m",
+            "tanuki",
+            "config",
+            "--realm",
+            "corp.local",
+            "--kdc",
+            "192.168.56.106",
+            "--clock-skew",
+            "300",
+            "--enforce-aes",
+            "--stdout",
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("clockskew = 300", proc.stdout)
+        self.assertIn("permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96", proc.stdout)
+
+    def test_cli_config_multiple_kdcs(self):
+        cmd = [
+            sys.executable,
+            "-m",
+            "tanuki",
+            "config",
+            "--realm",
+            "corp.local",
+            "--kdc",
+            "10.0.0.1",
+            "--kdc",
+            "10.0.0.2",
+            "--stdout",
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("kdc = 10.0.0.1", proc.stdout)
+        self.assertIn("kdc = 10.0.0.2", proc.stdout)
 
     def test_cli_config_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
