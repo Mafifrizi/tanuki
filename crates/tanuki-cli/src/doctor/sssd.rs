@@ -26,7 +26,10 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str) -> CheckResult {
         }
     }
 
-    if !daemon_running && Path::new("/proc").is_dir() {
+    let sssd_footprints = ["/var/lib/sss", "/etc/sssd", "/usr/sbin/sssd", "/usr/lib/sssd"];
+    let sssd_installed = sssd_footprints.iter().any(|p| Path::new(p).exists());
+
+    if !daemon_running && sssd_installed && Path::new("/proc").is_dir() {
         if let Ok(entries) = fs::read_dir("/proc") {
             for entry in entries.flatten() {
                 if let Ok(fname) = entry.file_name().into_string() {
