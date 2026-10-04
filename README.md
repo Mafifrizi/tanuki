@@ -94,6 +94,39 @@ All protocol parsers, diagnostics, and CLI workflows are empirically validated a
 - **Active Directory Domain Controller**: Windows Server 2022 (`DC01.lab.local`, IP: `192.168.56.106`)
 - **Operator Workstation**: Kali Linux 2024 (`kraii@kraiiandreyy`, IP: `192.168.56.105`)
 
+### Full-Stack End-to-End Walkthrough (Live Lab Validation)
+
+Visual verification of the complete 3-act operational lifecycle across live domain infrastructure:
+
+| Act | Environment | Objectives & Validated Primitives |
+| :--- | :--- | :--- |
+| **Act 1: Domain Controller Setup** | Windows Server 2022 (`DC01`) | Domain discovery (`nltest`), SPN audit (`setspn`), and RFC 4120 AES-256 binary keytab export (`ktpass`, KVNO 9). |
+| **Act 2: Unprivileged Linux Operator** | Kali Linux 2024 (`Naga`) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), ticket health pass (`tanuki doctor`), and protocol triage (`tanuki triage`). |
+| **Act 3: Closed-Loop Verification** | Windows Server 2022 (`DC01`) | Domain Controller Security Event ID 4768 Audit Success for `tanuki-nhi` originating from client IP `192.168.56.105`. |
+
+#### Act 1: Domain Controller Service Setup & Keytab Provisioning (`DC01`)
+
+<p align="center">
+  <img src="assets/lab-validation-act1-dc01-setup.png" alt="Act 1: Windows Server DC01 Setup and ktpass Export" width="850">
+</p>
+
+#### Act 2: Unprivileged Linux Operator Session & Health Validation (`Naga`)
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-auth-live.png" alt="Act 2: Unprivileged TGT Acquisition via ctypes" width="850">
+</p>
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2: Post-Auth Doctor Pass with AES-256 Session" width="850">
+</p>
+
+#### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
+
+<p align="center">
+  <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 3: Windows Event ID 4768 Audit Success Verification" width="850">
+</p>
+
+
 ### 1. Active Directory Keytab Export (`ktpass`)
 
 Official RFC 4120 binary keytab export on the Domain Controller for service account `LAB\tanuki-nhi` with modern AES-256 (`aes256-cts-hmac-sha1-96`, KVNO 4):
