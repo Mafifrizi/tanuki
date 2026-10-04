@@ -1,7 +1,6 @@
 use super::types::CheckResult;
 use std::env;
 use std::fs;
-use std::path::Path;
 
 pub fn has_binary_on_path(binary_name: &str) -> Option<String> {
     let path_var = env::var("PATH").ok()?;

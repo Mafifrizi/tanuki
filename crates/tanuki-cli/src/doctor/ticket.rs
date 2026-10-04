@@ -89,7 +89,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
     let mut enctypes: Vec<String> = Vec::new();
 
     while cursor < data.len() {
-        let client = match read_principal(data, &mut cursor) {
+        let _client = match read_principal(data, &mut cursor) {
             Some(c) => c,
             None => break,
         };
