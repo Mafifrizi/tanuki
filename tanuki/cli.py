@@ -749,7 +749,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         print_usage()
         sys.exit(1)
 
-    global_json = False
+    global_json = "--json" in argv
     explicit_command: Optional[str] = None
     positional_args: List[str] = []
     file_opt: Optional[str] = None
