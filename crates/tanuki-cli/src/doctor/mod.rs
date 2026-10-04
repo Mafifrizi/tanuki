@@ -1,5 +1,6 @@
 pub mod keytab;
 pub mod krb5_conf;
+pub mod opsec;
 pub mod sssd;
 pub mod ticket;
 pub mod tools;
@@ -37,7 +38,12 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
     let check4 = ticket::audit_ticket_lifetime(opts.ccache_path.as_deref());
     let check5 = tools::audit_host_tools();
 
-    let checks = vec![check1, check2, check3, check4, check5];
+    let mut checks = vec![check1, check2, check3, check4, check5];
+
+    if opts.include_opsec {
+        let check_opsec = opsec::audit_opsec_sensors(keytab_path, opts.ccache_path.as_deref());
+        checks.push(check_opsec);
+    }
 
     let passed = checks.iter().filter(|c| c.status == "PASS").count();
     let warnings = checks

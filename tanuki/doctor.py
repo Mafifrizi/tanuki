@@ -97,6 +97,7 @@ class DoctorReport:
                 "sssd_subsystem": "SSSD Subsystem        ",
                 "ticket_lifetime": "Active Ticket Cache   ",
                 "host_tooling": "Kerberos Host Tooling ",
+                "opsec_sensors": "Host OPSEC Sensors    ",
             }
             display_title = title_map.get(name, name.replace("_", " ").title().ljust(22))
 
@@ -946,6 +947,136 @@ def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
+def check_opsec_sensors(
+    audit_rules_dir: str = "/etc/audit/rules.d",
+    audit_rules_file: str = "/etc/audit/audit.rules",
+    netlink_path: str = "/proc/net/netlink",
+    auditd_pid_path: str = "/run/auditd.pid",
+    falco_socket: str = "/var/run/falco/falco.sock",
+    keytab_path: str = "/etc/krb5.keytab",
+    ccache_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Passively inspect host OPSEC sensors (Auditd, Netlink, Falco) monitoring credential paths."""
+    result: Dict[str, Any] = {
+        "name": "opsec_sensors",
+        "status": "PASS",
+        "details": "No active Auditd or Falco watch rules detected on credential paths",
+        "recommendation": None,
+        "audit_netlink_active": False,
+        "auditd_running": False,
+        "falco_active": False,
+        "keytab_monitored": False,
+        "ccache_monitored": False,
+        "monitored_paths": [],
+        "issues": [],
+    }
+
+    # 1. Audit Netlink Socket Probe (/proc/net/netlink)
+    if os.path.isfile(netlink_path):
+        try:
+            with open(netlink_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            for line in content.splitlines()[1:]:
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[1] == "9":
+                    result["audit_netlink_active"] = True
+                    break
+        except OSError:
+            pass
+
+    # 2. Audit Daemon Running Check (/run/auditd.pid or /var/run/auditd.pid)
+    pid_candidates = [auditd_pid_path, "/var/run/auditd.pid"]
+    for p in pid_candidates:
+        if os.path.isfile(p):
+            result["auditd_running"] = True
+            break
+
+    # 3. Falco Socket Presence
+    falco_candidates = [falco_socket, "/run/falco/falco.sock"]
+    for fs in falco_candidates:
+        if os.path.exists(fs):
+            result["falco_active"] = True
+            break
+
+    # 4. Audit Rules Inspection
+    rules_text = ""
+    if os.path.isdir(audit_rules_dir):
+        try:
+            for fname in sorted(os.listdir(audit_rules_dir)):
+                if fname.endswith(".rules"):
+                    fpath = os.path.join(audit_rules_dir, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                            rules_text += "\n" + f.read()
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    if os.path.isfile(audit_rules_file):
+        try:
+            with open(audit_rules_file, "r", encoding="utf-8", errors="replace") as f:
+                rules_text += "\n" + f.read()
+        except OSError:
+            pass
+
+    norm_kt = os.path.abspath(keytab_path) if keytab_path else "/etc/krb5.keytab"
+    kt_watched = False
+    cc_watched = False
+    monitored: List[str] = []
+
+    for line in rules_text.splitlines():
+        line = line.strip()
+        if line.startswith("#") or not line:
+            continue
+        if "-w " in line:
+            parts = line.split()
+            if "-w" in parts:
+                idx = parts.index("-w")
+                if idx + 1 < len(parts):
+                    wpath = parts[idx + 1]
+                    norm_w = os.path.abspath(wpath)
+                    if norm_w == norm_kt or norm_kt.startswith(norm_w.rstrip("/\\") + "/"):
+                        kt_watched = True
+                        if wpath not in monitored:
+                            monitored.append(wpath)
+                    if ccache_path and (norm_w == os.path.abspath(ccache_path) or "/tmp/krb5cc" in wpath):
+                        cc_watched = True
+                        if wpath not in monitored:
+                            monitored.append(wpath)
+                    elif "/tmp/krb5cc" in wpath or "krb5cc" in wpath:
+                        cc_watched = True
+                        if wpath not in monitored:
+                            monitored.append(wpath)
+
+    result["keytab_monitored"] = kt_watched
+    result["ccache_monitored"] = cc_watched
+    result["monitored_paths"] = monitored
+
+    if kt_watched or cc_watched:
+        result["status"] = "WARN"
+        targets = ", ".join(monitored)
+        result["details"] = f"Host auditd watch rule actively monitoring credential paths: {targets}"
+        result["issues"].append(f"Audit rule watches: {targets}")
+        result["recommendation"] = "Accessing keytab or ccache will emit an Auditd kernel event. Prefer memory injection."
+    elif result["falco_active"]:
+        result["status"] = "WARN"
+        result["details"] = "Falco daemon socket active on host; credential file syscalls may trigger alerts"
+        result["recommendation"] = "Verify Falco rule coverage for /etc/krb5.keytab access before reading."
+    elif result["auditd_running"] or result["audit_netlink_active"]:
+        result["status"] = "PASS"
+        result["details"] = "Audit daemon active, but no watch rules targeting keytab or ccache"
+    else:
+        if os.name == "nt":
+            result["status"] = "PASS"
+            result["details"] = "Platform not monitored by Linux netlink/auditd"
+        else:
+            result["status"] = "PASS"
+            result["details"] = "No active Auditd or Falco monitoring detected on host"
+
+    return result
+
+
 def diagnose_system(
     keytab_path: str = "/etc/krb5.keytab",
     krb5_conf_path: Optional[str] = None,
@@ -953,6 +1084,12 @@ def diagnose_system(
     sssd_pid: str = "/var/run/sssd.pid",
     ccache_path: Optional[str] = None,
     tools_search_path: Optional[str] = None,
+    include_opsec: bool = False,
+    audit_rules_dir: str = "/etc/audit/rules.d",
+    audit_rules_file: str = "/etc/audit/audit.rules",
+    netlink_path: str = "/proc/net/netlink",
+    auditd_pid_path: str = "/run/auditd.pid",
+    falco_socket: str = "/var/run/falco/falco.sock",
 ) -> DoctorReport:
     """Run all pre-flight diagnostic probes deterministically in <5ms without network emissions."""
     t0 = time.perf_counter()
@@ -966,6 +1103,19 @@ def diagnose_system(
         check_ticket_lifetime(ccache_path),
         check_host_tools(tools_search_path),
     ]
+
+    if include_opsec:
+        checks.append(
+            check_opsec_sensors(
+                audit_rules_dir=audit_rules_dir,
+                audit_rules_file=audit_rules_file,
+                netlink_path=netlink_path,
+                auditd_pid_path=auditd_pid_path,
+                falco_socket=falco_socket,
+                keytab_path=keytab_path,
+                ccache_path=ccache_path,
+            )
+        )
 
     has_fail = any(c.get("status") == "FAIL" for c in checks)
     has_warn = any(c.get("status") in ("WARN", "EXPIRED") for c in checks)

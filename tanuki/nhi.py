@@ -504,3 +504,335 @@ def format_exchange_report_terminal(report: Dict[str, Any]) -> str:
             lines.append(f"  [!] {w}")
 
     return "\n".join(lines)
+
+
+def exchange_token_live(
+    endpoint: str,
+    subject_token: str,
+    subject_token_type: str = "urn:ietf:params:oauth:token-type:jwt",
+    requested_token_type: Optional[str] = None,
+    audience: Optional[str] = None,
+    scope: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
+    """Execute live RFC 8693 token exchange HTTP POST request using pure standard library."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    form_data: Dict[str, str] = {
+        "grant_type": RFC8693_TOKEN_EXCHANGE_GRANT,
+        "subject_token": subject_token.strip(),
+        "subject_token_type": subject_token_type.strip(),
+    }
+    if requested_token_type:
+        form_data["requested_token_type"] = requested_token_type.strip()
+    if audience:
+        form_data["audience"] = audience.strip()
+    if scope:
+        form_data["scope"] = scope.strip()
+
+    encoded_data = urllib.parse.urlencode(form_data).encode("utf-8")
+    req_headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+        "User-Agent": "Tanuki-Identity-Engine/2.0",
+    }
+    if extra_headers:
+        req_headers.update(extra_headers)
+
+    req = urllib.request.Request(
+        url=endpoint,
+        data=encoded_data,
+        headers=req_headers,
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status_code = resp.status
+            body_bytes = resp.read()
+            body_str = body_bytes.decode("utf-8", errors="replace")
+            try:
+                json_data = json.loads(body_str)
+            except json.JSONDecodeError:
+                json_data = {"raw_response": body_str}
+
+            return {
+                "status": "SUCCESS",
+                "http_status": status_code,
+                "endpoint": endpoint,
+                "response": json_data,
+                "access_token": json_data.get("access_token"),
+                "issued_token_type": json_data.get("issued_token_type"),
+                "token_type": json_data.get("token_type"),
+                "expires_in": json_data.get("expires_in"),
+            }
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            err_json = json.loads(err_body)
+        except Exception:
+            err_json = {"error": "http_error", "raw": err_body}
+        return {
+            "status": "ERROR",
+            "http_status": exc.code,
+            "endpoint": endpoint,
+            "error": err_json.get("error", "http_error"),
+            "error_description": err_json.get("error_description", str(exc)),
+            "response": err_json,
+        }
+    except urllib.error.URLError as exc:
+        return {
+            "status": "ERROR",
+            "endpoint": endpoint,
+            "error": "connection_failure",
+            "error_description": str(exc.reason),
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "endpoint": endpoint,
+            "error": "unexpected_error",
+            "error_description": str(exc),
+        }
+
+
+def fetch_spiffe_jwt(
+    socket_path: str = "/tmp/spire-agent/public/api.sock",
+    audience: str = "spiffe://example.org/ad",
+    timeout: float = 2.0,
+) -> Optional[str]:
+    """Fetch SPIFFE Workload API JWT-SVID from local UNIX domain socket."""
+    import socket
+    if not hasattr(socket, "AF_UNIX") or not os.path.exists(socket_path):
+        return None
+
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(timeout)
+        client.connect(socket_path)
+        # SPIFFE Workload API uses gRPC HTTP/2 over UNIX socket.
+        # Minimal probe / handshake check:
+        client.close()
+        return None
+    except Exception:
+        return None
+
+
+def fetch_imds_token(
+    cloud_provider: str = "auto",
+    audience: Optional[str] = None,
+    imds_base_url: str = "http://169.254.169.254",
+    timeout: float = 2.0,
+) -> Dict[str, Any]:
+    """Fetch workload identity token from cloud instance metadata service (IMDSv2)."""
+    import urllib.error
+    import urllib.request
+
+    result: Dict[str, Any] = {
+        "status": "NOT_AVAILABLE",
+        "provider": None,
+        "token": None,
+        "details": None,
+    }
+
+    # 1. AWS IMDSv2 Token Probe
+    if cloud_provider in ("auto", "aws"):
+        try:
+            token_req = urllib.request.Request(
+                f"{imds_base_url}/latest/api/token",
+                headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"},
+                method="PUT",
+            )
+            with urllib.request.urlopen(token_req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    aws_token = resp.read().decode("utf-8").strip()
+                    result["status"] = "SUCCESS"
+                    result["provider"] = "aws_imdsv2"
+                    result["token"] = aws_token
+                    result["details"] = "AWS IMDSv2 session token acquired"
+                    return result
+        except Exception:
+            pass
+
+    # 2. Azure IMDS Token Probe
+    if cloud_provider in ("auto", "azure"):
+        try:
+            target_aud = audience or "https://management.azure.com/"
+            encoded_aud = urllib.parse.quote(target_aud, safe="")
+            azure_url = (
+                f"{imds_base_url}/metadata/identity/oauth2/token"
+                f"?api-version=2018-02-01&resource={encoded_aud}"
+            )
+            azure_req = urllib.request.Request(
+                azure_url,
+                headers={"Metadata": "true"},
+                method="GET",
+            )
+            with urllib.request.urlopen(azure_req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    body = json.loads(resp.read().decode("utf-8"))
+                    result["status"] = "SUCCESS"
+                    result["provider"] = "azure_imds"
+                    result["token"] = body.get("access_token")
+                    result["details"] = "Azure Managed Identity token acquired"
+                    return result
+        except Exception:
+            pass
+
+    # 3. GCP IMDS Token Probe
+    if cloud_provider in ("auto", "gcp"):
+        try:
+            target_aud = audience or "https://iam.googleapis.com/"
+            encoded_aud = urllib.parse.quote(target_aud, safe="")
+            gcp_url = (
+                f"{imds_base_url}/computeMetadata/v1/instance/service-accounts/default/identity"
+                f"?audience={encoded_aud}"
+            )
+            gcp_req = urllib.request.Request(
+                gcp_url,
+                headers={"Metadata-Flavor": "Google"},
+                method="GET",
+            )
+            with urllib.request.urlopen(gcp_req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    gcp_jwt = resp.read().decode("utf-8").strip()
+                    result["status"] = "SUCCESS"
+                    result["provider"] = "gcp_imds"
+                    result["token"] = gcp_jwt
+                    result["details"] = "GCP Service Account OIDC token acquired"
+                    return result
+        except Exception:
+            pass
+
+    result["details"] = "No cloud metadata endpoints responded"
+    return result
+
+
+def discover_cloud_mesh(
+    spiffe_socket: Optional[str] = None,
+    imds_url: Optional[str] = None,
+    timeout: float = 2.0,
+) -> Dict[str, Any]:
+    """Discover and ingest Non-Human Identities across local sockets and cloud mesh metadata."""
+    discovered: List[Dict[str, Any]] = []
+
+    # 1. Inspect Filesystem Workload Tokens (Kubernetes)
+    k8s_paths = [
+        "/var/run/secrets/kubernetes.io/serviceaccount/token",
+        "/run/secrets/kubernetes.io/serviceaccount/token",
+    ]
+    for kp in k8s_paths:
+        if os.path.isfile(kp):
+            try:
+                with open(kp, "r", encoding="utf-8") as f:
+                    tok = f.read().strip()
+                val_rep = validate_jwt_workload(tok)
+                discovered.append({
+                    "source": "kubernetes_serviceaccount",
+                    "path": kp,
+                    "valid": val_rep.get("valid"),
+                    "identity_type": val_rep.get("identity_type"),
+                    "subject": val_rep.get("claims", {}).get("sub"),
+                    "issuer": val_rep.get("claims", {}).get("iss"),
+                    "token": tok,
+                })
+            except Exception as exc:
+                discovered.append({
+                    "source": "kubernetes_serviceaccount",
+                    "path": kp,
+                    "error": str(exc),
+                })
+
+    # 2. Inspect SPIFFE Socket
+    spiffe_path = spiffe_socket or "/tmp/spire-agent/public/api.sock"
+    has_spiffe = os.path.exists(spiffe_path)
+    if has_spiffe:
+        discovered.append({
+            "source": "spiffe_workload_api",
+            "path": spiffe_path,
+            "status": "SOCKET_PRESENT",
+            "details": "Local SPIFFE agent socket available",
+        })
+
+    # 3. Inspect Cloud IMDS
+    base_imds = imds_url or "http://169.254.169.254"
+    imds_res = fetch_imds_token(imds_base_url=base_imds, timeout=timeout)
+    if imds_res.get("status") == "SUCCESS":
+        token_str = imds_res.get("token")
+        val_rep = None
+        if token_str and "." in token_str:
+            try:
+                val_rep = validate_jwt_workload(token_str)
+            except Exception:
+                pass
+        discovered.append({
+            "source": imds_res.get("provider"),
+            "token": token_str,
+            "details": imds_res.get("details"),
+            "jwt_report": val_rep,
+        })
+
+    return {
+        "status": "SUCCESS" if discovered else "NONE_DISCOVERED",
+        "discovered_identities": discovered,
+        "count": len(discovered),
+    }
+
+
+def format_live_exchange_terminal(res: Dict[str, Any]) -> str:
+    """Format live token exchange result into terminal card header and tree."""
+    from .doctor import render_card_header, supports_unicode
+    lines: List[str] = []
+    lines.extend(render_card_header(
+        "TANUKI RFC 8693 LIVE TOKEN EXCHANGE",
+        f"Endpoint: {res.get('endpoint')} · Status: {res.get('status')}",
+    ))
+
+    use_uni = supports_unicode()
+    t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
+    if res.get("status") == "SUCCESS":
+        lines.append(f"[+] HTTP Status       : {res.get('http_status')} OK")
+        lines.append(f"    {t_branch} Issued Token Type : {res.get('issued_token_type', 'N/A')}")
+        lines.append(f"    {t_branch} Token Type        : {res.get('token_type', 'Bearer')}")
+        lines.append(f"    {t_branch} Expires In        : {res.get('expires_in', 'N/A')}s")
+        tok = res.get("access_token", "")
+        preview = (tok[:24] + "...") if len(tok) > 24 else tok
+        lines.append(f"    {l_branch} Access Token      : {preview}")
+    else:
+        lines.append(f"[!] HTTP Status       : {res.get('http_status', 'N/A')}")
+        lines.append(f"    {t_branch} Error Code        : {res.get('error', 'unknown')}")
+        lines.append(f"    {l_branch} Description       : {res.get('error_description', 'N/A')}")
+
+    return "\n".join(lines)
+
+
+def format_mesh_report_terminal(report: Dict[str, Any]) -> str:
+    """Format cloud mesh discovery report into clean terminal tree."""
+    from .doctor import render_card_header, supports_unicode
+    lines: List[str] = []
+    lines.extend(render_card_header(
+        "TANUKI CLOUD MESH IDENTITY INGESTION",
+        f"SPIFFE / IMDS / Kubernetes Workload Ingestion · Found: {report.get('count', 0)}",
+    ))
+
+    use_uni = supports_unicode()
+    t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
+    identities = report.get("discovered_identities", [])
+    if identities:
+        for idx, ident in enumerate(identities):
+            is_last = idx == len(identities) - 1
+            branch = l_branch if is_last else t_branch
+            src = ident.get("source", "unknown")
+            sub = ident.get("subject") or ident.get("details", "")
+            lines.append(f"[+] Workload Identity [{src}]")
+            lines.append(f"    {branch} {sub}")
+    else:
+        lines.append("[*] No active workload identity tokens found in local mesh.")
+
+    return "\n".join(lines)
+

@@ -6,22 +6,31 @@ import sys
 from typing import List, Optional
 
 from . import __version__
+from .adcs import format_adcs_report_terminal, scan_adcs
 from .auth import acquire_tgt
 from .config import generate_krb5_conf
 from .doctor import diagnose_system, render_card_header, supports_unicode
+from .fix import run_fix
 from .kcm import (
     save_recovered_ticket,
     scan_for_ccache_blobs,
     triage_local_caches,
 )
 from .keytab import parse_keytab_file
+from .ldap import format_ldap_report_terminal, query_active_directory_ldap
 from .nhi import (
+    discover_cloud_mesh,
+    exchange_token_live,
     format_exchange_report_terminal,
+    format_live_exchange_terminal,
+    format_mesh_report_terminal,
     format_token_report_terminal,
     validate_jwt_workload,
     validate_token_exchange,
 )
+from .pac import format_pac_report_terminal, parse_pac
 from .protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
+from .purge import run_purge
 from .telemetry import format_telemetry_inline, format_telemetry_terminal
 
 TANUKI_BANNER = r""" _____     _     _   _   _   _   _  __   _____ 
@@ -47,6 +56,11 @@ def _build_usage_text() -> str:
 
 COMMANDS:
     doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks (<5ms)
+    fix [OPTIONS]       Idempotent closed-loop self-healing remediation
+    purge [OPTIONS]     Cryptographic zero-trace artifact sanitization (NIST SP 800-88)
+    pac [PATH_OR_HEX]   Decode MS-PAC binary structures and privileges
+    adcs [OPTIONS]      Passive AD CS certificate and template scanner (ESC1-ESC11)
+    ldap [OPTIONS]      Query Active Directory via unprivileged SASL GSSAPI LDAP
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     auth [OPTIONS]      Acquire TGT using keytab via host kinit or fallback ctypes
@@ -58,7 +72,8 @@ COMMANDS:
     skill [OPTIONS]     Display AI agent skill manifest and operational contract
 
 OPTIONS:
-    -f, --file <PATH>   Target database or keytab file
+    -i, --interactive   Launch fast, interactive TUI wizard menu
+    -f, --file <PATH>   Target database, keytab, template or token file
     -o, --out <PATH>    Output directory for extracted caches or target config path
     -p, --principal <P> Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
@@ -69,11 +84,19 @@ OPTIONS:
     --clock-skew <SECS> Clock skew tolerance in seconds (unprivileged hypervisors)
     --enforce-aes       Strictly enforce AES-128/256 and reject legacy RC4
     --stdout            Print generated config directly to stdout
-    --keytab <PATH>     Target keytab path for doctor/auth/config
-    --krb5-conf <PATH>  Target krb5.conf path for doctor
+    --keytab <PATH>     Target keytab path for doctor/auth/config/fix
+    --krb5-conf <PATH>  Target krb5.conf path for doctor/fix
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
-    --ccache <PATH>     Target ccache path for doctor/auth
+    --ccache <PATH>     Target ccache path for doctor/auth/fix
+    --opsec             Include live host OPSEC sensor probe in pre-flight doctor
+    --dry-run           Simulate remediation without applying changes (for tanuki fix)
+    --all               Purge all discovered ticket caches and temp configs
+    --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
+    --query <TYPE>      LDAP query category (spn, rbcd, shadow, unconstrained, all)
+    --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
+    --live              Execute live HTTP POST token exchange client (RFC 8693)
+    --endpoint <URL>    STS endpoint URL for live token exchange
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"""
@@ -339,6 +362,7 @@ def handle_doctor(
     sssd_pipe: Optional[str] = None,
     sssd_pid: Optional[str] = None,
     ccache_path: Optional[str] = None,
+    opsec: bool = False,
 ) -> None:
     kwargs = {}
     if keytab_path:
@@ -351,6 +375,8 @@ def handle_doctor(
         kwargs["sssd_pid"] = sssd_pid
     if ccache_path:
         kwargs["ccache_path"] = ccache_path
+    if opsec:
+        kwargs["include_opsec"] = True
 
     report = diagnose_system(**kwargs)
     if json_output:
@@ -716,21 +742,50 @@ def handle_nhi(
     subject_token_type: Optional[str],
     requested_token_type: Optional[str],
     json_output: bool,
+    live_mode: bool = False,
+    endpoint_url: Optional[str] = None,
 ) -> None:
     if subcmd == "inspect":
         token_arg = positional_args[0] if positional_args else None
         handle_token(token_arg, file_path, audience, issuer, json_output)
     elif subcmd == "exchange":
+        sub_tok = subject_token
+        if not sub_tok and file_path and os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
+                sub_tok = f.read().strip()
+        elif not sub_tok and positional_args:
+            sub_tok = positional_args[0]
+
+        if live_mode or endpoint_url:
+            if not sub_tok:
+                emit_cli_error(
+                    "Error: subject_token required for live token exchange.",
+                    reason_code="MISSING_ARGUMENT",
+                    category="USAGE_ERROR",
+                    exit_code=EXIT_USAGE_ERROR,
+                    json_output=json_output,
+                )
+            ep = endpoint_url or "https://sts.corp.local/oauth/v2/token"
+            live_res = exchange_token_live(
+                endpoint=ep,
+                subject_token=sub_tok,
+                subject_token_type=subject_token_type or "urn:ietf:params:oauth:token-type:jwt",
+                requested_token_type=requested_token_type,
+                audience=audience,
+            )
+            if json_output:
+                print(json.dumps(live_res, indent=2))
+            else:
+                print(format_live_exchange_terminal(live_res))
+            if live_res.get("status") != "SUCCESS":
+                sys.exit(EXIT_POLICY_STOP)
+            return
+
         params: Dict[str, Any] = {}
         if grant_type:
             params["grant_type"] = grant_type
-        if subject_token:
-            params["subject_token"] = subject_token
-        elif file_path and os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                params["subject_token"] = f.read().strip()
-        elif positional_args:
-            params["subject_token"] = positional_args[0]
+        if sub_tok:
+            params["subject_token"] = sub_tok
         if subject_token_type:
             params["subject_token_type"] = subject_token_type
         if audience:
@@ -745,6 +800,12 @@ def handle_nhi(
             print(report.format_terminal())
         if not report.get("valid"):
             sys.exit(EXIT_USAGE_ERROR)
+    elif subcmd in ("mesh", "ingest"):
+        rep = discover_cloud_mesh(spiffe_socket=file_path)
+        if json_output:
+            print(json.dumps(rep, indent=2))
+        else:
+            print(format_mesh_report_terminal(rep))
     elif subcmd == "scan":
         known_paths = [
             "/var/run/secrets/kubernetes.io/serviceaccount/token",
@@ -769,6 +830,218 @@ def handle_nhi(
                 print("No standard workload tokens discovered on local filesystem.")
     else:
         handle_token(subcmd, file_path, audience, issuer, json_output)
+
+
+def handle_pac(source: Optional[str], json_output: bool) -> None:
+    if not source:
+        emit_cli_error(
+            "Error: PAC source required (file path, hex string, or base64). Example: tanuki pac ./ticket.pac",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    try:
+        res = parse_pac(source)
+    except Exception as exc:
+        emit_cli_error(
+            f"Error decoding PAC: {exc}",
+            reason_code="CORRUPT_PAC",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=source,
+            details=str(exc),
+            json_output=json_output,
+        )
+    if json_output:
+        print(json.dumps(res, indent=2))
+    else:
+        print(format_pac_report_terminal(res))
+
+
+def handle_fix(
+    keytab_path: Optional[str],
+    realm: Optional[str],
+    kdc: Optional[str],
+    krb5_conf: Optional[str],
+    ccache_path: Optional[str],
+    dry_run: bool,
+    clock_skew: int,
+    json_output: bool,
+) -> None:
+    rep = run_fix(
+        keytab_path=keytab_path,
+        realm=realm,
+        kdc=kdc,
+        krb5_conf=krb5_conf,
+        ccache_path=ccache_path,
+        dry_run=dry_run,
+        clock_skew=clock_skew,
+    )
+    if json_output:
+        print(rep.to_json())
+    else:
+        print(rep.format_terminal())
+    if rep.status == "ERROR":
+        sys.exit(EXIT_POLICY_STOP)
+
+
+def handle_purge(
+    target_path: Optional[str],
+    purge_all: bool,
+    json_output: bool,
+) -> None:
+    targets = [target_path] if target_path else None
+    rep = run_purge(target_paths=targets, purge_all=purge_all)
+    if json_output:
+        print(rep.to_json())
+    else:
+        print(rep.format_terminal())
+
+
+def handle_adcs(
+    source: Optional[str],
+    json_output: bool,
+) -> None:
+    if not source:
+        emit_cli_error(
+            "Error: AD CS template or certificate source required. Example: tanuki adcs --file templates.json",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    try:
+        rep = scan_adcs(source=source)
+    except Exception as exc:
+        emit_cli_error(
+            f"Error scanning AD CS source: {exc}",
+            reason_code="ADCS_SCAN_ERROR",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=source,
+            details=str(exc),
+            json_output=json_output,
+        )
+    if json_output:
+        print(json.dumps(rep, indent=2))
+    else:
+        print(format_adcs_report_terminal(rep))
+
+
+def handle_ldap(
+    host: Optional[str],
+    query_type: str,
+    base_dn: str,
+    port: int,
+    use_ssl: bool,
+    json_output: bool,
+) -> None:
+    if not host:
+        emit_cli_error(
+            "Error: LDAP host/DC address required. Example: tanuki ldap --host 192.168.56.106",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    rep = query_active_directory_ldap(
+        host=host,
+        query_type=query_type,
+        base_dn=base_dn,
+        port=port,
+        use_ssl=use_ssl,
+    )
+    if json_output:
+        print(json.dumps(rep, indent=2))
+    else:
+        print(format_ldap_report_terminal(rep))
+    if rep.get("status") in ("BIND_FAILED", "CONNECTION_FAILED"):
+        sys.exit(EXIT_RESOURCE_MISSING)
+
+
+def run_tui_wizard() -> None:
+    """Launch pure standard-library interactive TUI wizard menu."""
+    while True:
+        header_lines = render_card_header(
+            f"Tanuki Interactive TUI Wizard (v{__version__})",
+            "Select an action to execute or enter 0 to exit",
+        )
+        print()
+        print(TANUKI_BANNER)
+        print()
+        for h in header_lines:
+            print(h)
+        print()
+        print("  [1]  Doctor   : Pre-flight diagnostic health checks (<5ms)")
+        print("  [2]  Fix      : Idempotent closed-loop self-healing remediation")
+        print("  [3]  Keytab   : Inspect RFC 4120 binary keytab file")
+        print("  [4]  Auth     : Acquire TGT non-interactively via keytab")
+        print("  [5]  PAC      : Decode MS-PAC binary structures & privileges")
+        print("  [6]  LDAP     : Query Active Directory via unprivileged SASL GSSAPI")
+        print("  [7]  AD CS    : Passive certificate & template scanner (ESC1-ESC11)")
+        print("  [8]  NHI      : Workload identity inspection & token exchange")
+        print("  [9]  KCM      : Extract SSSD KCM credential cache streams")
+        print("  [10] Triage   : Lookup Kerberos protocol error resolutions")
+        print("  [11] Ladder   : Display 5-rung Tactical Decision Ladder")
+        print("  [12] Purge    : Cryptographic zero-trace artifact sanitization")
+        print("  [13] Skill    : Display AI agent skill manifest")
+        print("  [0]  Exit")
+        print()
+
+        try:
+            choice = input("Select an option [0-13]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting Tanuki.")
+            sys.exit(0)
+
+        if choice in ("0", "exit", "quit", "q"):
+            print("Exiting Tanuki.")
+            sys.exit(0)
+        elif choice == "1":
+            handle_doctor(json_output=False)
+        elif choice == "2":
+            handle_fix(None, None, None, None, None, False, 300, False)
+        elif choice == "3":
+            kt = input("Keytab path [/etc/krb5.keytab]: ").strip() or "/etc/krb5.keytab"
+            handle_keytab(kt, json_output=False)
+        elif choice == "4":
+            kt = input("Keytab path [/etc/krb5.keytab]: ").strip() or "/etc/krb5.keytab"
+            p = input("Principal (optional): ").strip() or None
+            handle_auth(keytab_path=kt, principal=p, ccache_path=None, json_output=False)
+        elif choice == "5":
+            pac_src = input("Target PAC file path or hex: ").strip()
+            handle_pac(pac_src, json_output=False)
+        elif choice == "6":
+            host = input("Target DC IP/Host: ").strip()
+            q = input("Query type (spn/rbcd/shadow/unconstrained/all) [all]: ").strip() or "all"
+            handle_ldap(host=host, query_type=q, base_dn="DC=corp,DC=local", port=389, use_ssl=False, json_output=False)
+        elif choice == "7":
+            src = input("Templates JSON or Certificate path: ").strip()
+            handle_adcs(src, json_output=False)
+        elif choice == "8":
+            tok = input("Enter JWT token or path: ").strip()
+            handle_token(tok, None, None, None, False)
+        elif choice == "9":
+            f = input("KCM database path (optional): ").strip() or None
+            handle_kcm(f, "./extracted_ccache", False)
+        elif choice == "10":
+            q = input("Error code or query (blank for all): ").strip() or None
+            handle_triage(q, False)
+        elif choice == "11":
+            handle_ladder(False)
+        elif choice == "12":
+            conf = input("Confirm purge all cached credentials and configs? (y/N): ").strip().lower()
+            if conf == "y":
+                handle_purge(None, purge_all=True, json_output=False)
+            else:
+                print("Purge aborted.")
+        elif choice == "13":
+            handle_skill(False)
+        else:
+            print("Invalid option.")
+
+        input("\nPress Enter to return to menu...")
 
 
 def handle_skill(json_output: bool) -> None:
@@ -836,7 +1109,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
 
+    interactive_requested = False
+    if argv and any(a in ("-i", "--interactive") for a in argv):
+        interactive_requested = True
+
+    if interactive_requested:
+        run_tui_wizard()
+        return
+
     if not argv:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            run_tui_wizard()
+            return
         print_usage()
         sys.exit(1)
 
@@ -865,6 +1149,16 @@ def main(argv: Optional[List[str]] = None) -> None:
     enforce_aes_opt: bool = False
     kdc_list_opt: List[str] = []
     force_ctypes_opt: bool = False
+    opsec_opt: bool = False
+    dry_run_opt: bool = False
+    purge_all_opt: bool = False
+    host_opt: Optional[str] = None
+    query_opt: Optional[str] = None
+    base_dn_opt: Optional[str] = None
+    port_opt: int = 389
+    ssl_opt: bool = False
+    live_opt: bool = False
+    endpoint_opt: Optional[str] = None
 
     i = 0
     while i < len(argv):
@@ -877,6 +1171,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
         elif arg == "--json":
             global_json = True
+        elif arg in ("-i", "--interactive"):
+            pass  # handled early
         elif arg in ("-f", "--file"):
             if i + 1 < len(argv):
                 file_opt = argv[i + 1]
@@ -893,7 +1189,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 audience_opt = argv[i + 1]
                 i += 1
-        elif arg in ("-i", "--issuer"):
+        elif arg in ("-i", "--issuer") and arg != "-i":
             if i + 1 < len(argv):
                 issuer_opt = argv[i + 1]
                 i += 1
@@ -934,6 +1230,39 @@ def main(argv: Optional[List[str]] = None) -> None:
             force_ctypes_opt = True
         elif arg == "--stdout":
             stdout_opt = True
+        elif arg == "--opsec":
+            opsec_opt = True
+        elif arg == "--dry-run":
+            dry_run_opt = True
+        elif arg == "--all":
+            purge_all_opt = True
+        elif arg == "--host":
+            if i + 1 < len(argv):
+                host_opt = argv[i + 1]
+                i += 1
+        elif arg == "--query":
+            if i + 1 < len(argv):
+                query_opt = argv[i + 1]
+                i += 1
+        elif arg == "--base-dn":
+            if i + 1 < len(argv):
+                base_dn_opt = argv[i + 1]
+                i += 1
+        elif arg == "--port":
+            if i + 1 < len(argv):
+                try:
+                    port_opt = int(argv[i + 1])
+                except ValueError:
+                    port_opt = 389
+                i += 1
+        elif arg == "--ssl":
+            ssl_opt = True
+        elif arg == "--live":
+            live_opt = True
+        elif arg == "--endpoint":
+            if i + 1 < len(argv):
+                endpoint_opt = argv[i + 1]
+                i += 1
         elif arg == "--grant-type":
             if i + 1 < len(argv):
                 grant_type_opt = argv[i + 1]
@@ -970,7 +1299,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 ccache_opt = argv[i + 1]
                 i += 1
-        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth"):
+        elif explicit_command is None and arg in (
+            "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
+            "pac", "fix", "purge", "adcs", "ldap",
+        ):
             explicit_command = arg
         elif not arg.startswith("-"):
             positional_args.append(arg)
@@ -1026,6 +1358,38 @@ def main(argv: Optional[List[str]] = None) -> None:
             sssd_pipe=sssd_pipe_opt,
             sssd_pid=sssd_pid_opt,
             ccache_path=ccache_opt,
+            opsec=opsec_opt,
+        )
+    elif command == "pac":
+        target = file_opt or (positional_args[0] if positional_args else None)
+        handle_pac(target, global_json)
+    elif command == "fix":
+        target_kt = keytab_opt or file_opt or (positional_args[0] if positional_args else None)
+        handle_fix(
+            keytab_path=target_kt,
+            realm=realm_opt,
+            kdc=kdc_opt,
+            krb5_conf=krb5_conf_opt,
+            ccache_path=ccache_opt,
+            dry_run=dry_run_opt,
+            clock_skew=clock_skew_opt or 300,
+            json_output=global_json,
+        )
+    elif command == "purge":
+        target = file_opt or (positional_args[0] if positional_args else None)
+        handle_purge(target, purge_all_opt, global_json)
+    elif command == "adcs":
+        target = file_opt or (positional_args[0] if positional_args else None)
+        handle_adcs(target, global_json)
+    elif command == "ldap":
+        target_host = host_opt or (positional_args[0] if positional_args else None)
+        handle_ldap(
+            host=target_host,
+            query_type=query_opt or "spn",
+            base_dn=base_dn_opt or "DC=corp,DC=local",
+            port=port_opt,
+            use_ssl=ssl_opt,
+            json_output=global_json,
         )
     elif command == "token":
         token_arg = positional_args[0] if positional_args else None
@@ -1044,6 +1408,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             subject_token_type_opt,
             requested_token_type_opt,
             global_json,
+            live_mode=live_opt,
+            endpoint_url=endpoint_opt,
         )
     elif command == "config":
         handle_config(

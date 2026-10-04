@@ -7,6 +7,7 @@ pub struct DoctorOptions {
     pub sssd_pipe: Option<String>,
     pub sssd_pid: Option<String>,
     pub ccache_path: Option<String>,
+    pub include_opsec: bool,
 }
 
 impl Default for DoctorOptions {
@@ -17,6 +18,7 @@ impl Default for DoctorOptions {
             sssd_pipe: Some("/var/lib/sss/pipes/kcm".to_string()),
             sssd_pid: Some("/var/run/sssd.pid".to_string()),
             ccache_path: None,
+            include_opsec: false,
         }
     }
 }
@@ -109,6 +111,7 @@ impl DoctorReport {
                 "sssd_subsystem" => "SSSD Subsystem        ",
                 "ticket_lifetime" => "Active Ticket Cache   ",
                 "host_tooling" => "Kerberos Host Tooling ",
+                "opsec_sensors" => "Host OPSEC Sensors    ",
                 other => other,
             };
             out.push_str(&format!("[{}] {} : {}\n", check.status, title, check.details));

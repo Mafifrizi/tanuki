@@ -3,10 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution, generate_krb5_conf,
-    ladder_to_json, parse_and_validate_jwt, parse_keytab_bytes, run_doctor, save_candidates,
-    scan_for_ccache_blobs, validate_token_exchange, DoctorOptions, TokenExchangeParams,
-    DECISION_LADDER, ERROR_DICTIONARY,
+    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution,
+    format_pac_report_terminal, generate_krb5_conf, ladder_to_json, pac_report_to_json,
+    parse_and_validate_jwt, parse_keytab_bytes, parse_pac_source, query_active_directory_ldap,
+    run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source, scan_for_ccache_blobs,
+    validate_token_exchange, DoctorOptions, TokenExchangeParams, DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 const TANUKI_BANNER: &str = r#" _____     _     _   _   _   _   _  __   _____ 
@@ -38,18 +39,23 @@ fn print_usage() {
 
 COMMANDS:
     doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks (<5ms)
+    fix [OPTIONS]       Idempotent closed-loop self-healing remediation
+    purge [OPTIONS]     Cryptographic zero-trace forensic purge (NIST SP 800-88)
+    pac <FILE|HEX>      Decode and audit MS-PAC authorization data
+    adcs <FILE|SOURCE>  Scan Active Directory Certificate Templates (ESC1-ESC11)
+    ldap [OPTIONS]      Unprivileged Active Directory LDAP query engine
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
+    auth [OPTIONS]      Acquire TGT using keytab via host kinit
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
     skill [OPTIONS]     Display AI agent skill manifest and operational contract
-    auth [OPTIONS]      Acquire TGT using keytab via host kinit
 
 OPTIONS:
-    -f, --file <PATH>   Target database or keytab file
+    -f, --file <PATH>   Target database, keytab, template or token file
     -o, --out <PATH>    Output directory for extracted caches or config path
     -p, --principal <P> Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
@@ -60,11 +66,18 @@ OPTIONS:
     --clock-skew <SECS> Clock skew tolerance in seconds (unprivileged hypervisors)
     --enforce-aes       Strictly enforce AES-128/256 and reject legacy RC4
     --stdout            Print generated config directly to stdout
-    --keytab <PATH>     Target keytab path for doctor/auth/config
-    --krb5-conf <PATH>  Target krb5.conf path for doctor
+    --keytab <PATH>     Target keytab path for doctor/auth/config/fix
+    --krb5-conf <PATH>  Target krb5.conf path for doctor/fix
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
-    --ccache <PATH>     Target ccache path for doctor/auth
+    --ccache <PATH>     Target ccache path for doctor/auth/fix
+    --opsec             Include live host OPSEC sensor probe in pre-flight doctor
+    --dry-run           Simulate remediation without applying changes (for tanuki fix)
+    --all               Purge all discovered ticket caches and temp configs
+    --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
+    --query <TYPE>      LDAP query category (spn, rbcd, shadow, unconstrained, all)
+    --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
+    --port <PORT>       Target LDAP port (default: 389)
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"#
@@ -154,6 +167,13 @@ fn main() {
     let mut principal_opt: Option<String> = None;
     let mut clock_skew_opt: Option<u32> = None;
     let mut enforce_aes_opt = false;
+    let mut opsec_opt = false;
+    let mut dry_run_opt = false;
+    let mut purge_all_opt = false;
+    let mut host_opt: Option<String> = None;
+    let mut query_opt: Option<String> = None;
+    let mut base_dn_opt: Option<String> = None;
+    let mut port_opt: Option<u16> = None;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -305,8 +325,60 @@ fn main() {
             "--stdout" => {
                 stdout_opt = true;
             }
+            "--opsec" => {
+                opsec_opt = true;
+            }
+            "--dry-run" => {
+                dry_run_opt = true;
+            }
+            "--all" => {
+                purge_all_opt = true;
+            }
+            "--host" => {
+                if i + 1 < raw_args.len() {
+                    host_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--query" => {
+                if i + 1 < raw_args.len() {
+                    query_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--base-dn" => {
+                if i + 1 < raw_args.len() {
+                    base_dn_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--port" => {
+                if i + 1 < raw_args.len() {
+                    if let Ok(p) = raw_args[i + 1].parse::<u16>() {
+                        port_opt = Some(p);
+                    }
+                    i += 1;
+                }
+            }
             cmd if explicit_command.is_none()
-                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi" | "config" | "skill" | "auth") =>
+                && matches!(
+                    cmd,
+                    "keytab"
+                        | "kcm"
+                        | "triage"
+                        | "ladder"
+                        | "doctor"
+                        | "token"
+                        | "nhi"
+                        | "config"
+                        | "skill"
+                        | "auth"
+                        | "pac"
+                        | "fix"
+                        | "purge"
+                        | "adcs"
+                        | "ldap"
+                ) =>
             {
                 explicit_command = Some(cmd.to_string());
             }
@@ -362,7 +434,40 @@ fn main() {
                 sssd_pipe_opt,
                 sssd_pid_opt,
                 ccache_opt,
+                opsec_opt,
             );
+        }
+        "pac" => {
+            let target_source = file_opt.or_else(|| positional_args.first().cloned());
+            handle_pac(target_source, global_json);
+        }
+        "fix" => {
+            let target_kt = keytab_opt.or(file_opt);
+            handle_fix(
+                target_kt,
+                realm_opt.as_deref(),
+                kdc_opt.as_deref(),
+                krb5_conf_opt.as_deref(),
+                ccache_opt.as_deref(),
+                dry_run_opt,
+                clock_skew_opt.unwrap_or(300),
+                global_json,
+            );
+        }
+        "purge" => {
+            let target_file = file_opt.or_else(|| positional_args.first().cloned());
+            handle_purge(target_file, purge_all_opt, global_json);
+        }
+        "adcs" => {
+            let target_source = file_opt.or_else(|| positional_args.first().cloned());
+            handle_adcs(target_source, global_json);
+        }
+        "ldap" => {
+            let host = host_opt.or_else(|| positional_args.first().cloned());
+            let query = query_opt.unwrap_or_else(|| "spn".to_string());
+            let base_dn = base_dn_opt.unwrap_or_else(|| "DC=corp,DC=local".to_string());
+            let port = port_opt.unwrap_or(389);
+            handle_ldap(host, &query, &base_dn, port, global_json);
         }
         "auth" => {
             let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
@@ -1074,6 +1179,7 @@ fn handle_doctor(
     sssd_pipe: Option<String>,
     sssd_pid: Option<String>,
     ccache_path: Option<String>,
+    include_opsec: bool,
 ) {
     let opts = DoctorOptions {
         keytab_path: keytab_path.or_else(|| Some("/etc/krb5.keytab".to_string())),
@@ -1081,6 +1187,7 @@ fn handle_doctor(
         sssd_pipe: sssd_pipe.or_else(|| Some("/var/lib/sss/pipes/kcm".to_string())),
         sssd_pid: sssd_pid.or_else(|| Some("/var/run/sssd.pid".to_string())),
         ccache_path,
+        include_opsec,
     };
 
     let report = run_doctor(&opts);
@@ -1322,3 +1429,154 @@ fn handle_skill(json_output: bool) {
     println!("[*] Deterministic Command Output Standard:");
     println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
 }
+
+fn handle_pac(source_opt: Option<String>, json_output: bool) {
+    let source = match source_opt {
+        Some(s) => s,
+        None => {
+            emit_cli_error(
+                "Error: PAC source required (file path, hex string, or base64). Example: tanuki pac ./ticket.pac",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+
+    match parse_pac_source(&source) {
+        Ok(report) => {
+            if json_output {
+                println!("{}", pac_report_to_json(&report));
+            } else {
+                println!("{}", format_pac_report_terminal(&report));
+            }
+        }
+        Err(err) => {
+            emit_cli_error(
+                &format!("Error decoding PAC: {}", err),
+                "CORRUPT_PAC",
+                "PARSE_FAILURE",
+                EXIT_PARSE_FAILURE,
+                Some(&source),
+                Some(&err),
+                json_output,
+            );
+        }
+    }
+}
+
+fn handle_fix(
+    keytab_path: Option<String>,
+    realm: Option<&str>,
+    kdc: Option<&str>,
+    krb5_conf: Option<&str>,
+    ccache_path: Option<&str>,
+    dry_run: bool,
+    clock_skew: u32,
+    json_output: bool,
+) {
+    let res = run_fix(
+        keytab_path.as_deref(),
+        realm,
+        kdc,
+        krb5_conf,
+        ccache_path,
+        dry_run,
+        clock_skew,
+    );
+
+    if json_output {
+        println!("{}", res.to_json());
+    } else {
+        println!("{}", res.format_terminal());
+    }
+
+    if res.status == "ERROR" {
+        process::exit(EXIT_POLICY_STOP);
+    }
+}
+
+fn handle_purge(target_path: Option<String>, purge_all: bool, json_output: bool) {
+    let res = run_purge(target_path.as_deref(), purge_all);
+    if json_output {
+        println!("{}", res.to_json());
+    } else {
+        println!("{}", res.format_terminal());
+    }
+}
+
+fn handle_adcs(source_opt: Option<String>, json_output: bool) {
+    let source = match source_opt {
+        Some(s) => s,
+        None => {
+            emit_cli_error(
+                "Error: AD CS template or certificate source required. Example: tanuki adcs --file templates.json",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+
+    match scan_adcs_source(&source) {
+        Ok(rep) => {
+            if json_output {
+                println!("{}", rep.to_json());
+            } else {
+                println!("{}", rep.format_terminal());
+            }
+        }
+        Err(err) => {
+            emit_cli_error(
+                &format!("Error scanning AD CS source: {}", err),
+                "ADCS_SCAN_ERROR",
+                "PARSE_FAILURE",
+                EXIT_PARSE_FAILURE,
+                Some(&source),
+                Some(&err),
+                json_output,
+            );
+        }
+    }
+}
+
+fn handle_ldap(
+    host_opt: Option<String>,
+    query_type: &str,
+    base_dn: &str,
+    port: u16,
+    json_output: bool,
+) {
+    let host = match host_opt {
+        Some(h) => h,
+        None => {
+            emit_cli_error(
+                "Error: LDAP host/DC address required. Example: tanuki ldap --host 192.168.56.106",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+
+    let rep = query_active_directory_ldap(&host, query_type, base_dn, port, 5);
+    if json_output {
+        println!("{}", rep.to_json());
+    } else {
+        println!("{}", rep.format_terminal());
+    }
+
+    if rep.status == "BIND_FAILED" || rep.status == "CONNECTION_FAILED" {
+        process::exit(EXIT_RESOURCE_MISSING);
+    }
+}
+
