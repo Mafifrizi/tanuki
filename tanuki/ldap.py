@@ -301,6 +301,27 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
     return messages
 
 
+def is_ldap_message_done(data: bytes) -> bool:
+    """Check if stream contains a completely framed LDAP_RESP_BIND or LDAP_RESP_SEARCH_DONE."""
+    offset = 0
+    while offset < len(data):
+        if offset + 2 > len(data) or data[offset] != TAG_SEQUENCE:
+            offset += 1
+            continue
+        try:
+            tag, seq_val, next_off = ber_decode_tlv(data, offset)
+            if tag == TAG_SEQUENCE:
+                _, _, inner_off = ber_decode_tlv(seq_val, 0)
+                if inner_off < len(seq_val):
+                    op_tag = seq_val[inner_off]
+                    if op_tag in (LDAP_RESP_BIND, LDAP_RESP_SEARCH_DONE):
+                        return True
+            offset = next_off
+        except Exception:
+            break
+    return False
+
+
 class LdapClient:
     """Pure standard-library LDAPv3 client for unprivileged Active Directory reconnaissance."""
 
@@ -357,12 +378,8 @@ class LdapClient:
                 if not data:
                     break
                 chunks.append(data)
-                # Check if we have received a complete message or done response
                 joined = b"".join(chunks)
-                if (
-                    bytes([LDAP_RESP_BIND]) in joined
-                    or bytes([LDAP_RESP_SEARCH_DONE]) in joined
-                ):
+                if is_ldap_message_done(joined):
                     break
         except socket.timeout:
             pass

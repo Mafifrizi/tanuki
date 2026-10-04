@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
@@ -55,11 +56,12 @@ COMMANDS:
     skill [OPTIONS]     Display AI agent skill manifest and operational contract
 
 OPTIONS:
+    -i, --interactive   Launch fast, interactive TUI wizard menu
     -f, --file <PATH>   Target database, keytab, template or token file
     -o, --out <PATH>    Output directory for extracted caches or config path
     -p, --principal <P> Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
-    -i, --issuer <ISS>   Expected issuer for workload validation
+    --issuer <ISS>      Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
     --kdc <HOST_OR_IP>  KDC address or hostname (supports multiple or comma-separated)
     --admin-server <HOST_OR_IP> Optional admin server for config
@@ -137,11 +139,155 @@ fn emit_cli_error(
     process::exit(exit_code);
 }
 
+fn read_line_prompt(prompt: &str) -> Option<String> {
+    print!("{}", prompt);
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    match io::stdin().read_line(&mut line) {
+        Ok(0) => None,
+        Ok(_) => Some(line.trim().to_string()),
+        Err(_) => None,
+    }
+}
+
+fn run_tui_wizard() {
+    loop {
+        println!("{}", TANUKI_BANNER);
+        println!();
+        print_card_header(
+            "TANUKI INTERACTIVE WIZARD",
+            Some("Pillar 10 · Tactical Identity TUI Navigator"),
+            72,
+        );
+        println!("  [1]  Doctor   : Run proactive identity health checks (<5ms)");
+        println!("  [2]  Fix      : Idempotent self-healing remediation");
+        println!("  [3]  Keytab   : Inspect Kerberos keytab binary entries");
+        println!("  [4]  Auth     : Acquire Kerberos TGT ticket cache via kinit");
+        println!("  [5]  PAC      : Decode MS-PAC binary structures & privileges");
+        println!("  [6]  LDAP     : Query Active Directory via unprivileged SASL GSSAPI");
+        println!("  [7]  AD CS    : Passive certificate & template scanner (ESC1-ESC11)");
+        println!("  [8]  NHI      : Workload identity inspection & token exchange");
+        println!("  [9]  KCM      : Extract SSSD KCM credential cache streams");
+        println!("  [10] Triage   : Lookup Kerberos protocol error resolutions");
+        println!("  [11] Ladder   : Display 5-rung Tactical Decision Ladder");
+        println!("  [12] Purge    : Cryptographic zero-trace artifact sanitization");
+        println!("  [13] Skill    : Display AI agent skill manifest");
+        println!("  [0]  Exit");
+        println!();
+
+        let choice = match read_line_prompt("Select an option [0-13]: ") {
+            Some(c) => c,
+            None => {
+                println!("\nExiting Tanuki.");
+                process::exit(0);
+            }
+        };
+
+        match choice.as_str() {
+            "0" | "exit" | "quit" | "q" => {
+                println!("Exiting Tanuki.");
+                process::exit(0);
+            }
+            "1" => {
+                handle_doctor(false, None, None, None, None, None, false);
+            }
+            "2" => {
+                handle_fix(None, None, None, None, None, false, 300, false);
+            }
+            "3" => {
+                let kt = match read_line_prompt("Keytab path [/etc/krb5.keytab]: ") {
+                    Some(s) if !s.is_empty() => s,
+                    _ => "/etc/krb5.keytab".to_string(),
+                };
+                handle_keytab(Some(kt), false);
+            }
+            "4" => {
+                let kt = match read_line_prompt("Keytab path [/etc/krb5.keytab]: ") {
+                    Some(s) if !s.is_empty() => s,
+                    _ => "/etc/krb5.keytab".to_string(),
+                };
+                let princ = read_line_prompt("Principal (optional): ").filter(|s| !s.is_empty());
+                handle_auth(Some(kt), princ, None, false, None);
+            }
+            "5" => {
+                let pac_src = read_line_prompt("Target PAC file path or hex: ").unwrap_or_default();
+                handle_pac(Some(pac_src), false);
+            }
+            "6" => {
+                let host = read_line_prompt("Target DC IP/Host: ").unwrap_or_default();
+                let q = match read_line_prompt("Query type (spn/rbcd/shadow/unconstrained/all) [all]: ") {
+                    Some(s) if !s.is_empty() => s,
+                    _ => "all".to_string(),
+                };
+                handle_ldap(Some(host), &q, "DC=corp,DC=local", 389, false);
+            }
+            "7" => {
+                let src = read_line_prompt("Templates JSON or Certificate path: ").unwrap_or_default();
+                handle_adcs(Some(src), false);
+            }
+            "8" => {
+                let tok = read_line_prompt("Enter JWT token or path: ").unwrap_or_default();
+                handle_token(Some(tok), None, None, None, false);
+            }
+            "9" => {
+                let f = read_line_prompt("KCM database path (optional): ").filter(|s| !s.is_empty());
+                handle_kcm(f, "./extracted_ccache", false);
+            }
+            "10" => {
+                let q = read_line_prompt("Error code or query (blank for all): ").filter(|s| !s.is_empty());
+                handle_triage(q.as_deref(), false);
+            }
+            "11" => {
+                handle_ladder(false);
+            }
+            "12" => {
+                let conf = read_line_prompt("Confirm purge all cached credentials and configs? (y/N): ")
+                    .unwrap_or_default()
+                    .to_lowercase();
+                if conf == "y" {
+                    handle_purge(None, true, false);
+                } else {
+                    println!("Purge aborted.");
+                }
+            }
+            "13" => {
+                handle_skill(false);
+            }
+            _ => {
+                println!("Invalid option.");
+            }
+        }
+
+        let _ = read_line_prompt("\nPress Enter to return to menu...");
+    }
+}
+
 fn main() {
     let raw_args: Vec<String> = env::args().skip(1).collect();
     if raw_args.is_empty() {
+        if io::stdin().is_terminal() && io::stdout().is_terminal() {
+            run_tui_wizard();
+            return;
+        }
         print_usage();
         process::exit(EXIT_USAGE_ERROR);
+    }
+
+    let known_subcommands = [
+        "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
+        "pac", "fix", "purge", "adcs", "ldap",
+    ];
+
+    if raw_args.len() == 1 && (raw_args[0] == "-i" || raw_args[0] == "--interactive") {
+        run_tui_wizard();
+        return;
+    }
+
+    if raw_args.iter().any(|a| a == "--interactive")
+        && !raw_args.iter().any(|a| known_subcommands.contains(&a.as_str()))
+    {
+        run_tui_wizard();
+        return;
     }
 
     let mut global_json = raw_args.iter().any(|a| a == "--json");
@@ -213,10 +359,31 @@ fn main() {
                     i += 1;
                 }
             }
+            "--interactive" => {
+                if explicit_command.is_none() {
+                    run_tui_wizard();
+                    return;
+                }
+            }
             "-i" | "--issuer" => {
-                if i + 1 < raw_args.len() {
+                if i + 1 < raw_args.len() && !raw_args[i + 1].starts_with('-') {
                     issuer_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else if explicit_command.is_none()
+                    && !raw_args.iter().any(|a| known_subcommands.contains(&a.as_str()))
+                {
+                    run_tui_wizard();
+                    return;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: -i/--issuer",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--grant-type" => {

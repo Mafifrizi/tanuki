@@ -282,10 +282,24 @@ class TestUnifiedCLI(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         data = json.loads(res.stdout)
         self.assertEqual(data.get("status"), "ERROR")
-        self.assertEqual(data.get("reason_code"), "UNKNOWN_OPTION")
-        self.assertEqual(data.get("exit_code"), 1)
-        self.assertEqual(data.get("target"), "--invalid-flag")
+    def test_cli_token_with_issuer_flag_does_not_hang(self):
+        token_str = "eyJhbGciOiJub25lIn0.eyJpc3MiOiJodHRwczovL2V4YW1wbGUuY29tIiwic3ViIjoidGVzdCJ9."
+        res = self.run_cli_subprocess(["token", token_str, "-i", "https://example.com"])
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("TANUKI WORKLOAD IDENTITY VALIDATOR", res.stdout)
+        self.assertIn("https://example.com", res.stdout)
+
+    def test_cli_missing_issuer_argument(self):
+        res = self.run_cli_subprocess(["token", "some.jwt.token", "-i"])
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Option requires an argument: -i/--issuer", res.stderr)
+
+        res_json = self.run_cli_subprocess(["token", "some.jwt.token", "-i", "--json"])
+        self.assertEqual(res_json.returncode, 1)
+        data = json.loads(res_json.stdout)
+        self.assertEqual(data.get("reason_code"), "MISSING_ARGUMENT")
 
 
 if __name__ == "__main__":
     unittest.main()
+

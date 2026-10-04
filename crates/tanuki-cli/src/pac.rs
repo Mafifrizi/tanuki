@@ -425,14 +425,38 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
     })
 }
 
+pub fn extract_pac_from_authorization_data(data: &[u8]) -> &[u8] {
+    if data.len() < 8 {
+        return data;
+    }
+    for probe in 0..data.len().saturating_sub(8) {
+        let c_bufs = u32::from_le_bytes([data[probe], data[probe + 1], data[probe + 2], data[probe + 3]]);
+        let ver = u32::from_le_bytes([data[probe + 4], data[probe + 5], data[probe + 6], data[probe + 7]]);
+        if (1..=16).contains(&c_bufs) && ver == 0 {
+            let hdr_len = 8 + (c_bufs as usize * 16);
+            if probe + hdr_len <= data.len() {
+                let first_size = u32::from_le_bytes([data[probe + 12], data[probe + 13], data[probe + 14], data[probe + 15]]) as usize;
+                let first_offset = u64::from_le_bytes([
+                    data[probe + 16], data[probe + 17], data[probe + 18], data[probe + 19],
+                    data[probe + 20], data[probe + 21], data[probe + 22], data[probe + 23],
+                ]) as usize;
+                if first_offset >= hdr_len && probe + first_offset + first_size <= data.len() {
+                    return &data[probe..];
+                }
+            }
+        }
+    }
+    data
+}
+
 pub fn parse_pac_source(source: &str) -> Result<PacReport, String> {
-    let bytes = if Path::new(source).exists() {
-        fs::read(source).map_err(|e| format!("Failed to read file '{}': {}", source, e))?
+    let clean = source.trim();
+    let bytes = if Path::new(clean).exists() {
+        fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?
     } else {
         // Try hex decode
-        let clean = source.trim();
-        let mut hex_bytes = Vec::new();
         if clean.len() % 2 == 0 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+            let mut hex_bytes = Vec::new();
             for i in (0..clean.len()).step_by(2) {
                 if let Ok(b) = u8::from_str_radix(&clean[i..i + 2], 16) {
                     hex_bytes.push(b);
@@ -440,11 +464,14 @@ pub fn parse_pac_source(source: &str) -> Result<PacReport, String> {
             }
             hex_bytes
         } else {
-            return Err("Input is not a readable file or valid hex".to_string());
+            // Try base64 decode
+            crate::nhi::b64url_decode(clean)
+                .map_err(|_| "Input is not a readable file, valid hex, or valid base64".to_string())?
         }
     };
 
-    parse_pac_bytes(&bytes)
+    let pac_bytes = extract_pac_from_authorization_data(&bytes);
+    parse_pac_bytes(pac_bytes)
 }
 
 pub fn pac_report_to_json(report: &PacReport) -> String {

@@ -150,6 +150,28 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
     }
 
     if purge_all || target_path.is_none() {
+        if let Ok(entries) = fs::read_dir("/tmp") {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with("krb5cc_") {
+                        if let Some(s) = entry.path().to_str() {
+                            targets.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(entries) = fs::read_dir(".") {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with("krb5cc_") {
+                        if let Some(s) = entry.path().to_str() {
+                            targets.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
         let candidates = [
             "./krb5.conf",
             "./krb5.conf.bak",
