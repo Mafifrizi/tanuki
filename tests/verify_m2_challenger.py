@@ -338,12 +338,16 @@ def test_adversarial_inputs_and_edge_cases() -> Tuple[bool, List[str]]:
         if "No matching error resolution found" not in res.stderr and "No matching error resolution found" not in res.stdout:
             failures.append(f"Unknown query '{unk}' missing error message")
 
-        # JSON mode should output 'null' with exit code 1
+        # JSON mode should output JSON error envelope with exit code 3
         res_j = run_cli(["triage", unk, "--json"])
-        if res_j.returncode == 0:
-            failures.append(f"Unknown query '{unk}' with --json unexpectedly returned exit code 0")
-        if res_j.stdout.strip() != "null":
-            failures.append(f"Unknown query '{unk}' with --json expected 'null', got '{res_j.stdout.strip()}'")
+        if res_j.returncode != 3:
+            failures.append(f"Unknown query '{unk}' with --json expected exit code 3, got {res_j.returncode}")
+        try:
+            err_data = json.loads(res_j.stdout)
+            if err_data.get("reason_code") != "UNKNOWN_ERROR_CODE":
+                failures.append(f"Unknown query '{unk}' with --json expected reason_code UNKNOWN_ERROR_CODE, got {err_data.get('reason_code')}")
+        except Exception as exc:
+            failures.append(f"Unknown query '{unk}' with --json expected valid JSON error envelope, got error: {exc}")
 
     # 4.5 Full dictionary terminal and JSON
     res_full = run_cli(["triage"])

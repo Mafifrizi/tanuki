@@ -149,6 +149,123 @@ class TestConfigCLIIntegration(unittest.TestCase):
         proc2 = subprocess.run(cmd_no_kdc, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.assertEqual(proc2.returncode, 1)
 
+    def test_cli_config_keytab_inference_success(self):
+        from tests.e2e.fixtures import build_synthetic_keytab
+        kt_bytes = build_synthetic_keytab(realm="INFERRED.CORP.LOCAL")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(kt_bytes)
+            kt_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--keytab",
+                kt_path,
+                "--kdc",
+                "192.168.56.106",
+                "--stdout",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 0)
+            self.assertIn("default_realm = INFERRED.CORP.LOCAL", proc.stdout)
+            self.assertIn("kdc = 192.168.56.106", proc.stdout)
+        finally:
+            if os.path.exists(kt_path):
+                os.unlink(kt_path)
+
+    def test_cli_config_keytab_inference_json(self):
+        from tests.e2e.fixtures import build_synthetic_keytab
+        kt_bytes = build_synthetic_keytab(realm="inferred.corp.local")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(kt_bytes)
+            kt_path = tf.name
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = os.path.join(tmpdir, "inferred.conf")
+            try:
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "tanuki",
+                    "config",
+                    "--keytab",
+                    kt_path,
+                    "--kdc",
+                    "192.168.56.106",
+                    "-o",
+                    out_file,
+                    "--json",
+                ]
+                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                self.assertEqual(proc.returncode, 0)
+                data = json.loads(proc.stdout)
+                self.assertEqual(data["status"], "SUCCESS")
+                self.assertEqual(data["realm"], "INFERRED.CORP.LOCAL")
+                self.assertTrue(os.path.isfile(out_file))
+            finally:
+                if os.path.exists(kt_path):
+                    os.unlink(kt_path)
+
+    def test_cli_config_keytab_missing_file(self):
+        cmd = [
+            sys.executable,
+            "-m",
+            "tanuki",
+            "config",
+            "--keytab",
+            "/nonexistent/file/path/does_not_exist.keytab",
+            "--kdc",
+            "192.168.56.106",
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(proc.returncode, 3)
+
+    def test_cli_config_keytab_empty_file(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            empty_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--keytab",
+                empty_path,
+                "--kdc",
+                "192.168.56.106",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 4)
+        finally:
+            if os.path.exists(empty_path):
+                os.unlink(empty_path)
+
+    def test_cli_config_keytab_corrupt_file(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(b"not_a_valid_keytab_file")
+            corrupt_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--keytab",
+                corrupt_path,
+                "--kdc",
+                "192.168.56.106",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 4)
+        finally:
+            if os.path.exists(corrupt_path):
+                os.unlink(corrupt_path)
+
 
 if __name__ == "__main__":
     unittest.main()

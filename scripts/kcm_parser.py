@@ -9,6 +9,49 @@ import struct
 import sys
 from typing import Any, Dict, List, Optional
 
+EXIT_SUCCESS = 0
+EXIT_USAGE_ERROR = 1
+EXIT_RESOURCE_MISSING = 3
+EXIT_PARSE_FAILURE = 4
+
+
+def emit_error(
+    message: str,
+    reason_code: str,
+    category: str,
+    exit_code: int,
+    target: Optional[str] = None,
+    details: Optional[str] = None,
+    json_output: bool = False,
+) -> None:
+    if json_output:
+        payload: Dict[str, Any] = {
+            "status": "ERROR",
+            "reason_code": reason_code,
+            "category": category,
+            "exit_code": exit_code,
+            "message": message,
+        }
+        if target:
+            payload["target"] = target
+        if details:
+            payload["details"] = details
+        print(json.dumps(payload, indent=2))
+    else:
+        prefix = {
+            EXIT_RESOURCE_MISSING: "[RESOURCE MISSING]",
+            EXIT_PARSE_FAILURE: "[PARSE FAILURE]",
+            EXIT_USAGE_ERROR: "[USAGE ERROR]",
+        }.get(exit_code, "[ERROR]")
+        if message.startswith("Error:") or message.startswith("Error "):
+            sys.stderr.write(f"{prefix} {message}\n")
+        else:
+            sys.stderr.write(f"{prefix} Error: {message}\n")
+        if details:
+            sys.stderr.write(f"  Details: {details}\n")
+    sys.exit(exit_code)
+
+
 CCACHE_MAGIC_V4 = b"\x05\x04"
 MAX_CANDIDATE_SIZE = 65536
 
@@ -184,11 +227,28 @@ def main() -> None:
 
     if args.file:
         if not os.path.exists(args.file):
-            sys.stderr.write(f"File not found: {args.file}\n")
-            sys.exit(1)
+            emit_error(
+                f"File not found: {args.file}",
+                reason_code="MISSING_RESOURCE",
+                category="RESOURCE_MISSING",
+                exit_code=EXIT_RESOURCE_MISSING,
+                target=args.file,
+                json_output=args.json,
+            )
         os.makedirs(args.out, exist_ok=True)
-        with open(args.file, "rb") as f:
-            data = f.read()
+        try:
+            with open(args.file, "rb") as f:
+                data = f.read()
+        except Exception as exc:
+            emit_error(
+                f"Error reading database '{args.file}': {exc}",
+                reason_code="CORRUPT_DATA",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_PARSE_FAILURE,
+                target=args.file,
+                details=str(exc),
+                json_output=args.json,
+            )
         blobs = scan_for_ccache_blobs(data)
 
         if args.json:
