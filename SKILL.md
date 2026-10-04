@@ -19,6 +19,12 @@ triggers:
   - "rbcd"
   - "workload identity"
   - "tanuki doctor"
+  - "tanuki auth"
+  - "tanuki pac"
+  - "tanuki fix"
+  - "tanuki purge"
+  - "tanuki adcs"
+  - "tanuki ldap"
   - "pre-flight"
   - "telemetry"
   - "auditd"
@@ -69,7 +75,7 @@ When presented with a Linux environment:
    - Host client tooling: Audits presence of `kinit`/`klist` on PATH (<0.5ms) and provides distro-specific remediation (`krb5-user` on Debian/Kali, `krb5-workstation` on RHEL).
 2. If operating as an unprivileged user without root access to `/etc/krb5.conf` or without Active Directory DNS SRV resolution:
    ```bash
-   tanuki config --realm CORP.LOCAL --kdc 192.168.56.106 -o ./krb5.conf
+   tanuki config --realm CORP.LOCAL --kdc 192.168.56.106 --clock-skew 36000 --enforce-aes -o ./krb5.conf
    export KRB5_CONFIG=$(pwd)/krb5.conf
    ```
 3. Parse the host keytab using either the unified CLI (`tanuki keytab /etc/krb5.keytab`) or the standalone script (`python3 scripts/keytab_inspector.py /etc/krb5.keytab`) to identify principal names and encryption keys.
@@ -79,15 +85,40 @@ When presented with a Linux environment:
    export KRB5CCNAME=/path/to/extracted.ccache
    ```
 
-### Phase 2: Surgical Directory Traversal & Dual-Use Telemetry
+### Phase 2: Unprivileged Native Authentication & Closed-Loop Healing
+1. Acquire a Ticket Granting Ticket (TGT) without root privileges and without `kinit` on PATH using Python standard library ctypes:
+   ```bash
+   tanuki auth --keytab /path/to/app.keytab --principal HTTP/app.corp.local@CORP.LOCAL -o /tmp/krb5cc_live
+   export KRB5CCNAME=/tmp/krb5cc_live
+   ```
+2. Execute closed-loop idempotent self-healing to remediate keytab permissions, generate missing configuration, and acquire tickets automatically:
+   ```bash
+   tanuki fix --keytab ./app.keytab --realm CORP.LOCAL --kdc 192.168.56.106
+   ```
+
+### Phase 3: Surgical Directory Traversal & Dual-Use Telemetry
 1. Consult `references/adcs_matrix.md` for certificate template assessment parameters via Certipy.
 2. Consult `references/error_triage.md` immediately whenever Kerberos error codes appear, or run `tanuki triage <CODE>`. Every triage lookup couples tactical remediation with defender telemetry:
    - Auditd watch rules: Monitored system paths and keytab access rules (such as `-w /etc/krb5.keytab -p r -k keytab_read` and `-w /etc/localtime -p wa`).
-   - Windows Event IDs: Maps all 10 Kerberos errors to Domain Controller Security Event IDs (4768 TGT Request, 4769 TGS Request, 4771 Pre-Authentication Failed, 4624/4625 Logon).
+   - Windows Event IDs: Maps all 11 Kerberos errors to Domain Controller Security Event IDs (4768 TGT Request, 4769 TGS Request, 4771 Pre-Authentication Failed, 4624/4625 Logon).
    - Sigma rules & Falco signatures: Community detection rules and syscall signatures (such as `proc_creation_win_susp_kerberos_ticket_request` and `read_sensitive_file_untrusted`).
    - Output display: Emits `[BLUE TELEMETRY]` alongside `[TACTICAL CMD]` in terminal, and full `telemetry` JSON blocks with `--json`.
 
-### Phase 3: Non-Human Identity (NHI) & Workload Token Exchange
+### Phase 4: MS-PAC NDR Decoding & SASL Directory Querying
+1. Decode binary `[MS-PAC]` structures from raw tickets or dumps to extract Domain Admins RIDs, group memberships, and User Account Control (UAC) flags:
+   ```bash
+   tanuki pac /tmp/pac_dump.bin
+   ```
+2. Query Active Directory services over unprivileged SASL GSSAPI LDAP using active Kerberos credentials:
+   ```bash
+   tanuki ldap --server dc01.corp.local --base-dn "DC=corp,DC=local"
+   ```
+3. Passively evaluate Active Directory Certificate Services (AD CS) templates offline for ESC1-ESC11 misconfigurations:
+   ```bash
+   tanuki adcs --template-dump ./templates.ldif
+   ```
+
+### Phase 5: Non-Human Identity (NHI) & Workload Token Exchange
 1. When operating on Kubernetes, AWS IAM Roles Anywhere, or SPIFFE environments, validate workload tokens using:
    ```bash
    tanuki token /var/run/secrets/kubernetes.io/serviceaccount/token
@@ -101,7 +132,14 @@ When presented with a Linux environment:
    ```
 4. Consult `references/nhi_mesh.md` for workload federation pathways.
 
-### Phase 4: Deterministic Operator Contract & Error Handling
+### Phase 6: Cryptographic Zero-Trace Purge
+When completing an assessment or cycling ephemeral agent containers, securely shred credential artifacts using NIST SP 800-88 multi-pass overwrite:
+```bash
+tanuki purge --target /tmp/krb5cc_live
+tanuki purge --all
+```
+
+### Phase 7: Deterministic Operator Contract & Error Handling
 When invoking `tanuki` programmatically, pass `--json` to receive structured error envelopes without conversational prose:
 - Exit code 0 (`EXIT_SUCCESS`): Step completed or environment healthy.
 - Exit code 1 (`EXIT_USAGE_ERROR`): Invalid flag or missing argument.
