@@ -280,6 +280,32 @@ ERROR_TELEMETRY: Dict[str, Dict[str, Any]] = {
             ],
         },
     },
+    "KRB_AP_ERR_BADKEYVER": {
+        "tactical_cmd": "kvno <SPN> && klist -k -t /etc/krb5.keytab || Set-ADUser -Identity <SVC_ACCOUNT> -KerberosEncryptionType AES128,AES256",
+        "telemetry": {
+            "auditd": [
+                "-w /etc/krb5.keytab -p r -k keytab_read",
+                "-w /etc/krb5.conf -p r -k krb5_conf_read",
+            ],
+            "event_ids": [4769],
+            "sigma": [
+                {
+                    "title": "Kerberos Service Ticket Request With Key Version Mismatch (0x1f)",
+                    "status": "stable",
+                    "logsource": "windows:security",
+                    "tags": ["attack.credential_access", "attack.t1558.003"],
+                }
+            ],
+            "falco": [
+                {
+                    "rule": "Kerberos Keytab Desynchronization Detected",
+                    "priority": "WARNING",
+                    "condition": "open_read and fd.name = \"/etc/krb5.keytab\" and not proc.name in (sssd, kinit, adcli, realm, gssd)",
+                    "output": "Kerberos keytab accessed during service ticket key version mismatch (user=%user.name command=%proc.cmdline)",
+                }
+            ],
+        },
+    },
 }
 
 LADDER_TELEMETRY: Dict[int, Dict[str, Any]] = {

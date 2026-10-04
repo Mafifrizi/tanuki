@@ -495,6 +495,27 @@ class TestDoctorTicketLifetimeCheck(unittest.TestCase):
         self.assertEqual(res["service_principal"], "krbtgt/CORP.LOCAL@CORP.LOCAL")
         self.assertGreater(res["remaining_seconds"], 20000)
 
+    def test_rc4_session_key_downgrade_detected_and_warns(self):
+        now = int(time.time())
+        data = make_ccache_bytes(
+            default_principal="victim@CORP.LOCAL",
+            tickets=[{
+                "client": "victim@CORP.LOCAL",
+                "server": "krbtgt/CORP.LOCAL@CORP.LOCAL",
+                "enctype": 23,
+                "endtime": now + 3600,
+            }]
+        )
+        cc_path = os.path.join(self.temp_dir.name, "krb5cc_rc4")
+        with open(cc_path, "wb") as f:
+            f.write(data)
+
+        res = check_ticket_lifetime(cc_path)
+        self.assertEqual(res["status"], "WARN")
+        self.assertTrue(res["has_weak_enctypes"])
+        self.assertIn("Weak session key", res["details"])
+        self.assertIn("Rung 2", res["recommendation"])
+
     def test_corrupted_truncated_ccache_handled_gracefully(self):
         bad_streams = [
             b"",

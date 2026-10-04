@@ -365,6 +365,26 @@ pub const TELEMETRY_KDC_ERR_PADATA_TYPE_NOSUPP: TelemetryData = TelemetryData {
     }],
 };
 
+pub const TELEMETRY_KRB_AP_ERR_BADKEYVER: TelemetryData = TelemetryData {
+    auditd: &[
+        "-w /etc/krb5.keytab -p r -k keytab_read",
+        "-w /etc/krb5.conf -p r -k krb5_conf_read",
+    ],
+    event_ids: &[4769],
+    sigma: &[SigmaRuleRef {
+        title: "Kerberos Service Ticket Request With Key Version Mismatch (0x1f)",
+        status: "stable",
+        logsource: "windows:security",
+        tags: &["attack.credential_access", "attack.t1558.003"],
+    }],
+    falco: &[FalcoRuleRef {
+        rule: "Kerberos Keytab Desynchronization Detected",
+        priority: "WARNING",
+        condition: "open_read and fd.name = \"/etc/krb5.keytab\" and not proc.name in (sssd, kinit, adcli, realm, gssd)",
+        output: "Kerberos keytab accessed during service ticket key version mismatch (user=%user.name command=%proc.cmdline)",
+    }],
+};
+
 pub const TELEMETRY_LADDER_RUNG_1: TelemetryData = TelemetryData {
     auditd: &[
         "-w /etc/krb5.keytab -p r -k keytab_read",

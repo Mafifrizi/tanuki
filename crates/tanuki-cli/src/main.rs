@@ -44,21 +44,25 @@ COMMANDS:
     token [TOKEN]       Validate workload identity JWT (RFC 8693 / NHI)
     nhi [SUBCOMMAND]    Non-Human Identity inspection and token exchange
     skill [OPTIONS]     Display AI agent skill manifest and operational contract
+    auth [OPTIONS]      Acquire TGT using keytab via host kinit
 
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
     -o, --out <PATH>    Output directory for extracted caches or config path
+    -p, --principal <P> Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
     -i, --issuer <ISS>   Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
-    --kdc <HOST_OR_IP>  KDC address or hostname (zero-DNS routing)
+    --kdc <HOST_OR_IP>  KDC address or hostname (supports multiple or comma-separated)
     --admin-server <HOST_OR_IP> Optional admin server for config
+    --clock-skew <SECS> Clock skew tolerance in seconds (unprivileged hypervisors)
+    --enforce-aes       Strictly enforce AES-128/256 and reject legacy RC4
     --stdout            Print generated config directly to stdout
-    --keytab <PATH>     Target keytab path for doctor
+    --keytab <PATH>     Target keytab path for doctor/auth/config
     --krb5-conf <PATH>  Target krb5.conf path for doctor
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
-    --ccache <PATH>     Target ccache path for doctor
+    --ccache <PATH>     Target ccache path for doctor/auth
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"#
@@ -145,6 +149,9 @@ fn main() {
     let mut subject_token_opt: Option<String> = None;
     let mut subject_token_type_opt: Option<String> = None;
     let mut requested_token_type_opt: Option<String> = None;
+    let mut principal_opt: Option<String> = None;
+    let mut clock_skew_opt: Option<u32> = None;
+    let mut enforce_aes_opt = false;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -169,6 +176,12 @@ fn main() {
             "-o" | "--out" => {
                 if i + 1 < raw_args.len() {
                     out_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "-p" | "--principal" => {
+                if i + 1 < raw_args.len() {
+                    principal_opt = Some(raw_args[i + 1].clone());
                     i += 1;
                 }
             }
@@ -246,7 +259,13 @@ fn main() {
             }
             "--kdc" => {
                 if i + 1 < raw_args.len() {
-                    kdc_opt = Some(raw_args[i + 1].clone());
+                    let k = raw_args[i + 1].clone();
+                    if let Some(ref mut existing) = kdc_opt {
+                        existing.push(',');
+                        existing.push_str(&k);
+                    } else {
+                        kdc_opt = Some(k);
+                    }
                     i += 1;
                 }
             }
@@ -256,11 +275,20 @@ fn main() {
                     i += 1;
                 }
             }
+            "--clock-skew" | "--clockskew" => {
+                if i + 1 < raw_args.len() {
+                    clock_skew_opt = raw_args[i + 1].parse::<u32>().ok();
+                    i += 1;
+                }
+            }
+            "--enforce-aes" => {
+                enforce_aes_opt = true;
+            }
             "--stdout" => {
                 stdout_opt = true;
             }
             cmd if explicit_command.is_none()
-                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi" | "config" | "skill") =>
+                && matches!(cmd, "keytab" | "kcm" | "triage" | "ladder" | "doctor" | "token" | "nhi" | "config" | "skill" | "auth") =>
             {
                 explicit_command = Some(cmd.to_string());
             }
@@ -318,6 +346,12 @@ fn main() {
                 ccache_opt,
             );
         }
+        "auth" => {
+            let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
+            let target_princ = principal_opt.or_else(|| positional_args.get(1).cloned());
+            let target_ccache = ccache_opt.or(out_opt);
+            handle_auth(target_kt, target_princ, target_ccache, global_json);
+        }
         "config" => {
             let out_target = out_opt.or(file_opt);
             handle_config(
@@ -328,6 +362,8 @@ fn main() {
                 out_target,
                 stdout_opt,
                 global_json,
+                clock_skew_opt,
+                enforce_aes_opt,
             );
         }
         "token" => {
@@ -483,6 +519,8 @@ fn handle_config(
     out_path: Option<String>,
     stdout_mode: bool,
     json_output: bool,
+    clock_skew_opt: Option<u32>,
+    enforce_aes_opt: bool,
 ) {
     let realm = match realm_opt {
         Some(r) if !r.trim().is_empty() => r.trim().to_uppercase(),
@@ -600,7 +638,7 @@ fn handle_config(
         }
     };
 
-    let content = match generate_krb5_conf(&realm, &kdc, admin_server_opt.as_deref()) {
+    let content = match generate_krb5_conf(&realm, &kdc, admin_server_opt.as_deref(), clock_skew_opt, enforce_aes_opt) {
         Ok(c) => c,
         Err(err) => {
             emit_cli_error(
@@ -653,15 +691,22 @@ fn handle_config(
     let target_admin = admin_server_opt.as_deref().unwrap_or(kdc.trim());
 
     if json_output {
-        println!(
-            "{{\n  \"status\": \"SUCCESS\",\n  \"realm\": \"{}\",\n  \"kdc\": \"{}\",\n  \"admin_server\": \"{}\",\n  \"config_path\": \"{}\",\n  \"export_command\": \"{}\",\n  \"content\": \"{}\"\n}}",
+        let mut out = format!(
+            "{{\n  \"status\": \"SUCCESS\",\n  \"realm\": \"{}\",\n  \"kdc\": \"{}\",\n  \"admin_server\": \"{}\",\n  \"config_path\": \"{}\",\n  \"export_command\": \"{}\"",
             clean_realm,
             kdc.trim(),
             target_admin,
             abs_str.replace('\\', "\\\\").replace('"', "\\\""),
             export_cmd.replace('\\', "\\\\").replace('"', "\\\""),
-            tanuki::escape_json(&content)
         );
+        if let Some(skew) = clock_skew_opt {
+            out.push_str(&format!(",\n  \"clockskew\": {}", skew));
+        }
+        if enforce_aes_opt {
+            out.push_str(",\n  \"enforce_aes\": true");
+        }
+        out.push_str(&format!(",\n  \"content\": \"{}\"\n}}", tanuki::escape_json(&content)));
+        println!("{}", out);
         return;
     }
 
@@ -673,11 +718,145 @@ fn handle_config(
     println!("[+] Output File    : {}", abs_str);
     println!("    ├─ Target Realm   : {} (RFC 4120 uppercase convention)", clean_realm);
     println!("    ├─ Target KDC     : {} (zero-DNS direct routing)", kdc.trim());
-    println!("    ╰─ Admin Server   : {}", target_admin);
+    println!("    ├─ Admin Server   : {}", target_admin);
+    if let Some(skew) = clock_skew_opt {
+        println!("    ├─ Clock Skew     : {}s (drift tolerance)", skew);
+    }
+    if enforce_aes_opt {
+        println!("    ├─ Encryption     : AES-128/256 enforced (RC4 disabled)");
+    }
+    println!("    ╰─ Status         : Active configuration ready");
     println!("\n[+] To activate in your current session (unprivileged / no root required):");
     println!("    $ {}", export_cmd);
     println!("    $ kinit -k -t <keytab> <principal>");
     println!("{}", "─".repeat(72));
+}
+
+fn handle_auth(
+    keytab_path_opt: Option<String>,
+    principal_opt: Option<String>,
+    ccache_path_opt: Option<String>,
+    json_output: bool,
+) {
+    let kt_path = match keytab_path_opt {
+        Some(p) => p,
+        None => {
+            emit_cli_error(
+                "Error: Keytab path required. Example: tanuki auth --keytab /etc/krb5.keytab --principal host/srv01@CORP.LOCAL",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+
+    if !Path::new(&kt_path).exists() {
+        emit_cli_error(
+            &format!("Error reading keytab at '{}': No such file or directory", kt_path),
+            "MISSING_KEYTAB",
+            "RESOURCE_MISSING",
+            EXIT_RESOURCE_MISSING,
+            Some(&kt_path),
+            None,
+            json_output,
+        );
+    }
+
+    let princ = match principal_opt {
+        Some(p) => p,
+        None => match fs::read(&kt_path) {
+            Ok(bytes) => match parse_keytab_bytes(&bytes) {
+                Ok(entries) => {
+                    let mut found: Option<String> = None;
+                    for e in entries {
+                        if !e.principal.trim().is_empty() {
+                            found = Some(e.principal);
+                            break;
+                        }
+                    }
+                    found.unwrap_or_else(|| {
+                        emit_cli_error(
+                            "No valid principal found within keytab file.",
+                            "MISSING_PRINCIPAL",
+                            "USAGE_ERROR",
+                            EXIT_USAGE_ERROR,
+                            Some(&kt_path),
+                            None,
+                            json_output,
+                        );
+                    })
+                }
+                Err(err) => {
+                    emit_cli_error(
+                        &format!("Error parsing keytab: {:?}", err),
+                        "CORRUPT_KEYTAB",
+                        "PARSE_FAILURE",
+                        EXIT_PARSE_FAILURE,
+                        Some(&kt_path),
+                        None,
+                        json_output,
+                    );
+                }
+            },
+            Err(err) => {
+                emit_cli_error(
+                    &format!("Cannot read keytab '{}': {}", kt_path, err),
+                    "READ_ERROR",
+                    "RESOURCE_MISSING",
+                    EXIT_RESOURCE_MISSING,
+                    Some(&kt_path),
+                    None,
+                    json_output,
+                );
+            }
+        },
+    };
+
+    let ccache = ccache_path_opt
+        .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
+        .unwrap_or_else(|| "/tmp/krb5cc_1000".to_string());
+
+    let kinit_status = process::Command::new("kinit")
+        .args(["-k", "-t", &kt_path, &princ])
+        .env("KRB5CCNAME", format!("FILE:{}", ccache))
+        .status();
+
+    match kinit_status {
+        Ok(status) if status.success() => {
+            if json_output {
+                println!(
+                    "{{\n  \"status\": \"SUCCESS\",\n  \"method\": \"kinit\",\n  \"principal\": \"{}\",\n  \"keytab\": \"{}\",\n  \"ccache\": \"{}\",\n  \"export_command\": \"export KRB5CCNAME={}\"\n}}",
+                    princ, kt_path, ccache, ccache
+                );
+            } else {
+                print_card_header(
+                    "TANUKI UNPRIVILEGED TICKET ACQUISITION",
+                    Some("Method: kinit · Non-Interactive Authentication"),
+                    72,
+                );
+                println!("[+] Principal      : {}", princ);
+                println!("    ├─ Keytab File    : {}", kt_path);
+                println!("    ├─ Credential CC  : {}", ccache);
+                println!("    ╰─ Auth Method    : kinit");
+                println!("\n[+] Active Credential Cache Export:\n    $ export KRB5CCNAME={}", ccache);
+                println!("{}", "─".repeat(72));
+            }
+        }
+        _ => {
+            emit_cli_error(
+                "'kinit' utility not found on PATH or failed. Use Python engine 'tanuki auth' for zero-dependency ctypes acquisition.",
+                "NO_AUTHENTICATION_BACKEND",
+                "RESOURCE_MISSING",
+                EXIT_RESOURCE_MISSING,
+                Some(&kt_path),
+                Some("Install krb5-user or run via python -m tanuki auth"),
+                json_output,
+            );
+        }
+    }
 }
 
 fn handle_kcm(file_path: Option<String>, out_dir: &str, json_output: bool) {
@@ -830,7 +1009,7 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
             } else {
                 print_card_header(
                     "KERBEROS & SSSD ERROR RESOLUTION DICTIONARY",
-                    Some("10 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry"),
+                    Some("11 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry"),
                     72,
                 );
                 for item in ERROR_DICTIONARY {

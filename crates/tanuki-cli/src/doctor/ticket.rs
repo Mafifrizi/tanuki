@@ -12,6 +12,8 @@ struct ParsedTicket {
     authtime: u32,
     endtime: u32,
     renew_till: u32,
+    has_weak_enctypes: bool,
+    tickets_count: usize,
 }
 
 fn read_principal(data: &[u8], cursor: &mut usize) -> Option<String> {
@@ -81,6 +83,8 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
 
     let default_principal = read_principal(data, &mut cursor)?;
     let mut best_ticket: Option<ParsedTicket> = None;
+    let mut has_weak_enctypes = false;
+    let mut tickets_count = 0;
 
     while cursor < data.len() {
         let client = match read_principal(data, &mut cursor) {
@@ -95,6 +99,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
         if cursor + 6 > data.len() {
             break;
         }
+        let enctype = u16::from_be_bytes([data[cursor], data[cursor + 1]]);
         let key_data_len = u32::from_be_bytes([
             data[cursor + 2],
             data[cursor + 3],
@@ -106,6 +111,10 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             break;
         }
         cursor += key_data_len;
+        if enctype == 23 || enctype == 1 || enctype == 2 || enctype == 3 {
+            has_weak_enctypes = true;
+        }
+        tickets_count += 1;
 
         if cursor + 16 > data.len() {
             break;
@@ -236,6 +245,8 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             authtime,
             endtime,
             renew_till,
+            has_weak_enctypes,
+            tickets_count,
         };
 
         if let Some(ref current_best) = best_ticket {
@@ -255,15 +266,21 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
         }
     }
 
-    best_ticket.or_else(|| {
+    if let Some(mut bt) = best_ticket {
+        bt.has_weak_enctypes = has_weak_enctypes;
+        bt.tickets_count = tickets_count;
+        Some(bt)
+    } else {
         Some(ParsedTicket {
             default_principal,
             server: None,
             authtime: 0,
             endtime: 0,
             renew_till: 0,
+            has_weak_enctypes,
+            tickets_count,
         })
-    })
+    }
 }
 
 fn format_unix_timestamp(ts: u64) -> String {
@@ -391,7 +408,7 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                 None
             };
 
-            let (status, is_expired, remaining_human, details, recommendation) = if remaining <= 0 {
+            let (mut status, is_expired, remaining_human, mut details, mut recommendation) = if remaining <= 0 {
                 (
                     "EXPIRED",
                     true,
@@ -424,6 +441,14 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                 )
             };
 
+            if ticket.has_weak_enctypes {
+                if status == "PASS" {
+                    status = "WARN";
+                }
+                details.push_str(" [WARN: Weak session key (RC4/DES) detected]");
+                recommendation = Some("Enforce Kerberos AES-256 and purge weak tickets (refer to Tactical Decision Ladder Rung 2: Zero-Noise OPSEC Filter)".to_string());
+            }
+
             return CheckResult {
                 name: "ticket_lifetime".to_string(),
                 status: status.to_string(),
@@ -445,6 +470,8 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                     ("expiry_time".to_string(), format!("\"{}\"", escape_json(&expiry_time))),
                     ("remaining_human".to_string(), format!("\"{}\"", escape_json(&remaining_human))),
                     ("is_expired".to_string(), is_expired.to_string()),
+                    ("has_weak_enctypes".to_string(), ticket.has_weak_enctypes.to_string()),
+                    ("tickets_found".to_string(), ticket.tickets_count.to_string()),
                     ("renewable_until".to_string(), match renew_time {
                         Some(t) => format!("\"{}\"", escape_json(&t)),
                         None => "null".to_string(),

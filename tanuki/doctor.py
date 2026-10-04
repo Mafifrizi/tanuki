@@ -563,6 +563,18 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         return None
 
     best_ticket: Optional[Dict[str, Any]] = None
+    all_tickets: List[Dict[str, Any]] = []
+
+    def _finalize_ticket(bt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if bt is None:
+            return None
+        has_weak = any(t.get("enctype") in (1, 2, 3, 23) for t in all_tickets)
+        enctype_names = list(dict.fromkeys(t["enctype_name"] for t in all_tickets))
+        res = dict(bt)
+        res["tickets"] = all_tickets
+        res["enctypes"] = enctype_names
+        res["has_weak_enctypes"] = has_weak
+        return res
 
     while True:
         client = _read_principal(stream)
@@ -575,7 +587,7 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         keyblock_head = stream.read(6)
         if len(keyblock_head) < 6:
             break
-        _enctype, key_len = struct.unpack(">HI", keyblock_head)
+        enctype, key_len = struct.unpack(">HI", keyblock_head)
         key_data = stream.read(key_len)
         if len(key_data) < key_len:
             break
@@ -600,7 +612,7 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         for _ in range(addr_count):
             ahead = stream.read(6)
             if len(ahead) < 6:
-                return best_ticket
+                return _finalize_ticket(best_ticket)
             _, alen = struct.unpack(">HI", ahead)
             stream.read(alen)
 
@@ -611,7 +623,7 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         for _ in range(ad_count):
             ahead = stream.read(6)
             if len(ahead) < 6:
-                return best_ticket
+                return _finalize_ticket(best_ticket)
             _, alen = struct.unpack(">HI", ahead)
             stream.read(alen)
 
@@ -631,18 +643,22 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         if len(sec_data) < sec_len:
             break
 
-        if endtime == 0:
-            continue
-
+        enctype_name = ENCTYPE_MAP.get(enctype, f"unknown_{enctype}")
         cand = {
             "default_principal": default_principal,
             "client": client,
             "server": server,
+            "enctype": enctype,
+            "enctype_name": enctype_name,
             "authtime": authtime,
             "starttime": starttime,
             "endtime": endtime,
             "renew_till": renew_till,
         }
+        all_tickets.append(cand)
+
+        if endtime == 0:
+            continue
 
         if best_ticket is None:
             best_ticket = cand
@@ -651,16 +667,7 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         elif endtime > best_ticket.get("endtime", 0):
             best_ticket = cand
 
-    if best_ticket is None:
-        return {
-            "default_principal": default_principal,
-            "server": None,
-            "authtime": 0,
-            "endtime": 0,
-            "renew_till": 0,
-        }
-
-    return best_ticket
+    return _finalize_ticket(best_ticket)
 
 
 def parse_proc_keys() -> List[Dict[str, Any]]:
@@ -714,6 +721,9 @@ def check_ticket_lifetime(
         "renewable_until": None,
         "keyring_tickets_found": 0,
         "issues": [],
+        "has_weak_enctypes": False,
+        "tickets_found": 0,
+        "encryption_types": [],
     }
 
     target_ccache = ccache_path
@@ -754,6 +764,11 @@ def check_ticket_lifetime(
     result["keyring_tickets_found"] = len(keyring_keys)
 
     now = int(time.time())
+
+    if parsed_ticket:
+        result["has_weak_enctypes"] = parsed_ticket.get("has_weak_enctypes", False)
+        result["tickets_found"] = len(parsed_ticket.get("tickets", []))
+        result["encryption_types"] = parsed_ticket.get("enctypes", [])
 
     if parsed_ticket and parsed_ticket.get("endtime", 0) > 0:
         endtime = parsed_ticket["endtime"]
@@ -805,6 +820,18 @@ def check_ticket_lifetime(
             result["remaining_human"] = f"{hours}h {mins}m {secs}s"
             result["details"] = (
                 f"{result['remaining_human']} remaining for {result['default_principal']} (expires {result['expiry_time']})"
+            )
+
+        if result["has_weak_enctypes"]:
+            result["issues"].append(
+                "Legacy weak encryption types detected in ticket cache (RC4-HMAC / DES)"
+            )
+            if result["status"] == "PASS":
+                result["status"] = "WARN"
+            weak_names = [e for e in result["encryption_types"] if "rc4" in e.lower() or "des" in e.lower()] or result["encryption_types"]
+            result["details"] = f"{result['details']} [WARN: Weak session key ({', '.join(weak_names)}) detected]"
+            result["recommendation"] = (
+                "Enforce Kerberos AES-256 and purge weak tickets (refer to Tactical Decision Ladder Rung 2: Zero-Noise OPSEC Filter; re-request via kinit with AES)"
             )
 
     elif keyring_keys:

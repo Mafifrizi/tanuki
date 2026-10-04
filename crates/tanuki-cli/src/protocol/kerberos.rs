@@ -123,6 +123,14 @@ pub const ERROR_DICTIONARY: &[ErrorResolution] = &[
         tactical_cmd: "certipy find -u '<USER>@<DOMAIN>' -p '<PASSWORD>' -dc-ip <DC_IP> -vulnerable",
         telemetry: TELEMETRY_KDC_ERR_PADATA_TYPE_NOSUPP,
     },
+    ErrorResolution {
+        code: "KRB_AP_ERR_BADKEYVER",
+        event_id: Some(44),
+        root_cause: "Key Version Number (KVNO) desynchronization between directory object (msDS-KeyVersionNumber) and service keytab. AS-REQ/TGS-REQ succeeds because ticket granting and service ticket issuance use the current KDC master key and user credentials, but AP-REQ to the target service fails during mutual authentication when the service decrypts the ticket using an outdated keytab KVNO.",
+        resolution: "Re-synchronize keytab KVNO with Active Directory or update service account key:\n$ kvno <SPN> vs klist -k -t /etc/krb5.keytab\nPowerShell: Set-ADUser -Identity <ACCOUNT> -KerberosEncryptionType AES128,AES256\nktpass -princ <SPN> -pass <PWD> -mapuser <ACCOUNT> -crypto AES256-SHA1 -ptype KRB5_NT_PRINCIPAL -SetUPN NO -out <FILE>.keytab",
+        tactical_cmd: "kvno <SPN> && klist -k -t /etc/krb5.keytab || Set-ADUser -Identity <ACCOUNT> -KerberosEncryptionType AES128,AES256",
+        telemetry: TELEMETRY_KRB_AP_ERR_BADKEYVER,
+    },
 ];
 
 pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {

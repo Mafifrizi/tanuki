@@ -6,6 +6,7 @@ import sys
 from typing import List, Optional
 
 from . import __version__
+from .auth import acquire_tgt
 from .config import generate_krb5_conf
 from .doctor import diagnose_system, render_card_header, supports_unicode
 from .kcm import (
@@ -36,6 +37,7 @@ COMMANDS:
     doctor [OPTIONS]    Run proactive pre-flight diagnostic health checks (<5ms)
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
+    auth [OPTIONS]      Acquire TGT using keytab via host kinit or fallback ctypes
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
@@ -46,17 +48,20 @@ COMMANDS:
 OPTIONS:
     -f, --file <PATH>   Target database or keytab file
     -o, --out <PATH>    Output directory for extracted caches or target config path
+    -p, --principal <P> Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
     -i, --issuer <ISS>   Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
-    --kdc <HOST_OR_IP>  KDC address or hostname (zero-DNS routing)
+    --kdc <HOST_OR_IP>  KDC address or hostname (supports multiple or comma-separated)
     --admin-server <HOST_OR_IP> Optional admin server for config
+    --clock-skew <SECS> Clock skew tolerance in seconds (unprivileged hypervisors)
+    --enforce-aes       Strictly enforce AES-128/256 and reject legacy RC4
     --stdout            Print generated config directly to stdout
-    --keytab <PATH>     Target keytab path for doctor
+    --keytab <PATH>     Target keytab path for doctor/auth/config
     --krb5-conf <PATH>  Target krb5.conf path for doctor
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
-    --ccache <PATH>     Target ccache path for doctor
+    --ccache <PATH>     Target ccache path for doctor/auth
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"""
@@ -283,7 +288,7 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
         else:
             for line in render_card_header(
                 "KERBEROS & SSSD ERROR RESOLUTION DICTIONARY",
-                "10 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
+                "11 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
             ):
                 print(line)
             use_uni = supports_unicode()
@@ -381,6 +386,9 @@ def handle_config(
     stdout_mode: bool,
     json_output: bool,
     keytab_opt: Optional[str] = None,
+    clockskew_opt: Optional[int] = None,
+    enforce_aes_opt: bool = False,
+    kdc_list_opt: Optional[List[str]] = None,
 ) -> None:
     clean_realm = None
     if realm_opt and realm_opt.strip():
@@ -450,7 +458,16 @@ def handle_config(
             json_output=json_output,
         )
 
-    if not kdc_opt:
+    kdcs: List[str] = []
+    if kdc_list_opt:
+        kdcs = list(kdc_list_opt)
+    elif kdc_opt:
+        for k in kdc_opt.split(","):
+            kc = k.strip()
+            if kc and kc not in kdcs:
+                kdcs.append(kc)
+
+    if not kdcs:
         emit_cli_error(
             "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
             reason_code="MISSING_ARGUMENT",
@@ -459,10 +476,15 @@ def handle_config(
             json_output=json_output,
         )
 
-    target_kdc = kdc_opt.strip()
-    target_admin = admin_server_opt.strip() if admin_server_opt else target_kdc
+    target_admin = admin_server_opt.strip() if admin_server_opt else kdcs[0]
 
-    content = generate_krb5_conf(clean_realm, target_kdc, target_admin)
+    content = generate_krb5_conf(
+        realm=clean_realm,
+        kdc=kdcs,
+        admin_server=target_admin,
+        clockskew=clockskew_opt,
+        enforce_aes=enforce_aes_opt,
+    )
 
     if stdout_mode and not json_output:
         sys.stdout.write(content)
@@ -488,17 +510,22 @@ def handle_config(
         )
 
     export_cmd = f"export KRB5_CONFIG={abs_path}"
+    kdc_display = ",".join(kdcs) if len(kdcs) > 1 else kdcs[0]
 
     if json_output:
         res = {
             "status": "SUCCESS",
             "realm": clean_realm,
-            "kdc": target_kdc,
+            "kdc": kdc_display,
             "admin_server": target_admin,
             "config_path": abs_path,
             "export_command": export_cmd,
             "content": content,
         }
+        if clockskew_opt is not None:
+            res["clockskew"] = clockskew_opt
+        if enforce_aes_opt:
+            res["enforce_aes"] = True
         print(json.dumps(res, indent=2))
         return
 
@@ -514,12 +541,83 @@ def handle_config(
 
     print(f"[+] Output File    : {abs_path}")
     print(f"    {t_branch} Target Realm   : {clean_realm} (RFC 4120 uppercase convention)")
-    print(f"    {t_branch} Target KDC     : {target_kdc} (zero-DNS direct routing)")
-    print(f"    {l_branch} Admin Server   : {target_admin}")
+    for k in kdcs:
+        print(f"    {t_branch} Target KDC     : {k} (zero-DNS direct routing)")
+    print(f"    {t_branch} Admin Server   : {target_admin}")
+    if clockskew_opt is not None:
+        print(f"    {t_branch} Clock Skew     : {clockskew_opt}s (drift tolerance)")
+    if enforce_aes_opt:
+        print(f"    {t_branch} Encryption     : AES-128/256 enforced (RC4 disabled)")
+    print(f"    {l_branch} Status         : Active configuration ready")
     print("\n[+] To activate in your current session (unprivileged / no root required):")
     print(f"    $ {export_cmd}")
     print("    $ kinit -k -t <keytab> <principal>")
     print(div)
+
+
+def handle_auth(
+    keytab_path: Optional[str],
+    principal: Optional[str],
+    ccache_path: Optional[str],
+    json_output: bool,
+    force_ctypes: bool = False,
+) -> None:
+    if not keytab_path:
+        emit_cli_error(
+            "Error: Keytab path required. Example: tanuki auth --keytab /etc/krb5.keytab --principal host/srv01@CORP.LOCAL",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+
+    res = acquire_tgt(
+        keytab_path=keytab_path,
+        principal=principal,
+        ccache_path=ccache_path,
+        force_ctypes=force_ctypes,
+    )
+
+    if res.get("status") == "SUCCESS":
+        if json_output:
+            print(json.dumps(res, indent=2))
+            return
+
+        for line in render_card_header(
+            "TANUKI UNPRIVILEGED TICKET ACQUISITION",
+            f"Method: {res.get('method')} · Non-Interactive Authentication",
+        ):
+            print(line)
+
+        use_uni = supports_unicode()
+        div = "─" * 72 if use_uni else "-" * 72
+        t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
+        print(f"[+] Principal      : {res['principal']}")
+        print(f"    {t_branch} Keytab File    : {res['keytab']}")
+        print(f"    {t_branch} Credential CC  : {res['ccache']}")
+        print(f"    {l_branch} Auth Method    : {res.get('method', 'unknown')}")
+        print("\n[+] Active Credential Cache Export:")
+        print(f"    $ {res['export_command']}")
+        print(div)
+    else:
+        exit_code = EXIT_RESOURCE_MISSING
+        if res.get("reason_code") == "AUTH_FAILED":
+            exit_code = EXIT_POLICY_STOP
+        elif res.get("reason_code") == "CORRUPT_KEYTAB":
+            exit_code = EXIT_PARSE_FAILURE
+        elif res.get("reason_code") == "MISSING_PRINCIPAL":
+            exit_code = EXIT_USAGE_ERROR
+
+        emit_cli_error(
+            message=res.get("message", "Authentication failed"),
+            reason_code=res.get("reason_code", "AUTH_ERROR"),
+            category=res.get("category", "AUTHENTICATION_ERROR"),
+            exit_code=exit_code,
+            target=res.get("target") or res.get("keytab"),
+            details=res.get("recommendation"),
+            json_output=json_output,
+        )
 
 
 def handle_token(
@@ -769,6 +867,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     subject_token_opt: Optional[str] = None
     subject_token_type_opt: Optional[str] = None
     requested_token_type_opt: Optional[str] = None
+    principal_opt: Optional[str] = None
+    clock_skew_opt: Optional[int] = None
+    enforce_aes_opt: bool = False
+    kdc_list_opt: List[str] = []
+    force_ctypes_opt: bool = False
 
     i = 0
     while i < len(argv):
@@ -789,6 +892,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 out_opt = argv[i + 1]
                 i += 1
+        elif arg in ("-p", "--principal"):
+            if i + 1 < len(argv):
+                principal_opt = argv[i + 1]
+                i += 1
         elif arg in ("-a", "--audience"):
             if i + 1 < len(argv):
                 audience_opt = argv[i + 1]
@@ -803,12 +910,35 @@ def main(argv: Optional[List[str]] = None) -> None:
                 i += 1
         elif arg == "--kdc":
             if i + 1 < len(argv):
-                kdc_opt = argv[i + 1]
+                val = argv[i + 1]
+                kdc_opt = val
+                for part in val.split(","):
+                    p = part.strip()
+                    if p and p not in kdc_list_opt:
+                        kdc_list_opt.append(p)
                 i += 1
         elif arg == "--admin-server":
             if i + 1 < len(argv):
                 admin_server_opt = argv[i + 1]
                 i += 1
+        elif arg in ("--clock-skew", "--clockskew"):
+            if i + 1 < len(argv):
+                try:
+                    clock_skew_opt = int(argv[i + 1])
+                except ValueError:
+                    emit_cli_error(
+                        f"Invalid clock-skew value: {argv[i + 1]}",
+                        reason_code="INVALID_ARGUMENT",
+                        category="USAGE_ERROR",
+                        exit_code=EXIT_USAGE_ERROR,
+                        target=argv[i + 1],
+                        json_output=global_json,
+                    )
+                i += 1
+        elif arg == "--enforce-aes":
+            enforce_aes_opt = True
+        elif arg == "--use-ctypes":
+            force_ctypes_opt = True
         elif arg == "--stdout":
             stdout_opt = True
         elif arg == "--grant-type":
@@ -847,7 +977,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 ccache_opt = argv[i + 1]
                 i += 1
-        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill"):
+        elif explicit_command is None and arg in ("keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth"):
             explicit_command = arg
         elif not arg.startswith("-"):
             positional_args.append(arg)
@@ -873,6 +1003,17 @@ def main(argv: Optional[List[str]] = None) -> None:
     if command == "keytab":
         target = file_opt or (positional_args[0] if positional_args else None)
         handle_keytab(target, global_json)
+    elif command == "auth":
+        target_kt = keytab_opt or file_opt or (positional_args[0] if positional_args else None)
+        target_princ = principal_opt or (positional_args[1] if len(positional_args) > 1 else None)
+        target_ccache = ccache_opt or out_opt
+        handle_auth(
+            keytab_path=target_kt,
+            principal=target_princ,
+            ccache_path=target_ccache,
+            json_output=global_json,
+            force_ctypes=force_ctypes_opt,
+        )
     elif command == "kcm":
         target = file_opt or (positional_args[0] if positional_args else None)
         out_dir = out_opt or "./extracted_ccache"
@@ -919,6 +1060,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             stdout_mode=stdout_opt,
             json_output=global_json,
             keytab_opt=keytab_opt,
+            clockskew_opt=clock_skew_opt,
+            enforce_aes_opt=enforce_aes_opt,
+            kdc_list_opt=kdc_list_opt if kdc_list_opt else None,
         )
     elif command == "skill":
         handle_skill(global_json)
