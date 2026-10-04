@@ -342,7 +342,7 @@ class TestRustParityAndIntegrity(unittest.TestCase):
         for fpath in py_files + rust_files:
             with open(fpath, "r", encoding="utf-8") as f:
                 content = f.read()
-            self.assertNotIn("—", content, f"Em dash found in {fpath}")
+            self.assertNotIn("\u2014", content, f"Em dash found in {fpath}")
 
 
 if __name__ == "__main__":

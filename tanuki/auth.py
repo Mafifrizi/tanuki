@@ -59,8 +59,12 @@ def acquire_tgt_via_ctypes(
     principal: str,
     ccache_path: str,
     lib_path: Optional[str] = None,
+    krb5_conf: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire TGT using standard library ctypes bound to libkrb5 C runtime."""
+    if krb5_conf:
+        os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+
     target_lib = lib_path or find_krb5_library()
     if not target_lib:
         return {
@@ -191,73 +195,83 @@ def acquire_tgt_via_ctypes(
                         ctypes.c_char_p,
                         ctypes.c_void_p,
                     ]
-                    ret = krb5.krb5_get_init_creds_keytab(
-                        ctx,
-                        ctypes.byref(creds_buf),
-                        princ,
-                        kt,
-                        0,
-                        None,
-                        opt if opt.value else None,
-                    )
-
-                    if ret != 0:
-                        err_msg = f"krb5_get_init_creds_keytab failed (code {ret})"
+                    def _get_err(code: int, default: str) -> str:
                         if hasattr(krb5, "krb5_get_error_message"):
-                            krb5.krb5_get_error_message.restype = ctypes.c_char_p
-                            krb5.krb5_get_error_message.argtypes = [
-                                ctypes.c_void_p,
-                                ctypes.c_int32,
-                            ]
-                            msg_p = krb5.krb5_get_error_message(ctx, ret)
-                            if msg_p:
-                                err_msg = msg_p.decode("utf-8", errors="replace")
-                                if hasattr(krb5, "krb5_free_error_message"):
-                                    krb5.krb5_free_error_message.argtypes = [
-                                        ctypes.c_void_p,
-                                        ctypes.c_char_p,
-                                    ]
-                                    krb5.krb5_free_error_message(ctx, msg_p)
-                        return {
-                            "status": "ERROR",
-                            "reason_code": "AUTH_FAILED",
-                            "category": "PROTOCOL_ERROR",
-                            "message": err_msg,
-                        }
+                            try:
+                                krb5.krb5_get_error_message.restype = ctypes.c_void_p
+                                krb5.krb5_get_error_message.argtypes = [
+                                    ctypes.c_void_p,
+                                    ctypes.c_int32,
+                                ]
+                                msg_ptr = krb5.krb5_get_error_message(ctx, code)
+                                if msg_ptr:
+                                    try:
+                                        return ctypes.string_at(msg_ptr).decode("utf-8", errors="replace")
+                                    finally:
+                                        if hasattr(krb5, "krb5_free_error_message"):
+                                            krb5.krb5_free_error_message.restype = None
+                                            krb5.krb5_free_error_message.argtypes = [
+                                                ctypes.c_void_p,
+                                                ctypes.c_void_p,
+                                            ]
+                                            krb5.krb5_free_error_message(ctx, msg_ptr)
+                            except Exception:
+                                pass
+                        return default
 
                     try:
-                        # Store acquired credentials into the ccache
-                        krb5.krb5_cc_store_cred.restype = ctypes.c_int32
-                        krb5.krb5_cc_store_cred.argtypes = [
-                            ctypes.c_void_p,
-                            ctypes.c_void_p,
-                            ctypes.c_void_p,
-                        ]
-                        ret = krb5.krb5_cc_store_cred(ctx, cc, ctypes.byref(creds_buf))
+                        ret = krb5.krb5_get_init_creds_keytab(
+                            ctx,
+                            ctypes.byref(creds_buf),
+                            princ,
+                            kt,
+                            0,
+                            None,
+                            opt if opt.value else None,
+                        )
+
                         if ret != 0:
+                            err_msg = _get_err(ret, f"krb5_get_init_creds_keytab failed (code {ret})")
                             return {
                                 "status": "ERROR",
-                                "reason_code": "STORE_CRED_FAILED",
+                                "reason_code": "AUTH_FAILED",
                                 "category": "PROTOCOL_ERROR",
-                                "message": f"krb5_cc_store_cred failed (code {ret})",
+                                "message": err_msg,
                             }
-                    finally:
-                        if hasattr(krb5, "krb5_free_cred_contents"):
-                            krb5.krb5_free_cred_contents.restype = None
-                            krb5.krb5_free_cred_contents.argtypes = [
-                                ctypes.c_void_p,
-                                ctypes.c_void_p,
-                            ]
-                            krb5.krb5_free_cred_contents(ctx, ctypes.byref(creds_buf))
 
-                    if has_opt_alloc and opt.value:
-                        if hasattr(krb5, "krb5_get_init_creds_opt_free"):
-                            krb5.krb5_get_init_creds_opt_free.restype = ctypes.c_int32
-                            krb5.krb5_get_init_creds_opt_free.argtypes = [
+                        try:
+                            # Store acquired credentials into the ccache
+                            krb5.krb5_cc_store_cred.restype = ctypes.c_int32
+                            krb5.krb5_cc_store_cred.argtypes = [
+                                ctypes.c_void_p,
                                 ctypes.c_void_p,
                                 ctypes.c_void_p,
                             ]
-                            krb5.krb5_get_init_creds_opt_free(ctx, opt)
+                            ret = krb5.krb5_cc_store_cred(ctx, cc, ctypes.byref(creds_buf))
+                            if ret != 0:
+                                return {
+                                    "status": "ERROR",
+                                    "reason_code": "STORE_CRED_FAILED",
+                                    "category": "PROTOCOL_ERROR",
+                                    "message": f"krb5_cc_store_cred failed (code {ret})",
+                                }
+                        finally:
+                            if hasattr(krb5, "krb5_free_cred_contents"):
+                                krb5.krb5_free_cred_contents.restype = None
+                                krb5.krb5_free_cred_contents.argtypes = [
+                                    ctypes.c_void_p,
+                                    ctypes.c_void_p,
+                                ]
+                                krb5.krb5_free_cred_contents(ctx, ctypes.byref(creds_buf))
+                    finally:
+                        if has_opt_alloc and opt.value:
+                            if hasattr(krb5, "krb5_get_init_creds_opt_free"):
+                                krb5.krb5_get_init_creds_opt_free.restype = ctypes.c_int32
+                                krb5.krb5_get_init_creds_opt_free.argtypes = [
+                                    ctypes.c_void_p,
+                                    ctypes.c_void_p,
+                                ]
+                                krb5.krb5_get_init_creds_opt_free(ctx, opt)
 
                     return {
                         "status": "SUCCESS",
@@ -294,6 +308,7 @@ def acquire_tgt(
     principal: Optional[str] = None,
     ccache_path: Optional[str] = None,
     force_ctypes: bool = False,
+    krb5_conf: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire TGT using keytab via host kinit or fallback ctypes C library bridge."""
     if not os.path.exists(keytab_path):
@@ -360,9 +375,12 @@ def acquire_tgt(
 
     # 1. Try host kinit if available and not explicitly forcing ctypes
     kinit_bin = shutil.which("kinit")
+    kinit_err: Optional[str] = None
     if kinit_bin and not force_ctypes:
         cmd = [kinit_bin, "-k", "-t", abs_keytab, target_princ]
         env = dict(os.environ)
+        if krb5_conf:
+            env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
         env["KRB5CCNAME"] = f"FILE:{abs_ccache}"
         try:
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
@@ -375,14 +393,17 @@ def acquire_tgt(
                     "ccache": abs_ccache,
                     "export_command": f"export KRB5CCNAME={abs_ccache}",
                 }
-        except (subprocess.SubprocessError, OSError):
-            pass
+            else:
+                kinit_err = (proc.stderr or proc.stdout or "").strip()
+        except (subprocess.SubprocessError, OSError) as exc:
+            kinit_err = str(exc)
 
     # 2. Fallback to ctypes bridge loading libkrb5.so.3
     ctypes_res = acquire_tgt_via_ctypes(
         keytab_path=abs_keytab,
         principal=target_princ,
         ccache_path=abs_ccache,
+        krb5_conf=krb5_conf,
     )
     if ctypes_res.get("status") == "SUCCESS":
         return ctypes_res
@@ -395,6 +416,18 @@ def acquire_tgt(
             "category": "RESOURCE_MISSING",
             "message": "'kinit' utility not found on PATH and libkrb5 shared runtime not available.",
             "recommendation": "Install krb5-user (Debian/Ubuntu/Kali) or ensure libkrb5.so.3 is present on host.",
+            "principal": target_princ,
+            "keytab": abs_keytab,
+        }
+
+    # If kinit was attempted and failed, and ctypes failed because libkrb5 was not found,
+    # report kinit's error rather than masking it with LIBRARY_NOT_FOUND
+    if kinit_bin and not force_ctypes and ctypes_res.get("reason_code") in ("LIBRARY_NOT_FOUND", "LIBRARY_LOAD_FAILED"):
+        return {
+            "status": "ERROR",
+            "reason_code": "AUTH_FAILED",
+            "category": "PROTOCOL_ERROR",
+            "message": f"kinit authentication failed: {kinit_err or 'unknown error'}",
             "principal": target_princ,
             "keytab": abs_keytab,
         }

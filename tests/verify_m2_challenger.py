@@ -527,7 +527,7 @@ def test_rust_core_parity_and_safety() -> Tuple[bool, List[str]]:
         if os.path.isfile(p):
             with open(p, "r", encoding="utf-8") as f:
                 c = f.read()
-            if "—" in c:
+            if "\u2014" in c:
                 failures.append(f"Banned em dash found in {p}")
 
     success = len(failures) == 0

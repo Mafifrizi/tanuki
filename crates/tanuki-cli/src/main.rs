@@ -277,9 +277,25 @@ fn main() {
             }
             "--clock-skew" | "--clockskew" => {
                 if i + 1 < raw_args.len() {
-                    clock_skew_opt = raw_args[i + 1].parse::<u32>().ok();
+                    match raw_args[i + 1].parse::<u32>() {
+                        Ok(v) => clock_skew_opt = Some(v),
+                        Err(_) => {
+                            emit_cli_error(
+                                &format!("Invalid clock-skew value: {}", raw_args[i + 1]),
+                                "INVALID_ARGUMENT",
+                                "USAGE_ERROR",
+                                EXIT_USAGE_ERROR,
+                                Some(&raw_args[i + 1]),
+                                None,
+                                global_json,
+                            );
+                        }
+                    }
                     i += 1;
                 }
+            }
+            "--use-ctypes" => {
+                // Accepted for Python CLI engine parity
             }
             "--enforce-aes" => {
                 enforce_aes_opt = true;
@@ -350,10 +366,10 @@ fn main() {
             let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
             let target_princ = principal_opt.or_else(|| positional_args.get(1).cloned());
             let target_ccache = ccache_opt.or(out_opt);
-            handle_auth(target_kt, target_princ, target_ccache, global_json);
+            handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt);
         }
         "config" => {
-            let out_target = out_opt.or(file_opt);
+            let out_target = out_opt.or(file_opt).or_else(|| positional_args.first().cloned());
             handle_config(
                 realm_opt,
                 keytab_opt,
@@ -688,7 +704,8 @@ fn handle_config(
 
     let export_cmd = format!("export KRB5_CONFIG={}", abs_str);
     let clean_realm = realm.trim().to_uppercase();
-    let target_admin = admin_server_opt.as_deref().unwrap_or(kdc.trim());
+    let default_kdc_admin = kdc.split(',').next().unwrap_or("").trim();
+    let target_admin = admin_server_opt.as_deref().unwrap_or(default_kdc_admin);
 
     if json_output {
         let mut out = format!(
@@ -737,6 +754,7 @@ fn handle_auth(
     principal_opt: Option<String>,
     ccache_path_opt: Option<String>,
     json_output: bool,
+    krb5_conf_opt: Option<String>,
 ) {
     let kt_path = match keytab_path_opt {
         Some(p) => p,
@@ -819,10 +837,13 @@ fn handle_auth(
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
         .unwrap_or_else(|| "/tmp/krb5cc_1000".to_string());
 
-    let kinit_status = process::Command::new("kinit")
-        .args(["-k", "-t", &kt_path, &princ])
-        .env("KRB5CCNAME", format!("FILE:{}", ccache))
-        .status();
+    let mut cmd = process::Command::new("kinit");
+    cmd.args(["-k", "-t", &kt_path, &princ])
+        .env("KRB5CCNAME", format!("FILE:{}", ccache));
+    if let Some(ref conf) = krb5_conf_opt {
+        cmd.env("KRB5_CONFIG", conf);
+    }
+    let kinit_status = cmd.status();
 
     match kinit_status {
         Ok(status) if status.success() => {
