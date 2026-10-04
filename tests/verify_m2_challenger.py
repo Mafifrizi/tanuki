@@ -55,9 +55,7 @@ def run_cli(args: List[str]) -> subprocess.CompletedProcess:
     )
 
 
-# -----------------------------------------------------------------------------
 # Test Suite 1: Terminal Triage for all 10 Error Codes
-# -----------------------------------------------------------------------------
 def test_terminal_triage_all_10_codes() -> Tuple[bool, List[str]]:
     print("\n--- [Suite 1] Terminal Triage for all 10 Error Codes ---")
     failures = []
@@ -105,9 +103,7 @@ def test_terminal_triage_all_10_codes() -> Tuple[bool, List[str]]:
     return success, failures
 
 
-# -----------------------------------------------------------------------------
 # Test Suite 2: JSON Triage for all 10 Error Codes
-# -----------------------------------------------------------------------------
 def test_json_triage_all_10_codes() -> Tuple[bool, List[str]]:
     print("\n--- [Suite 2] JSON Triage Schema & Deserialization for all 10 Error Codes ---")
     failures = []
@@ -189,9 +185,7 @@ def test_json_triage_all_10_codes() -> Tuple[bool, List[str]]:
     return success, failures
 
 
-# -----------------------------------------------------------------------------
 # Test Suite 3: Tactical Decision Ladder (Terminal & JSON)
-# -----------------------------------------------------------------------------
 def test_decision_ladder() -> Tuple[bool, List[str]]:
     print("\n--- [Suite 3] Tactical Decision Ladder Terminal & JSON Verification ---")
     failures = []
@@ -257,9 +251,7 @@ def test_decision_ladder() -> Tuple[bool, List[str]]:
     return success, failures
 
 
-# -----------------------------------------------------------------------------
 # Test Suite 4: Adversarial Input Mining & Edge Cases
-# -----------------------------------------------------------------------------
 def test_adversarial_inputs_and_edge_cases() -> Tuple[bool, List[str]]:
     print("\n--- [Suite 4] Adversarial Input Mining & Edge Cases ---")
     failures = []
@@ -394,9 +386,7 @@ def test_adversarial_inputs_and_edge_cases() -> Tuple[bool, List[str]]:
     return success, failures
 
 
-# -----------------------------------------------------------------------------
 # Test Suite 5: Zero-Network & In-Process Execution Audit
-# -----------------------------------------------------------------------------
 def test_zero_network_triage_audit() -> Tuple[bool, List[str]]:
     print("\n--- [Suite 5] Zero-Network In-Process Audit ---")
     failures = []
@@ -453,9 +443,7 @@ def test_zero_network_triage_audit() -> Tuple[bool, List[str]]:
     return success, failures
 
 
-# -----------------------------------------------------------------------------
 # Test Suite 6: Rust Core Parity & Safety Integrity Audit
-# -----------------------------------------------------------------------------
 def test_rust_core_parity_and_safety() -> Tuple[bool, List[str]]:
     print("\n--- [Suite 6] Rust Core Parity & Safety Integrity Audit ---")
     failures = []
@@ -535,13 +523,9 @@ def test_rust_core_parity_and_safety() -> Tuple[bool, List[str]]:
     return success, failures
 
 
-# -----------------------------------------------------------------------------
 # Main Test Harness Runner
-# -----------------------------------------------------------------------------
 def main() -> int:
-    print("=" * 72)
-    print(" EMPIRICAL VERIFICATION HARNESS: Milestone 2 Detection Telemetry")
-    print("=" * 72)
+    print("[EMPIRICAL VERIFICATION HARNESS: Milestone 2 Detection Telemetry]")
 
     all_failures = []
     suites = [
@@ -560,9 +544,7 @@ def main() -> int:
         if not passed:
             all_failures.extend(fails)
 
-    print("\n" + "=" * 72)
-    print(" SUMMARY OF EMPIRICAL VERIFICATION SUITE RESULTS")
-    print("=" * 72)
+    print("\n[SUMMARY OF EMPIRICAL VERIFICATION SUITE RESULTS]")
     for name, passed in suite_results.items():
         print(f"  {name}: {'PASS' if passed else 'FAIL'}")
 
@@ -573,9 +555,7 @@ def main() -> int:
             print(f"  [FAILURE] {f}")
 
     verdict = "APPROVE" if overall_pass else "REJECT"
-    print("\n" + "=" * 72)
-    print(f" FINAL MILESTONE 2 VERDICT: {verdict}")
-    print("=" * 72)
+    print(f"\nFINAL MILESTONE 2 VERDICT: {verdict}")
 
     return 0 if overall_pass else 1
 

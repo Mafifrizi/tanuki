@@ -294,19 +294,15 @@ def run_json_schema_tests() -> int:
 
 
 def main():
-    print("=" * 72)
-    print(" TANUKI v1.2.0 CHALLENGER 2 EMPIRICAL BOUNDARY & STRESS VERIFIER")
-    print("=" * 72)
+    print("[TANUKI v1.2.0 CHALLENGER 2 EMPIRICAL BOUNDARY & STRESS VERIFIER]")
 
     k_tests = run_krb5_conf_boundary_tests()
     p_tests = run_keytab_permission_tests()
     j_tests = run_json_schema_tests()
 
     total = k_tests + p_tests + j_tests
-    print("\n" + "=" * 72)
-    print(f" CHALLENGER 2 SUMMARY: {total}/{total} Boundary & Stress Suites PASSED")
+    print(f"\n[CHALLENGER 2 SUMMARY: {total}/{total} Boundary & Stress Suites PASSED]")
     print(" VERDICT: APPROVE")
-    print("=" * 72)
 
 
 if __name__ == "__main__":

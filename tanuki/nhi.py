@@ -426,10 +426,13 @@ def validate_token_exchange(params: Dict[str, Any]) -> TokenValidationReport:
 
 
 def format_token_report_terminal(report: Dict[str, Any]) -> str:
+    from .doctor import render_card_header
     lines: List[str] = []
-    lines.append("=" * 72)
-    lines.append(" TANUKI WORKLOAD IDENTITY VALIDATOR (RFC 8693 / NHI)")
-    lines.append("=" * 72)
+    lines.extend(render_card_header(
+        "TANUKI WORKLOAD IDENTITY VALIDATOR (RFC 8693 / NHI)",
+        "Zero-Dependency Workload Token & RFC 8693 Claims Assessment",
+    ))
+    lines.append("")
 
     id_type = report.get("identity_type", "Workload Identity Token")
     claims = report.get("claims", {})
@@ -475,15 +478,17 @@ def format_token_report_terminal(report: Dict[str, Any]) -> str:
 
     assessment = "VALID & SECURE" if report.get("valid") else "INVALID OR HIGH RISK"
     lines.append(f"OVERALL ASSESSMENT: {assessment}")
-    lines.append("=" * 72)
     return "\n".join(lines)
 
 
 def format_exchange_report_terminal(report: Dict[str, Any]) -> str:
+    from .doctor import render_card_header
     lines: List[str] = []
-    lines.append("=" * 72)
-    lines.append(" TANUKI RFC 8693 TOKEN EXCHANGE VALIDATION REPORT")
-    lines.append("=" * 72)
+    lines.extend(render_card_header(
+        "TANUKI RFC 8693 TOKEN EXCHANGE VALIDATION REPORT",
+        "OAuth 2.0 Workload Token Exchange Assessment",
+    ))
+    lines.append("")
 
     status = "VALID" if report.get("valid") else "FAILED"
     lines.append(f"Exchange Status   : {status}")
@@ -498,5 +503,4 @@ def format_exchange_report_terminal(report: Dict[str, Any]) -> str:
         for w in warnings:
             lines.append(f"  [!] {w}")
 
-    lines.append("=" * 72)
     return "\n".join(lines)

@@ -127,9 +127,7 @@ def make_valid_krb5_conf() -> str:
 """
 
 
-# -----------------------------------------------------------------------------
-# 1. LATENCY BENCHMARK
-# -----------------------------------------------------------------------------
+# 1. Latency Benchmark
 def benchmark_deterministic_latency(iterations: int = 1000) -> Dict[str, Any]:
     print(f"\n--- [1/3] Benchmarking Deterministic Execution Latency ({iterations} iterations) ---")
 
@@ -199,9 +197,7 @@ def benchmark_deterministic_latency(iterations: int = 1000) -> Dict[str, Any]:
         }
 
 
-# -----------------------------------------------------------------------------
-# 2. ZERO-NETWORK VERIFICATION
-# -----------------------------------------------------------------------------
+# 2. Zero-Network Verification
 def verify_zero_network() -> Dict[str, Any]:
     print("\n--- [2/3] Verifying Zero-Network Behavior ---")
 
@@ -307,9 +303,7 @@ def verify_zero_network() -> Dict[str, Any]:
     }
 
 
-# -----------------------------------------------------------------------------
-# 3. CORRUPTED BINARY INPUTS & ADVERSARIAL FUZZING
-# -----------------------------------------------------------------------------
+# 3. Corrupted Binary Inputs & Adversarial Fuzzing
 def stress_test_corrupted_binaries() -> Dict[str, Any]:
     print("\n--- [3/3] Stress Testing Corrupted Binary Inputs & Fuzzing ---")
 
@@ -466,17 +460,13 @@ def stress_test_corrupted_binaries() -> Dict[str, Any]:
 
 
 def main():
-    print("=" * 72)
-    print(" EMPIRICAL VERIFICATION HARNESS: Milestone 1 Doctor Engine")
-    print("=" * 72)
+    print("[EMPIRICAL VERIFICATION HARNESS: Milestone 1 Doctor Engine]")
 
     bench_results = benchmark_deterministic_latency(1000)
     net_results = verify_zero_network()
     stress_results = stress_test_corrupted_binaries()
 
-    print("\n" + "=" * 72)
-    print(" SUMMARY OF EMPIRICAL VERIFICATION RESULTS")
-    print("=" * 72)
+    print("\n[SUMMARY OF EMPIRICAL VERIFICATION RESULTS]")
     print(f"1. Latency Benchmark: Mean={bench_results['mean_ms']:.4f} ms, Max={bench_results['max_ms']:.4f} ms, Sub-5ms={bench_results['under_5ms']}")
     print(f"2. Zero-Network Compliance: {net_results['zero_network_passed']} (0 network calls)")
     print(f"3. Binary Corruption Resilience: {stress_results['cases_tested']} cases, 0 crashes ({stress_results['failures_count']} failures)")
@@ -489,7 +479,6 @@ def main():
 
     verdict = "APPROVE" if all_passed else "REJECT"
     print(f"\nFINAL VERDICT: {verdict}")
-    print("=" * 72)
 
     return 0 if all_passed else 1
 

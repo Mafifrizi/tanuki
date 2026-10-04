@@ -24,12 +24,24 @@ from .nhi import (
 from .protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
 from .telemetry import format_telemetry_inline, format_telemetry_terminal
 
+TANUKI_BANNER = r""" _____     _     _   _   _   _   _  __   _____ 
+|_   _|   / \   | \ | | | | | | | |/ /  |_   _|
+  | |    / _ \  |  \| | | | | | | ' /     | |  
+  | |   / ___ \ | |\  | | |_| | | . \     | |  
+  |_|   /_/   \ |_| \_|  \___/  |_|\_\   |___| """
+
+
 def _build_usage_text() -> str:
     header_lines = render_card_header(
         f"Tanuki CLI · Tactical Identity Operator (v{__version__})",
         "Autonomous Non-Human Identity (NHI) & Hybrid Active Directory Engine",
     )
-    return "\n".join(header_lines) + "\n\n" + """USAGE:
+    return (
+        TANUKI_BANNER
+        + "\n\n"
+        + "\n".join(header_lines)
+        + "\n\n"
+        + """USAGE:
     tanuki <COMMAND> [OPTIONS]
     tanuki <KEYTAB_PATH> [--json]
 
@@ -65,6 +77,7 @@ OPTIONS:
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"""
+    )
 
 USAGE_TEXT = _build_usage_text()
 
@@ -165,7 +178,6 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
         print(line)
 
     use_uni = supports_unicode()
-    div = "─" * 72 if use_uni else "-" * 72
     t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
 
     for idx, e in enumerate(entries, 1):
@@ -190,7 +202,6 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
             print("    'kinit' utility not found on PATH.")
             print("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)")
             print("    Unprivileged: Generate local config via 'tanuki config' and use portable client.")
-    print(div)
 
 
 def handle_kcm(file_path: Optional[str], out_dir: str, json_output: bool) -> None:
@@ -256,9 +267,6 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                     f"Event ID: {res['event_id']} · Root Cause Diagnostic" if res.get("event_id") else "RFC / SSSD Error Vector Diagnostic",
                 ):
                     print(line)
-                use_uni = supports_unicode()
-                div = "─" * 72 if use_uni else "-" * 72
-
                 print(f"Found matching error: {res['code']}")
                 if res["event_id"]:
                     print(f"Event ID: {res['event_id']}")
@@ -271,7 +279,6 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                 if "telemetry" in res:
                     print()
                     print(format_telemetry_terminal(res["telemetry"]))
-                print(div)
         else:
             emit_cli_error(
                 f"No matching error resolution found for '{query}'",
@@ -291,8 +298,6 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                 "11 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
             ):
                 print(line)
-            use_uni = supports_unicode()
-            div = "─" * 72 if use_uni else "-" * 72
 
             for item in ERROR_DICTIONARY:
                 event = f" (Event {item['event_id']})" if item["event_id"] else ""
@@ -303,7 +308,6 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                     print(f"[TACTICAL CMD]:\n    $ {item['tactical_cmd']}")
                 if "telemetry" in item:
                     print(f"[BLUE TELEMETRY]:\n    {format_telemetry_inline(item['telemetry'])}")
-            print(div)
 
 
 def handle_ladder(json_output: bool) -> None:
@@ -317,9 +321,6 @@ def handle_ladder(json_output: bool) -> None:
     ):
         print(line)
 
-    use_uni = supports_unicode()
-    div = "─" * 72 if use_uni else "-" * 72
-
     for rung in DECISION_LADDER:
         print(f"[*] {rung['title']}")
         print(f"    {rung['description']}")
@@ -329,7 +330,6 @@ def handle_ladder(json_output: bool) -> None:
             print()
     print("Command Output Standard:")
     print("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]")
-    print(div)
 
 
 def handle_doctor(
@@ -536,7 +536,6 @@ def handle_config(
         print(line)
 
     use_uni = supports_unicode()
-    div = "─" * 72 if use_uni else "-" * 72
     t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
 
     print(f"[+] Output File    : {abs_path}")
@@ -552,7 +551,6 @@ def handle_config(
     print("\n[+] To activate in your current session (unprivileged / no root required):")
     print(f"    $ {export_cmd}")
     print("    $ kinit -k -t <keytab> <principal>")
-    print(div)
 
 
 def handle_auth(
@@ -592,7 +590,6 @@ def handle_auth(
             print(line)
 
         use_uni = supports_unicode()
-        div = "─" * 72 if use_uni else "-" * 72
         t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
 
         print(f"[+] Principal      : {res['principal']}")
@@ -601,7 +598,6 @@ def handle_auth(
         print(f"    {l_branch} Auth Method    : {res.get('method', 'unknown')}")
         print("\n[+] Active Credential Cache Export:")
         print(f"    $ {res['export_command']}")
-        print(div)
     else:
         exit_code = EXIT_RESOURCE_MISSING
         if res.get("reason_code") == "AUTH_FAILED":
@@ -766,14 +762,11 @@ def handle_nhi(
                 "Filesystem Workload Identity Probes",
             ):
                 print(line)
-            use_uni = supports_unicode()
-            div = "─" * 72 if use_uni else "-" * 72
             if found:
                 for p in found:
                     print(f"[FOUND] {p}")
             else:
                 print("No standard workload tokens discovered on local filesystem.")
-            print(div)
     else:
         handle_token(subcmd, file_path, audience, issuer, json_output)
 
@@ -821,7 +814,6 @@ def handle_skill(json_output: bool) -> None:
         print(line)
 
     use_uni = supports_unicode()
-    div = "─" * 72 if use_uni else "-" * 72
     t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
 
     print("[*] Intellectual Lineage & Pioneers:")
@@ -838,7 +830,6 @@ def handle_skill(json_output: bool) -> None:
     print()
     print("[*] Deterministic Command Output Standard:")
     print(f"    {manifest['output_standard']}")
-    print(div)
 
 
 def main(argv: Optional[List[str]] = None) -> None:

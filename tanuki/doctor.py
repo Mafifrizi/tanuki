@@ -24,20 +24,13 @@ def supports_unicode() -> bool:
 
 def render_card_header(title: str, subtitle: Optional[str] = None, width: int = 72) -> List[str]:
     use_uni = supports_unicode()
-    tl, tr, bl, br = ("┌", "┐", "└", "┘") if use_uni else ("+", "+", "+", "+")
-    h_bar, v_bar = ("─", "│") if use_uni else ("-", "|")
-    dot = "·" if use_uni else "-"
+    dot = "·" if use_uni else "|"
 
     clean_title = title.replace("·", dot)
-    t_str = f" {clean_title} "
-    rem = max(2, width - len(t_str) - 3)
-    res = [f"{tl}{h_bar}{h_bar}{t_str}{h_bar * rem}{tr}"]
+    res = [f"[{clean_title}]"]
     if subtitle:
         clean_sub = subtitle.replace("·", dot)
-        sub_len = len(clean_sub)
-        pad = max(0, width - sub_len - 4)
-        res.append(f"{v_bar} {clean_sub}{' ' * pad} {v_bar}")
-    res.append(f"{bl}{h_bar * (width - 2)}{br}")
+        res.append(f" {clean_sub}")
     return res
 
 
@@ -90,9 +83,7 @@ class DoctorReport:
             "TANUKI PRE-FLIGHT DOCTOR (v1.2.1)",
             f"Host: {hostname} · Mode: Passive Diagnostic (0 network packets)",
         ))
-
-        use_uni = supports_unicode()
-        div = "─" * 72 if use_uni else "-" * 72
+        lines.append("")
 
         for check in self.checks:
             name = check.get("name", "check")
@@ -113,7 +104,7 @@ class DoctorReport:
             if rec:
                 lines.append(f"       Action Required        : {rec}")
 
-        lines.append(div)
+        lines.append("")
         lines.append(
             f"OVERALL HEALTH: {self.status} "
             f"({self.summary['passed']} passed, {self.summary['warnings']} warnings, {self.summary['failures']} failures)"
@@ -121,7 +112,6 @@ class DoctorReport:
         lines.append(
             f"Execution Time: {self.duration_ms:.2f} ms | Network Packets Emitted: 0"
         )
-        lines.append(div)
         return "\n".join(lines)
 
 

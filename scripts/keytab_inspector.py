@@ -62,20 +62,13 @@ def supports_unicode() -> bool:
 
 def render_card_header(title: str, subtitle: Optional[str] = None, width: int = 72) -> List[str]:
     use_uni = supports_unicode()
-    tl, tr, bl, br = ("┌", "┐", "└", "┘") if use_uni else ("+", "+", "+", "+")
-    h_bar, v_bar = ("─", "│") if use_uni else ("-", "|")
-    dot = "·" if use_uni else "-"
+    dot = "·" if use_uni else "|"
 
     clean_title = title.replace("·", dot)
-    t_str = f" {clean_title} "
-    rem = max(2, width - len(t_str) - 3)
-    res = [f"{tl}{h_bar}{h_bar}{t_str}{h_bar * rem}{tr}"]
+    res = [f"[{clean_title}]"]
     if subtitle:
         clean_sub = subtitle.replace("·", dot)
-        sub_len = len(clean_sub)
-        pad = max(0, width - sub_len - 4)
-        res.append(f"{v_bar} {clean_sub}{' ' * pad} {v_bar}")
-    res.append(f"{bl}{h_bar * (width - 2)}{br}")
+        res.append(f" {clean_sub}")
     return res
 
 
@@ -263,7 +256,6 @@ def main() -> None:
         print(line)
 
     use_uni = supports_unicode()
-    div = "─" * 72 if use_uni else "-" * 72
     t_branch, l_branch = ("├──", "└──") if use_uni else ("|--", "`--")
 
     for idx, e in enumerate(entries, 1):
@@ -287,7 +279,6 @@ def main() -> None:
             print("    'kinit' utility not found on PATH.")
             print("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)")
             print("    Unprivileged: Generate local config via 'tanuki config' and use portable client.")
-    print(div)
 
 
 if __name__ == "__main__":
