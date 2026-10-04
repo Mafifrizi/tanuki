@@ -125,7 +125,7 @@ fn main() {
         process::exit(EXIT_USAGE_ERROR);
     }
 
-    let mut global_json = false;
+    let mut global_json = raw_args.iter().any(|a| a == "--json");
     let mut explicit_command: Option<String> = None;
     let mut positional_args: Vec<String> = Vec::new();
     let mut file_opt: Option<String> = None;
