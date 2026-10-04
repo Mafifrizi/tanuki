@@ -77,7 +77,7 @@ OPTIONS:
     -o, --out <PATH>    Output directory for extracted caches or target config path
     -p, --principal <P> Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
-    -i, --issuer <ISS>   Expected issuer for workload validation
+    --issuer <ISS>      Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
     --kdc <HOST_OR_IP>  KDC address or hostname (supports multiple or comma-separated)
     --admin-server <HOST_OR_IP> Optional admin server for config
@@ -1109,20 +1109,25 @@ def main(argv: Optional[List[str]] = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
 
-    interactive_requested = False
-    if argv and any(a in ("-i", "--interactive") for a in argv):
-        interactive_requested = True
-
-    if interactive_requested:
-        run_tui_wizard()
-        return
+    known_subcommands = {
+        "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
+        "pac", "fix", "purge", "adcs", "ldap",
+    }
 
     if not argv:
         if sys.stdin.isatty() and sys.stdout.isatty():
             run_tui_wizard()
             return
         print_usage()
-        sys.exit(1)
+        sys.exit(EXIT_USAGE_ERROR)
+
+    if len(argv) == 1 and argv[0] in ("-i", "--interactive"):
+        run_tui_wizard()
+        return
+
+    if "--interactive" in argv and not any(a in known_subcommands for a in argv):
+        run_tui_wizard()
+        return
 
     global_json = "--json" in argv
     explicit_command: Optional[str] = None
@@ -1171,8 +1176,25 @@ def main(argv: Optional[List[str]] = None) -> None:
             return
         elif arg == "--json":
             global_json = True
-        elif arg in ("-i", "--interactive"):
-            pass  # handled early
+        elif arg == "--interactive":
+            if not explicit_command:
+                run_tui_wizard()
+                return
+        elif arg in ("-i", "--issuer"):
+            if i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+                issuer_opt = argv[i + 1]
+                i += 1
+            elif not explicit_command and not any(a in known_subcommands for a in argv):
+                run_tui_wizard()
+                return
+            else:
+                emit_cli_error(
+                    "Option requires an argument: -i/--issuer",
+                    reason_code="MISSING_ARGUMENT",
+                    category="USAGE_ERROR",
+                    exit_code=EXIT_USAGE_ERROR,
+                    json_output=global_json,
+                )
         elif arg in ("-f", "--file"):
             if i + 1 < len(argv):
                 file_opt = argv[i + 1]
@@ -1188,10 +1210,6 @@ def main(argv: Optional[List[str]] = None) -> None:
         elif arg in ("-a", "--audience"):
             if i + 1 < len(argv):
                 audience_opt = argv[i + 1]
-                i += 1
-        elif arg in ("-i", "--issuer") and arg != "-i":
-            if i + 1 < len(argv):
-                issuer_opt = argv[i + 1]
                 i += 1
         elif arg == "--realm":
             if i + 1 < len(argv):

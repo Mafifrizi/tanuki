@@ -446,6 +446,32 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
     entries
 }
 
+fn is_search_done_received(data: &[u8]) -> bool {
+    let mut offset = 0;
+    while offset < data.len() {
+        if offset + 2 > data.len() || data[offset] != TAG_SEQUENCE {
+            offset += 1;
+            continue;
+        }
+        match ber_decode_tlv(data, offset) {
+            Ok((TAG_SEQUENCE, seq_val, next_off)) => {
+                let inner_off = 0;
+                if let Ok((TAG_INTEGER, _, op_off)) = ber_decode_tlv(seq_val, inner_off) {
+                    if op_off < seq_val.len() {
+                        let op_tag = seq_val[op_off];
+                        if op_tag == LDAP_RESP_SEARCH_DONE {
+                            return true;
+                        }
+                    }
+                }
+                offset = next_off;
+            }
+            _ => break,
+        }
+    }
+    false
+}
+
 pub fn query_active_directory_ldap(
     host: &str,
     query_type: &str,
@@ -585,7 +611,7 @@ pub fn query_active_directory_ldap(
                     break;
                 }
                 search_buf.extend_from_slice(&temp_chunk[..read_bytes]);
-                if search_buf.contains(&LDAP_RESP_SEARCH_DONE) {
+                if is_search_done_received(&search_buf) {
                     break;
                 }
             }

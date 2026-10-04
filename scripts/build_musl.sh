@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# ==============================================================================
 # Tanuki 2.0 Static Musl Binary Build Script
 # Compiles zero-dependency statically linked Linux binaries via Musl libc.
-# ==============================================================================
 
 set -euo pipefail
 

@@ -24,6 +24,7 @@ from tanuki.ldap import (
     build_ldap_search_filter,
     build_ldap_search_request,
     format_ldap_report_terminal,
+    is_ldap_message_done,
     parse_ldap_response_stream,
     query_active_directory_ldap,
 )
@@ -125,6 +126,46 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("TANUKI UNPRIVILEGED LDAP QUERY ENGINE", term_text)
         self.assertIn("SPN", term_text)
         self.assertIn("sql_svc", term_text)
+
+    def test_is_ldap_message_done_not_fooled_by_ascii_e_or_a(self):
+        # Construct an entry with attribute values packed with 'e' (0x65) and 'a' (0x61)
+        # Previously, bytes([LDAP_RESP_SEARCH_DONE]) in joined would match ASCII 'e'
+        entry_payload = ber_encode_sequence([
+            ber_encode_string("CN=enterprise_admin,DC=corp,DC=local"),
+            ber_encode_sequence([
+                ber_encode_sequence([
+                    ber_encode_string("sAMAccountName"),
+                    ber_encode_sequence([ber_encode_string("enterprise_admin")]),
+                ])
+            ]),
+        ])
+        entry_tlv = ber_encode_tlv(LDAP_RESP_SEARCH_ENTRY, entry_payload)
+        msg_id_tlv = ber_encode_int(2)
+        full_entry_msg = ber_encode_sequence([msg_id_tlv, entry_tlv])
+
+        # Verify full_entry_msg contains b'e' and b'a'
+        self.assertIn(b"e", full_entry_msg)
+        self.assertIn(b"a", full_entry_msg)
+        # But is_ldap_message_done must return False because SEARCH_DONE was not sent
+        self.assertFalse(is_ldap_message_done(full_entry_msg))
+
+    def test_is_ldap_message_done_detects_complete_search_done(self):
+        # Sequence: MessageID (2), SearchResultDone (0x65): resultCode 0, matchedDN "", diagnosticMsg ""
+        done_payload = b"\x0a\x01\x00\x04\x00\x04\x00"
+        done_tlv = ber_encode_tlv(LDAP_RESP_SEARCH_DONE, done_payload)
+        msg_id_tlv = ber_encode_int(2)
+        done_msg = ber_encode_sequence([msg_id_tlv, done_tlv])
+
+        self.assertTrue(is_ldap_message_done(done_msg))
+
+    def test_is_ldap_message_done_detects_bind_response(self):
+        # Sequence: MessageID (1), BindResponse (0x61): resultCode 0, matchedDN "", diagnosticMsg ""
+        bind_payload = b"\x0a\x01\x00\x04\x00\x04\x00"
+        bind_tlv = ber_encode_tlv(LDAP_RESP_BIND, bind_payload)
+        msg_id_tlv = ber_encode_int(1)
+        bind_msg = ber_encode_sequence([msg_id_tlv, bind_tlv])
+
+        self.assertTrue(is_ldap_message_done(bind_msg))
 
 
 if __name__ == "__main__":

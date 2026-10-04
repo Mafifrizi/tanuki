@@ -26,7 +26,8 @@ pub use nhi::{
     TokenValidationReport,
 };
 pub use pac::{
-    format_pac_report_terminal, pac_report_to_json, parse_pac_bytes, parse_pac_source, PacReport,
+    extract_pac_from_authorization_data, format_pac_report_terminal, pac_report_to_json,
+    parse_pac_bytes, parse_pac_source, PacReport,
 };
 pub use protocol::{
     errors_to_json, find_error_resolution, ladder_to_json, ErrorResolution, LadderRung,
