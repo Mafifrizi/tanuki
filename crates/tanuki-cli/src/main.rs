@@ -1287,7 +1287,7 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     "UNKNOWN_ERROR_CODE",
                     "PROTOCOL_ERROR",
                     EXIT_RESOURCE_MISSING,
-                    Some(q.as_str()),
+                    Some(q),
                     Some("Run 'tanuki triage' without arguments to see all known error codes."),
                     json_output,
                 );
@@ -1367,7 +1367,8 @@ fn handle_doctor(
     if report.status == "FAIL" {
         let has_policy_stop = report.checks.iter().any(|c| {
             c.status == "FAIL"
-                && (!c.is_secure_permissions.unwrap_or(true) || c.has_weak_enctypes.unwrap_or(false))
+                && (!c.get_extra_bool("is_secure_permissions", true)
+                    || c.get_extra_bool("has_weak_enctypes", false))
         });
         if has_policy_stop {
             process::exit(EXIT_POLICY_STOP);
@@ -1375,7 +1376,7 @@ fn handle_doctor(
 
         let has_missing_resource = report.checks.iter().any(|c| {
             (c.status == "FAIL" || c.status == "N_A")
-                && !c.exists.unwrap_or(true)
+                && !c.get_extra_bool("exists", true)
                 && (c.name == "keytab_permissions" || c.name == "sssd_subsystem")
         });
         if has_missing_resource {
