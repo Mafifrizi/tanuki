@@ -9,28 +9,30 @@ use tanuki::{
     DECISION_LADDER, ERROR_DICTIONARY,
 };
 
-fn print_card_header(title: &str, subtitle: Option<&str>, width: usize) {
-    let t_str = format!(" {} ", title);
-    let title_chars = t_str.chars().count();
-    let rem = if width > title_chars + 3 { width - title_chars - 3 } else { 2 };
-    println!("┌──{}{}{}", t_str, "─".repeat(rem), "┐");
+const TANUKI_BANNER: &str = r#" _____     _     _   _   _   _   _  __   _____ 
+|_   _|   / \   | \ | | | | | | | |/ /  |_   _|
+  | |    / _ \  |  \| | | | | | | ' /     | |  
+  | |   / ___ \ | |\  | | |_| | | . \     | |  
+  |_|   /_/   \ |_| \_|  \___/  |_|\_\   |___| "#;
+
+fn print_card_header(title: &str, subtitle: Option<&str>, _width: usize) {
+    println!("[{}]", title);
     if let Some(sub) = subtitle {
-        let sub_chars = sub.chars().count();
-        let pad = if width > sub_chars + 4 { width - sub_chars - 4 } else { 0 };
-        println!("│ {}{} │", sub, " ".repeat(pad));
+        println!(" {}", sub);
     }
-    println!("└{}┘", "─".repeat(width - 2));
 }
 
 fn print_usage() {
+    println!("{}", TANUKI_BANNER);
+    println!();
     print_card_header(
         &format!("Tanuki CLI · Tactical Identity Operator (v{})", env!("CARGO_PKG_VERSION")),
         Some("Autonomous Non-Human Identity (NHI) & Hybrid Active Directory Engine"),
         72,
     );
+    println!();
     println!(
-        r#"
-USAGE:
+        r#"USAGE:
     tanuki <COMMAND> [OPTIONS]
     tanuki <KEYTAB_PATH> [--json]
 
@@ -524,7 +526,6 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
             println!("    Unprivileged: Generate local config via 'tanuki config' and use portable client.");
         }
     }
-    println!("{}", "─".repeat(72));
 }
 
 fn handle_config(
@@ -746,7 +747,6 @@ fn handle_config(
     println!("\n[+] To activate in your current session (unprivileged / no root required):");
     println!("    $ {}", export_cmd);
     println!("    $ kinit -k -t <keytab> <principal>");
-    println!("{}", "─".repeat(72));
 }
 
 fn handle_auth(
@@ -863,7 +863,6 @@ fn handle_auth(
                 println!("    ├─ Credential CC  : {}", ccache);
                 println!("    ╰─ Auth Method    : kinit");
                 println!("\n[+] Active Credential Cache Export:\n    $ export KRB5CCNAME={}", ccache);
-                println!("{}", "─".repeat(72));
             }
         }
         _ => {
@@ -1008,7 +1007,6 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     println!("    $ {}", res.tactical_cmd);
                     println!();
                     println!("{}", res.telemetry.format_terminal());
-                    println!("{}", "─".repeat(72));
                 }
             }
             None => {
@@ -1044,7 +1042,6 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                     println!("[TACTICAL CMD]:\n    $ {}", item.tactical_cmd);
                     println!("[BLUE TELEMETRY]:\n    {}", item.telemetry.format_inline());
                 }
-                println!("{}", "─".repeat(72));
             }
         }
     }
@@ -1068,7 +1065,6 @@ fn handle_ladder(json_output: bool) {
     }
     println!("Command Output Standard:");
     println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
-    println!("{}", "─".repeat(72));
 }
 
 fn handle_doctor(
@@ -1278,7 +1274,6 @@ fn handle_nhi(
                         println!("[FOUND] {}", p);
                     }
                 }
-                println!("{}", "─".repeat(72));
             }
         }
         other => {
@@ -1326,5 +1321,4 @@ fn handle_skill(json_output: bool) {
     println!();
     println!("[*] Deterministic Command Output Standard:");
     println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
-    println!("{}", "─".repeat(72));
 }

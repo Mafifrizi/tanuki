@@ -3,9 +3,7 @@
 The Tanuki Decision Ladder is a prioritized operational filter designed to prevent AI agents from hallucinating noisy commands, over-engineering attacks, or triggering security monitoring alerts during identity assessment workflows.
 
 ```text
-================================================================================
-                    THE OPERATOR'S TACTICAL DECISION LADDER
-================================================================================
+[ THE OPERATOR'S TACTICAL DECISION LADDER ]
 
 [ RUNG 1: LOCAL PASSIVE TRIAGE ]
   - Inspect local system files: /etc/krb5.conf, /var/lib/sss/secrets/, /etc/krb5.keytab.
@@ -32,5 +30,4 @@ The Tanuki Decision Ladder is a prioritized operational filter designed to preve
   - Output format strictly follows military brevity:
     [TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
   - No conversational padding, no multi-page generic essays.
-================================================================================
 ```

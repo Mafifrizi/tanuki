@@ -183,11 +183,8 @@ impl JwtValidationReport {
 
     pub fn format_terminal(&self) -> String {
         let mut out = String::new();
-        out.push_str(&"=".repeat(72));
-        out.push('\n');
-        out.push_str(" TANUKI WORKLOAD IDENTITY VALIDATOR (RFC 8693 / NHI)\n");
-        out.push_str(&"=".repeat(72));
-        out.push('\n');
+        out.push_str("[TANUKI WORKLOAD IDENTITY VALIDATOR (RFC 8693 / NHI)]\n");
+        out.push_str(" Zero-Dependency Workload Token & RFC 8693 Claims Assessment\n\n");
 
         out.push_str(&format!("Identity Type    : {}\n", self.identity_type));
         if let Some(iss) = &self.claims.iss {
@@ -248,7 +245,6 @@ impl JwtValidationReport {
             "INVALID OR HIGH RISK"
         };
         out.push_str(&format!("OVERALL ASSESSMENT: {}\n", assessment));
-        out.push_str(&"=".repeat(72));
         out
     }
 }
@@ -335,11 +331,8 @@ impl TokenValidationReport {
 
     pub fn format_terminal(&self) -> String {
         let mut out = String::new();
-        out.push_str(&"=".repeat(72));
-        out.push('\n');
-        out.push_str(" TANUKI RFC 8693 TOKEN EXCHANGE VALIDATION REPORT\n");
-        out.push_str(&"=".repeat(72));
-        out.push('\n');
+        out.push_str("[TANUKI RFC 8693 TOKEN EXCHANGE VALIDATION REPORT]\n");
+        out.push_str(" OAuth 2.0 Workload Token Exchange Assessment\n\n");
 
         let status = if self.valid { "VALID" } else { "FAILED" };
         out.push_str(&format!("Exchange Status   : {}\n", status));
@@ -357,7 +350,6 @@ impl TokenValidationReport {
             }
         }
 
-        out.push_str(&"=".repeat(72));
         out
     }
 }
