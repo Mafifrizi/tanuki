@@ -322,6 +322,7 @@ fn main() {
             let out_target = out_opt.or(file_opt);
             handle_config(
                 realm_opt,
+                keytab_opt,
                 kdc_opt,
                 admin_server_opt,
                 out_target,
@@ -464,6 +465,7 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
 
 fn handle_config(
     realm_opt: Option<String>,
+    keytab_opt: Option<String>,
     kdc_opt: Option<String>,
     admin_server_opt: Option<String>,
     out_path: Option<String>,
@@ -471,18 +473,94 @@ fn handle_config(
     json_output: bool,
 ) {
     let realm = match realm_opt {
-        Some(r) => r,
-        None => {
-            emit_cli_error(
-                "Error: Realm required for configuration generation. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
-                "MISSING_ARGUMENT",
-                "USAGE_ERROR",
-                EXIT_USAGE_ERROR,
-                None,
-                None,
-                json_output,
-            );
-        }
+        Some(r) if !r.trim().is_empty() => r.trim().to_uppercase(),
+        _ => match keytab_opt {
+            Some(kt_path) => {
+                let data = match fs::read(&kt_path) {
+                    Ok(bytes) => bytes,
+                    Err(err) => {
+                        emit_cli_error(
+                            &format!("Error reading keytab at '{}': {}", kt_path, err),
+                            "MISSING_KEYTAB",
+                            "RESOURCE_MISSING",
+                            EXIT_RESOURCE_MISSING,
+                            Some(&kt_path),
+                            Some(&err.to_string()),
+                            json_output,
+                        );
+                    }
+                };
+                if data.is_empty() {
+                    emit_cli_error(
+                        &format!("Keytab file is empty: '{}'", kt_path),
+                        "EMPTY_KEYTAB",
+                        "PARSE_FAILURE",
+                        EXIT_PARSE_FAILURE,
+                        Some(&kt_path),
+                        None,
+                        json_output,
+                    );
+                }
+                let entries = match parse_keytab_bytes(&data) {
+                    Ok(list) => list,
+                    Err(err) => {
+                        emit_cli_error(
+                            &format!("Error parsing keytab: {}", err),
+                            "CORRUPT_KEYTAB",
+                            "PARSE_FAILURE",
+                            EXIT_PARSE_FAILURE,
+                            Some(&kt_path),
+                            Some(&err.to_string()),
+                            json_output,
+                        );
+                    }
+                };
+                if entries.is_empty() {
+                    emit_cli_error(
+                        &format!("Keytab contains no entries: '{}'", kt_path),
+                        "EMPTY_KEYTAB",
+                        "PARSE_FAILURE",
+                        EXIT_PARSE_FAILURE,
+                        Some(&kt_path),
+                        None,
+                        json_output,
+                    );
+                }
+                let mut found_realm: Option<String> = None;
+                for entry in entries {
+                    let trimmed = entry.realm.trim();
+                    if !trimmed.is_empty() {
+                        found_realm = Some(trimmed.to_uppercase());
+                        break;
+                    }
+                }
+                match found_realm {
+                    Some(r) => r,
+                    None => {
+                        emit_cli_error(
+                            &format!("No non-empty realm found in keytab: '{}'", kt_path),
+                            "EMPTY_KEYTAB",
+                            "PARSE_FAILURE",
+                            EXIT_PARSE_FAILURE,
+                            Some(&kt_path),
+                            None,
+                            json_output,
+                        );
+                    }
+                }
+            }
+            None => {
+                emit_cli_error(
+                    "Error: Realm required for configuration generation. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
+                    "MISSING_ARGUMENT",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    None,
+                    None,
+                    json_output,
+                );
+            }
+        },
     };
     let kdc = match kdc_opt {
         Some(k) => k,
@@ -701,13 +779,15 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                 }
             }
             None => {
-                if json_output {
-                    println!("null");
-                } else {
-                    eprintln!("No matching error resolution found for '{}'", q);
-                    eprintln!("Run 'tanuki triage' without arguments to see all known error codes.");
-                }
-                process::exit(1);
+                emit_cli_error(
+                    &format!("No matching error resolution found for '{}'", q),
+                    "UNKNOWN_ERROR_CODE",
+                    "PROTOCOL_ERROR",
+                    EXIT_RESOURCE_MISSING,
+                    Some(q.as_str()),
+                    Some("Run 'tanuki triage' without arguments to see all known error codes."),
+                    json_output,
+                );
             }
         },
         None => {
@@ -887,7 +967,7 @@ fn handle_token(
                 &format!("Error parsing token: {}", e),
                 "CORRUPT_DATA",
                 "PARSE_FAILURE",
-                EXIT_USAGE_ERROR,
+                EXIT_PARSE_FAILURE,
                 None,
                 Some(&e.to_string()),
                 json_output,

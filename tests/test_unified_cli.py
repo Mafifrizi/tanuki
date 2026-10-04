@@ -123,8 +123,11 @@ class TestUnifiedCLI(unittest.TestCase):
 
     def test_cli_triage_missing_query_json(self):
         res = self.run_cli_subprocess(["triage", "NOT_A_REAL_ERROR", "--json"])
-        self.assertNotEqual(res.returncode, 0)
-        self.assertEqual(res.stdout.strip(), "null")
+        self.assertEqual(res.returncode, 3)
+        data = json.loads(res.stdout)
+        self.assertEqual(data.get("status"), "ERROR")
+        self.assertEqual(data.get("reason_code"), "UNKNOWN_ERROR_CODE")
+        self.assertEqual(data.get("exit_code"), 3)
 
     def test_cli_triage_full_dictionary(self):
         res = self.run_cli_subprocess(["triage"])

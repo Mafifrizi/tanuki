@@ -645,7 +645,7 @@ class TestCliAdversarialAndFuzzExecution(unittest.TestCase):
         for mt in malformed:
             with self.subTest(token=mt):
                 code, stdout, stderr = self.run_cli(["token", mt])
-                self.assertEqual(code, 1)
+                self.assertEqual(code, 4)
                 self.assertIn("Error parsing token", stderr)
                 self.assertNotIn("Traceback", stderr)
 
@@ -659,7 +659,7 @@ class TestCliAdversarialAndFuzzExecution(unittest.TestCase):
     def test_cli_token_stdin_fuzz(self):
         """CLI tanuki token reading malformed input from stdin must exit cleanly."""
         code, stdout, stderr = self.run_cli(["token"], stdin_data="malformed.jwt.data")
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 4)
         self.assertIn("Error parsing token", stderr)
         self.assertNotIn("Traceback", stderr)
 

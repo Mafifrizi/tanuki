@@ -129,11 +129,14 @@ class TestChallengerM2AdversarialInputs(unittest.TestCase):
 
     def test_invalid_query_error_handling(self):
         res = self.run_cli(["triage", "INVALID_ERR_CODE_DOES_NOT_EXIST"])
-        self.assertEqual(res.returncode, 1)
+        self.assertEqual(res.returncode, 3)
 
         res_json = self.run_cli(["triage", "INVALID_ERR_CODE_DOES_NOT_EXIST", "--json"])
-        self.assertEqual(res_json.returncode, 1)
-        self.assertEqual(res_json.stdout.strip(), "null")
+        self.assertEqual(res_json.returncode, 3)
+        data = json.loads(res_json.stdout)
+        self.assertEqual(data.get("status"), "ERROR")
+        self.assertEqual(data.get("reason_code"), "UNKNOWN_ERROR_CODE")
+        self.assertEqual(data.get("exit_code"), 3)
 
 
 if __name__ == "__main__":

@@ -268,12 +268,15 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
                     print(format_telemetry_terminal(res["telemetry"]))
                 print(div)
         else:
-            if json_output:
-                print("null")
-            else:
-                sys.stderr.write(f"No matching error resolution found for '{query}'\n")
-                sys.stderr.write("Run 'tanuki triage' without arguments to see all known error codes.\n")
-            sys.exit(1)
+            emit_cli_error(
+                f"No matching error resolution found for '{query}'",
+                reason_code="UNKNOWN_ERROR_CODE",
+                category="PROTOCOL_ERROR",
+                exit_code=EXIT_RESOURCE_MISSING,
+                target=query,
+                details="Run 'tanuki triage' without arguments to see all known error codes.",
+                json_output=json_output,
+            )
     else:
         if json_output:
             print(json.dumps(ERROR_DICTIONARY, indent=2))
@@ -377,8 +380,68 @@ def handle_config(
     out_path: Optional[str],
     stdout_mode: bool,
     json_output: bool,
+    keytab_opt: Optional[str] = None,
 ) -> None:
-    if not realm_opt:
+    clean_realm = None
+    if realm_opt and realm_opt.strip():
+        clean_realm = realm_opt.strip().upper()
+    elif keytab_opt:
+        if not os.path.exists(keytab_opt):
+            emit_cli_error(
+                f"Error reading keytab at '{keytab_opt}': No such file or directory",
+                reason_code="MISSING_KEYTAB",
+                category="RESOURCE_MISSING",
+                exit_code=EXIT_RESOURCE_MISSING,
+                target=keytab_opt,
+                json_output=json_output,
+            )
+        try:
+            with open(keytab_opt, "rb") as f:
+                content_bytes = f.read()
+            if not content_bytes:
+                emit_cli_error(
+                    f"Keytab file is empty: '{keytab_opt}'",
+                    reason_code="EMPTY_KEYTAB",
+                    category="PARSE_FAILURE",
+                    exit_code=EXIT_PARSE_FAILURE,
+                    target=keytab_opt,
+                    json_output=json_output,
+                )
+            entries = parse_keytab_file(keytab_opt)
+        except Exception as exc:
+            emit_cli_error(
+                f"Error parsing keytab: {exc}",
+                reason_code="CORRUPT_KEYTAB",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_PARSE_FAILURE,
+                target=keytab_opt,
+                details=str(exc),
+                json_output=json_output,
+            )
+        if not entries:
+            emit_cli_error(
+                f"Keytab contains no entries: '{keytab_opt}'",
+                reason_code="EMPTY_KEYTAB",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_PARSE_FAILURE,
+                target=keytab_opt,
+                json_output=json_output,
+            )
+        for entry in entries:
+            candidate = (entry.get("realm") or "").strip()
+            if candidate:
+                clean_realm = candidate.upper()
+                break
+        if not clean_realm:
+            emit_cli_error(
+                f"No non-empty realm found in keytab: '{keytab_opt}'",
+                reason_code="EMPTY_KEYTAB",
+                category="PARSE_FAILURE",
+                exit_code=EXIT_PARSE_FAILURE,
+                target=keytab_opt,
+                json_output=json_output,
+            )
+    else:
         emit_cli_error(
             "Error: Realm required for configuration generation. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
             reason_code="MISSING_ARGUMENT",
@@ -386,6 +449,7 @@ def handle_config(
             exit_code=EXIT_USAGE_ERROR,
             json_output=json_output,
         )
+
     if not kdc_opt:
         emit_cli_error(
             "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
@@ -395,7 +459,6 @@ def handle_config(
             json_output=json_output,
         )
 
-    clean_realm = realm_opt.strip().upper()
     target_kdc = kdc_opt.strip()
     target_admin = admin_server_opt.strip() if admin_server_opt else target_kdc
 
@@ -535,7 +598,7 @@ def handle_token(
             f"Error parsing token: {exc}",
             reason_code="CORRUPT_DATA",
             category="PARSE_FAILURE",
-            exit_code=EXIT_USAGE_ERROR,
+            exit_code=EXIT_PARSE_FAILURE,
             details=str(exc),
             json_output=json_output,
         )
@@ -850,6 +913,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             out_path=out_opt or file_opt,
             stdout_mode=stdout_opt,
             json_output=global_json,
+            keytab_opt=keytab_opt,
         )
     elif command == "skill":
         handle_skill(global_json)

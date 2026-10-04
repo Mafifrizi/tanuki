@@ -4,9 +4,80 @@
 import argparse
 import io
 import json
+import os
+import shutil
 import struct
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+EXIT_SUCCESS = 0
+EXIT_USAGE_ERROR = 1
+EXIT_RESOURCE_MISSING = 3
+EXIT_PARSE_FAILURE = 4
+
+
+def emit_error(
+    message: str,
+    reason_code: str,
+    category: str,
+    exit_code: int,
+    target: Optional[str] = None,
+    details: Optional[str] = None,
+    json_output: bool = False,
+) -> None:
+    if json_output:
+        payload: Dict[str, Any] = {
+            "status": "ERROR",
+            "reason_code": reason_code,
+            "category": category,
+            "exit_code": exit_code,
+            "message": message,
+        }
+        if target:
+            payload["target"] = target
+        if details:
+            payload["details"] = details
+        print(json.dumps(payload, indent=2))
+    else:
+        prefix = {
+            EXIT_RESOURCE_MISSING: "[RESOURCE MISSING]",
+            EXIT_PARSE_FAILURE: "[PARSE FAILURE]",
+            EXIT_USAGE_ERROR: "[USAGE ERROR]",
+        }.get(exit_code, "[ERROR]")
+        if message.startswith("Error:") or message.startswith("Error "):
+            sys.stderr.write(f"{prefix} {message}\n")
+        else:
+            sys.stderr.write(f"{prefix} Error: {message}\n")
+        if details:
+            sys.stderr.write(f"  Details: {details}\n")
+    sys.exit(exit_code)
+
+
+def supports_unicode() -> bool:
+    try:
+        return sys.stdout.encoding.lower().startswith("utf") or sys.platform != "win32"
+    except (AttributeError, LookupError):
+        return False
+
+
+def render_card_header(title: str, subtitle: Optional[str] = None, width: int = 72) -> List[str]:
+    use_uni = supports_unicode()
+    tl, tr, bl, br = ("┌", "┐", "└", "┘") if use_uni else ("+", "+", "+", "+")
+    h_bar, v_bar = ("─", "│") if use_uni else ("-", "|")
+    dot = "·" if use_uni else "-"
+
+    clean_title = title.replace("·", dot)
+    t_str = f" {clean_title} "
+    rem = max(2, width - len(t_str) - 3)
+    res = [f"{tl}{h_bar}{h_bar}{t_str}{h_bar * rem}{tr}"]
+    if subtitle:
+        clean_sub = subtitle.replace("·", dot)
+        sub_len = len(clean_sub)
+        pad = max(0, width - sub_len - 4)
+        res.append(f"{v_bar} {clean_sub}{' ' * pad} {v_bar}")
+    res.append(f"{bl}{h_bar * (width - 2)}{br}")
+    return res
+
 
 ENCTYPE_MAP = {
     1: "des-cbc-crc",
@@ -148,24 +219,49 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if not os.path.exists(args.keytab_path):
+        emit_error(
+            f"Error reading keytab at '{args.keytab_path}': No such file or directory",
+            reason_code="MISSING_KEYTAB",
+            category="RESOURCE_MISSING",
+            exit_code=EXIT_RESOURCE_MISSING,
+            target=args.keytab_path,
+            json_output=args.json,
+        )
+
     try:
         entries = parse_keytab_file(args.keytab_path)
     except Exception as exc:
-        sys.stderr.write(f"Error parsing keytab: {exc}\n")
-        sys.exit(1)
+        emit_error(
+            f"Error parsing keytab: {exc}",
+            reason_code="CORRUPT_KEYTAB",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=args.keytab_path,
+            details=str(exc),
+            json_output=args.json,
+        )
 
     if args.json:
         print(json.dumps(entries, indent=2))
         return
 
-    print("=" * 72)
-    print(" TANUKI KEYTAB TRIAGE REPORT")
-    print("=" * 72)
+    for line in render_card_header(
+        "TANUKI KEYTAB TRIAGE REPORT",
+        f"File: {args.keytab_path} · RFC 4120 Binary Structure",
+    ):
+        print(line)
+
+    use_uni = supports_unicode()
+    div = "─" * 72 if use_uni else "-" * 72
+    t_branch, l_branch = ("├──", "└──") if use_uni else ("|--", "`--")
+
     for idx, e in enumerate(entries, 1):
         print(f"[{idx}] Principal : {e['principal']}")
-        print(f"    KVNO      : {e['vno']}")
-        print(f"    Enctype   : {e['enctype_name']} ({e['keytype']})")
-        print(f"    Key (Hex) : {e['key_hex'][:16]}... (length: {e['key_len']} bytes)")
+        print(f"    {t_branch} KVNO      : {e['vno']}")
+        print(f"    {t_branch} Enctype   : {e['enctype_name']} ({e['keytype']})")
+        key_preview = e["key_hex"][:16] if len(e["key_hex"]) > 16 else e["key_hex"]
+        print(f"    {l_branch} Key (Hex) : {key_preview}... (length: {e['key_len']} bytes)")
 
     aes_entries = [e for e in entries if e["keytype"] in (17, 18, 19, 20)]
     if aes_entries:
@@ -176,13 +272,12 @@ def main() -> None:
         print(f"    $ {prefix}kinit -k -t {args.keytab_path} {sample['principal']}")
         print("    $ export KRB5CCNAME=/tmp/krb5cc_$(id -u)")
 
-        import shutil
         if not shutil.which("kinit"):
             print("\n[!] Host Tooling Advisory:")
             print("    'kinit' utility not found on PATH.")
             print("    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)")
             print("    Unprivileged: Generate local config via 'tanuki config' and use portable client.")
-    print("=" * 72)
+    print(div)
 
 
 if __name__ == "__main__":

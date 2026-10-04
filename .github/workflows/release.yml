@@ -99,3 +99,51 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  build-rust-binaries:
+    name: Build Rust Binary (${{ matrix.target }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            bin_name: tanuki
+            asset_name: tanuki-linux-x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            bin_name: tanuki.exe
+            asset_name: tanuki-windows-x86_64.exe
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Compile Release Binary
+        shell: bash
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          mkdir -p release_assets
+          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} release_assets/${{ matrix.asset_name }}
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-binary-${{ matrix.target }}
+          path: release_assets/*
+
+      - name: Attach Compiled Binary to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_name="${{ github.ref_name }}"
+          if gh release view "$tag_name" >/dev/null 2>&1; then
+            gh release upload "$tag_name" release_assets/* --clobber
+          fi
+

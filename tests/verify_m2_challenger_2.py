@@ -396,7 +396,7 @@ class TestAdversarialQueryFuzzing(unittest.TestCase):
             res = run_tanuki(["triage", query])
             # None of these should crash with unhandled python traceback
             self.assertNotIn("Traceback (most recent call last):", res.stderr, f"Traceback on fuzz '{query}'")
-            self.assertEqual(res.returncode, 1, f"Expected non-zero exit code on unknown fuzz query '{query}'")
+            self.assertEqual(res.returncode, 3, f"Expected non-zero exit code 3 on unknown fuzz query '{query}'")
 
     def test_adversarial_fuzz_queries_json(self):
         fuzz_inputs = [
@@ -411,8 +411,10 @@ class TestAdversarialQueryFuzzing(unittest.TestCase):
         for query in fuzz_inputs:
             res = run_tanuki(["triage", query, "--json"])
             self.assertNotIn("Traceback (most recent call last):", res.stderr, f"Traceback on json fuzz '{query}'")
-            self.assertEqual(res.returncode, 1)
-            self.assertEqual(res.stdout.strip(), "null", f"Expected 'null' JSON output on fuzz query '{query}'")
+            self.assertEqual(res.returncode, 3)
+            data = json.loads(res.stdout)
+            self.assertEqual(data.get("reason_code"), "UNKNOWN_ERROR_CODE", f"Expected 'UNKNOWN_ERROR_CODE' on fuzz query '{query}'")
+            self.assertEqual(data.get("exit_code"), 3)
 
 
 class TestRustTelemetryConstantsParity(unittest.TestCase):

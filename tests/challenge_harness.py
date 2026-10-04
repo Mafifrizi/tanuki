@@ -474,7 +474,7 @@ class TestAdversarialAndEdgeCases(unittest.TestCase):
 
     def test_jwt_with_garbage_characters_rejected(self):
         code, out, err = run_cli(["token", "invalid???token$$$"])
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 4)
         self.assertIn("Error parsing token", err)
 
 
