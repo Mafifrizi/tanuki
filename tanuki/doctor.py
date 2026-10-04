@@ -453,22 +453,24 @@ def check_sssd(
                 pass
 
     if not result["daemon_running"] and os.path.isdir("/proc"):
-        try:
-            for entry in os.listdir("/proc"):
-                if entry.isdigit():
-                    comm_path = f"/proc/{entry}/comm"
-                    if os.path.isfile(comm_path):
-                        try:
-                            with open(comm_path, "r", encoding="utf-8") as f:
-                                comm = f.read().strip()
-                            if comm == "sssd":
-                                result["daemon_running"] = True
-                                result["pid"] = int(entry)
-                                break
-                        except OSError:
-                            pass
-        except OSError:
-            pass
+        sssd_footprints = ("/var/lib/sss", "/etc/sssd", "/usr/sbin/sssd", "/usr/lib/sssd")
+        if any(os.path.exists(p) for p in sssd_footprints):
+            try:
+                for entry in os.listdir("/proc"):
+                    if entry.isdigit():
+                        comm_path = f"/proc/{entry}/comm"
+                        if os.path.isfile(comm_path):
+                            try:
+                                with open(comm_path, "r", encoding="utf-8") as f:
+                                    comm = f.read().strip()
+                                if comm == "sssd":
+                                    result["daemon_running"] = True
+                                    result["pid"] = int(entry)
+                                    break
+                            except OSError:
+                                pass
+            except OSError:
+                pass
 
     if os.path.exists(sssd_pipe):
         try:
