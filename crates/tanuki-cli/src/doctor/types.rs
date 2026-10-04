@@ -53,6 +53,15 @@ impl CheckResult {
         out.push_str("\n    }");
         out
     }
+
+    pub fn get_extra_bool(&self, key: &str, default: bool) -> bool {
+        for (k, v) in &self.extra_fields {
+            if k == key {
+                return v == "true";
+            }
+        }
+        default
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
