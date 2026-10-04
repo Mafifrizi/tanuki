@@ -433,3 +433,80 @@ def acquire_tgt(
         }
 
     return ctypes_res
+
+
+def inject_ticket_to_keyring(
+    ccache_bytes_or_path: Any,
+    key_name: str = "krb5cc",
+    keyring_id: int = -3,  # KEY_SPEC_SESSION_KEYRING
+) -> Dict[str, Any]:
+    """Inject credential cache directly into Linux Kernel Keyring via add_key syscall."""
+    if os.name != "posix" or not sys.platform.startswith("linux"):
+        return {
+            "status": "UNSUPPORTED_PLATFORM",
+            "message": "Linux Kernel Keyring injection requires Linux OS with keyctl syscall support.",
+        }
+
+    data: bytes = b""
+    if isinstance(ccache_bytes_or_path, str):
+        if not os.path.isfile(ccache_bytes_or_path):
+            return {
+                "status": "FILE_NOT_FOUND",
+                "target": ccache_bytes_or_path,
+                "message": f"Ccache file not found: {ccache_bytes_or_path}",
+            }
+        with open(ccache_bytes_or_path, "rb") as f:
+            data = f.read()
+    elif isinstance(ccache_bytes_or_path, (bytes, bytearray)):
+        data = bytes(ccache_bytes_or_path)
+
+    if not data:
+        return {"status": "EMPTY_PAYLOAD", "message": "Cannot inject empty ticket payload."}
+
+    import platform
+    machine = platform.machine().lower()
+    # Syscall numbers for __NR_add_key
+    syscall_nr = 248  # x86_64 default
+    if "aarch64" in machine or "arm64" in machine:
+        syscall_nr = 217
+    elif "i386" in machine or "i686" in machine:
+        syscall_nr = 286
+
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        key_type = b"user"
+        key_desc = key_name.encode("utf-8")
+        payload_buf = ctypes.c_char_p(data)
+        payload_len = ctypes.c_size_t(len(data))
+        target_ring = ctypes.c_int32(keyring_id)
+
+        res_id = libc.syscall(
+            ctypes.c_long(syscall_nr),
+            key_type,
+            key_desc,
+            payload_buf,
+            payload_len,
+            target_ring,
+        )
+
+        if res_id >= 0:
+            return {
+                "status": "SUCCESS",
+                "key_id": res_id,
+                "key_name": key_name,
+                "keyring": "KEYRING:session" if keyring_id == -3 else f"KEYRING:{keyring_id}",
+                "bytes_injected": len(data),
+            }
+        else:
+            errno_val = ctypes.get_errno()
+            return {
+                "status": "ERROR",
+                "errno": errno_val,
+                "message": f"Syscall add_key failed with errno {errno_val}",
+            }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "message": f"Kernel keyring injection failed: {exc}",
+        }
+

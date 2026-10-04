@@ -1,0 +1,79 @@
+name: Build Static Musl Binaries
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-musl:
+    name: Build Static Musl (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            use_cross: false
+          - target: aarch64-unknown-linux-musl
+            use_cross: true
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Musl Tools & Cross
+        if: ${{ matrix.use_cross }}
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install Native Musl Tools
+        if: ${{ !matrix.use_cross }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build Static Binary (Native Musl)
+        if: ${{ !matrix.use_cross }}
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          strip target/${{ matrix.target }}/release/tanuki
+
+      - name: Build Static Binary (Cross Musl)
+        if: ${{ matrix.use_cross }}
+        run: |
+          cross build --release --target ${{ matrix.target }}
+
+      - name: Stage Artifacts
+        run: |
+          mkdir -p dist-musl
+          cp target/${{ matrix.target }}/release/tanuki dist-musl/tanuki-${{ matrix.target }}
+          chmod +x dist-musl/tanuki-${{ matrix.target }}
+          file dist-musl/tanuki-${{ matrix.target }}
+
+      - name: Upload Musl Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tanuki-${{ matrix.target }}
+          path: dist-musl/*
+
+      - name: Attach Static Musl Binary to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_name="${{ github.ref_name }}"
+          if gh release view "$tag_name" >/dev/null 2>&1; then
+            gh release upload "$tag_name" dist-musl/* --clobber
+          fi
