@@ -106,102 +106,68 @@ Visual verification of the complete 3-act operational lifecycle across live doma
 
 #### Act 1: Domain Controller Service Setup & Keytab Provisioning (`DC01`)
 
+Official RFC 4120 binary keytab export on the Domain Controller for service account `LAB\tanuki-nhi` with modern AES-256 (`aes256-cts-hmac-sha1-96`, KVNO 9):
+
 <p align="center">
   <img src="assets/lab-validation-act1-dc01-setup.png" alt="Act 1: Windows Server DC01 Setup and ktpass Export" width="850">
 </p>
 
 #### Act 2: Unprivileged Linux Operator Session & Health Validation (`Naga`)
 
-<p align="center">
-  <img src="assets/lab-validation-act2-naga-auth-live.png" alt="Act 2: Unprivileged TGT Acquisition via ctypes" width="850">
-</p>
+##### 1. Pre-Flight Health Diagnostic Baseline (`tanuki doctor`)
+
+Passive, zero-packet pre-flight health diagnostic executing in **0.96 ms**, accurately detecting unconfigured state, missing keytabs, and inactive ticket caches:
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2: Post-Auth Doctor Pass with AES-256 Session" width="850">
+  <img src="assets/lab-validation-act2-naga-doctor-unconfigured.png" alt="Act 2.1: Pre-Flight Doctor Baseline" width="850">
+</p>
+
+##### 2. RFC 4120 Keytab Ingestion & Tree Audit (`tanuki keytab`)
+
+Parses binary keytab structures, extracts AES-256 principals, displays hierarchical principal trees, verifies KVNO 9, and provides automated `kinit` guidance:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-keytab-tree.png" alt="Act 2.2: RFC 4120 Keytab Tree Hierarchy" width="850">
+</p>
+
+##### 3. Zero-DNS Kerberos Configuration Generator (`tanuki config`)
+
+Generates a local Kerberos configuration file (`/tmp/lab_krb5.conf`) enforcing RFC 4120 § 6.1 uppercase realm conventions, zero-DNS direct KDC IP routing, and hypervisor clock-skew tolerance:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-config.png" alt="Act 2.3: Zero-DNS Configuration Generator" width="850">
+</p>
+
+##### 4. Unprivileged Native TGT Acquisition (`tanuki auth`)
+
+Acquires a Kerberos Ticket Granting Ticket (TGT) directly from the Domain Controller using Python standard library `ctypes` (`libkrb5.so.3`) without requiring root privileges, `kinit` binary on PATH, or external dependencies:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-auth-live.png" alt="Act 2.4: Unprivileged TGT Acquisition via ctypes" width="850">
+</p>
+
+##### 5. Post-Authentication Health Diagnostic Pass (`tanuki doctor`)
+
+Confirms active AES-256 Kerberos ticket cache with **9h 59m 49s** remaining lifetime, executing in **1.35 ms** with zero network emission:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2.5: Post-Auth Doctor Pass with AES-256 Session" width="850">
+</p>
+
+##### 6. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
+
+Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4768/4771, Sigma rules, and Falco signatures):
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.6: Protocol Error Triage and Telemetry" width="850">
 </p>
 
 #### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
 
+Native high-efficiency log query via `wevtutil` on the Domain Controller proving live Event ID 4768 Audit Success for account `tanuki-nhi` originating from `192.168.56.105` with Ticket Encryption Type `0x12` (`aes256-cts-hmac-sha1-96`):
+
 <p align="center">
   <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 3: Windows Event ID 4768 Audit Success Verification" width="850">
-</p>
-
-
-### 1. Active Directory Keytab Export (`ktpass`)
-
-Official RFC 4120 binary keytab export on the Domain Controller for service account `LAB\tanuki-nhi` with modern AES-256 (`aes256-cts-hmac-sha1-96`, KVNO 4):
-
-<p align="center">
-  <img src="assets/dc01-ktpass-export-real.png" alt="Windows Server ktpass Export" width="850">
-</p>
-
-### 2. Unprivileged Zero-DNS Kerberos Configuration Generator (`tanuki config`)
-
-Generates a local Kerberos configuration file (`lab_krb5.conf`) enforcing RFC 4120 § 6.1 uppercase realm conventions, zero-DNS direct KDC IP routing, and instant unprivileged session activation:
-
-<p align="center">
-  <img src="assets/lab-validation-config.png" alt="Unprivileged Kerberos Config Generator" width="850">
-</p>
-
-### 3. Pre-Flight Health Diagnostic Audit (`tanuki doctor`)
-
-Passive, zero-packet pre-flight health diagnostic executing in **4.27 ms**:
-- Verifies keytab permissions (`0600 (secure)`) and RFC 4120 binary header integrity.
-- Audits Kerberos configuration realm syntax (`Default realm: LAB.LOCAL`).
-- Validates SSSD daemon and KCM socket availability.
-- Evaluates active ticket lifetimes across file caches and kernel keyrings.
-- Passively audits host client tooling (`kinit`/`klist`) and provides tailored package manager recommendations.
-
-<p align="center">
-  <img src="assets/lab-validation-doctor.png" alt="Pre-Flight Doctor Health Check" width="850">
-</p>
-
-### 4. Zero-Root Session Precedence (`KRB5_CONFIG`)
-
-Validates automatic environment variable precedence, enabling unprivileged operators to triage custom realms without `/etc/krb5.conf` root write permissions in **3.53 ms**:
-
-<p align="center">
-  <img src="assets/lab-validation-doctor-env.png" alt="Doctor with KRB5_CONFIG Precedence" width="850">
-</p>
-
-### 5. RFC 4120 Keytab Ingestion & Dynamic Triage (`tanuki keytab`)
-
-Parses binary keytab structures, extracts AES-256 principals, injects active `KRB5_CONFIG` prefixes into non-interactive `kinit` commands, and flags missing host tooling:
-
-<p align="center">
-  <img src="assets/lab-validation-keytab.png" alt="Keytab Triage Report" width="850">
-</p>
-
-### 6. Structured Machine Contract (`tanuki keytab --json`)
-
-Emits deterministic, machine-readable JSON schemas for automated AI agent workflows and CI/CD pipelines:
-
-<p align="center">
-  <img src="assets/lab-validation-keytab-json.png" alt="Structured JSON Keytab Contract" width="850">
-</p>
-
-### 7. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
-
-Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4771/4768/4625, Sigma rules, and Falco signatures):
-
-<p align="center">
-  <img src="assets/lab-validation-triage.png" alt="Protocol Error Triage and Telemetry" width="850">
-</p>
-
-### 8. 5-Rung Tactical Decision Ladder (`tanuki ladder`)
-
-Visualizes the complete OPSEC hierarchy in a pristine, zero-noise terminal interface:
-
-<p align="center">
-  <img src="assets/lab-validation-ladder.png" alt="5-Rung Tactical Decision Ladder" width="850">
-</p>
-
-### 9. AI Agent Skill Manifest (`tanuki skill`)
-
-Exports the autonomous agent skill manifest, intellectual lineage, operational triggers, and deterministic execution standard:
-
-<p align="center">
-  <img src="assets/lab-validation-skill.png" alt="AI Agent Skill Manifest" width="850">
 </p>
 
 ---
