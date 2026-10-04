@@ -266,6 +266,109 @@ class TestConfigCLIIntegration(unittest.TestCase):
             if os.path.exists(corrupt_path):
                 os.unlink(corrupt_path)
 
+    def test_cli_config_realm_precedence_over_keytab(self):
+        from tests.e2e.fixtures import build_synthetic_keytab
+        kt_bytes = build_synthetic_keytab(realm="INFERRED.CORP.LOCAL")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(kt_bytes)
+            kt_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--realm",
+                "EXPLICIT.CORP.LOCAL",
+                "--keytab",
+                kt_path,
+                "--kdc",
+                "192.168.56.106",
+                "--stdout",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 0)
+            self.assertIn("default_realm = EXPLICIT.CORP.LOCAL", proc.stdout)
+            self.assertNotIn("INFERRED.CORP.LOCAL", proc.stdout)
+        finally:
+            if os.path.exists(kt_path):
+                os.unlink(kt_path)
+
+    def test_cli_config_keytab_zero_entries(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(b"\x05\x02")
+            kt_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--keytab",
+                kt_path,
+                "--kdc",
+                "192.168.56.106",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 4)
+        finally:
+            if os.path.exists(kt_path):
+                os.unlink(kt_path)
+
+    def test_cli_config_keytab_multi_realm_first_selected(self):
+        from tests.e2e.fixtures import build_multi_entry_keytab
+        entries = [
+            {"realm": "FIRST.CORP.LOCAL", "principal_comps": ["HOST", "srv1.first.corp.local"]},
+            {"realm": "SECOND.CORP.LOCAL", "principal_comps": ["HOST", "srv2.second.corp.local"]},
+        ]
+        kt_bytes = build_multi_entry_keytab(entries)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(kt_bytes)
+            kt_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--keytab",
+                kt_path,
+                "--kdc",
+                "192.168.56.106",
+                "--stdout",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 0)
+            self.assertIn("default_realm = FIRST.CORP.LOCAL", proc.stdout)
+        finally:
+            if os.path.exists(kt_path):
+                os.unlink(kt_path)
+
+    def test_cli_config_missing_kdc_with_keytab(self):
+        from tests.e2e.fixtures import build_synthetic_keytab
+        kt_bytes = build_synthetic_keytab(realm="INFERRED.CORP.LOCAL")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(kt_bytes)
+            kt_path = tf.name
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--keytab",
+                kt_path,
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 1)
+        finally:
+            if os.path.exists(kt_path):
+                os.unlink(kt_path)
+
 
 if __name__ == "__main__":
     unittest.main()

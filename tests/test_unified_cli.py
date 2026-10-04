@@ -277,6 +277,15 @@ class TestUnifiedCLI(unittest.TestCase):
         res = self.run_cli_subprocess(["--invalid-flag"])
         self.assertEqual(res.returncode, 1)
 
+    def test_cli_unknown_option_json(self):
+        res = self.run_cli_subprocess(["--json", "--invalid-flag"])
+        self.assertEqual(res.returncode, 1)
+        data = json.loads(res.stdout)
+        self.assertEqual(data.get("status"), "ERROR")
+        self.assertEqual(data.get("reason_code"), "UNKNOWN_OPTION")
+        self.assertEqual(data.get("exit_code"), 1)
+        self.assertEqual(data.get("target"), "--invalid-flag")
+
 
 if __name__ == "__main__":
     unittest.main()
