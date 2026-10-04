@@ -92,8 +92,25 @@ class TestKCMParser(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertNotEqual(res.returncode, 0)
+        self.assertEqual(res.returncode, 3)
         self.assertIn("File not found", res.stderr)
+        self.assertIn("[RESOURCE MISSING]", res.stderr)
+
+    def test_missing_file_json_mode(self):
+        script_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "scripts", "kcm_parser.py")
+        )
+        res = subprocess.run(
+            [sys.executable, script_path, "-f", "non_existent_file.ldb", "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 3)
+        data = json.loads(res.stdout)
+        self.assertEqual(data.get("status"), "ERROR")
+        self.assertEqual(data.get("reason_code"), "MISSING_RESOURCE")
+        self.assertEqual(data.get("category"), "RESOURCE_MISSING")
+        self.assertEqual(data.get("exit_code"), 3)
 
 
 if __name__ == "__main__":

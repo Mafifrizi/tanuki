@@ -390,14 +390,26 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
         }
     };
 
+    if !Path::new(&path).exists() {
+        emit_cli_error(
+            &format!("Error reading keytab at '{}': No such file or directory", path),
+            "MISSING_KEYTAB",
+            "RESOURCE_MISSING",
+            EXIT_RESOURCE_MISSING,
+            Some(&path),
+            None,
+            json_output,
+        );
+    }
+
     let data = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(err) => {
             emit_cli_error(
                 &format!("Error reading keytab at '{}': {}", path, err),
-                "MISSING_KEYTAB",
-                "RESOURCE_MISSING",
-                EXIT_RESOURCE_MISSING,
+                "CORRUPT_KEYTAB",
+                "PARSE_FAILURE",
+                EXIT_PARSE_FAILURE,
                 Some(&path),
                 Some(&err.to_string()),
                 json_output,
@@ -476,14 +488,25 @@ fn handle_config(
         Some(r) if !r.trim().is_empty() => r.trim().to_uppercase(),
         _ => match keytab_opt {
             Some(kt_path) => {
+                if !Path::new(&kt_path).exists() {
+                    emit_cli_error(
+                        &format!("Error reading keytab at '{}': No such file or directory", kt_path),
+                        "MISSING_KEYTAB",
+                        "RESOURCE_MISSING",
+                        EXIT_RESOURCE_MISSING,
+                        Some(&kt_path),
+                        None,
+                        json_output,
+                    );
+                }
                 let data = match fs::read(&kt_path) {
                     Ok(bytes) => bytes,
                     Err(err) => {
                         emit_cli_error(
                             &format!("Error reading keytab at '{}': {}", kt_path, err),
-                            "MISSING_KEYTAB",
-                            "RESOURCE_MISSING",
-                            EXIT_RESOURCE_MISSING,
+                            "CORRUPT_KEYTAB",
+                            "PARSE_FAILURE",
+                            EXIT_PARSE_FAILURE,
                             Some(&kt_path),
                             Some(&err.to_string()),
                             json_output,
@@ -598,10 +621,12 @@ fn handle_config(
     }
 
     let target_file = out_path.unwrap_or_else(|| "./krb5.conf".to_string());
-    let abs_path = Path::new(&target_file)
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(&target_file));
-    let abs_str = abs_path.to_string_lossy().to_string();
+    let target_path = PathBuf::from(&target_file);
+    if let Some(parent) = target_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
 
     if let Err(err) = fs::write(&target_file, &content) {
         emit_cli_error(
@@ -614,6 +639,14 @@ fn handle_config(
             json_output,
         );
     }
+
+    let abs_path = target_path
+        .canonicalize()
+        .unwrap_or_else(|_| match env::current_dir() {
+            Ok(cwd) => cwd.join(&target_path),
+            Err(_) => target_path.clone(),
+        });
+    let abs_str = abs_path.to_string_lossy().to_string();
 
     let export_cmd = format!("export KRB5_CONFIG={}", abs_str);
     let clean_realm = realm.trim().to_uppercase();

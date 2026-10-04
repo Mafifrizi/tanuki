@@ -825,8 +825,15 @@ def check_ticket_lifetime(
     return result
 
 
+_DEFAULT_HOST_TOOLS_CACHE: Optional[Dict[str, Any]] = None
+
+
 def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
     """Audit host availability of Kerberos client utilities (kinit, klist, kvno)."""
+    global _DEFAULT_HOST_TOOLS_CACHE
+    if search_path is None and _DEFAULT_HOST_TOOLS_CACHE is not None:
+        return {k: list(v) if isinstance(v, list) else v for k, v in _DEFAULT_HOST_TOOLS_CACHE.items()}
+
     exts = [".exe", ""] if os.name == "nt" else [""]
     path_dirs = (search_path or os.environ.get("PATH", "")).split(os.pathsep)
 
@@ -879,6 +886,8 @@ def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
             tools_found.append("kvno")
         result["status"] = "PASS"
         result["details"] = f"Utilities available: {', '.join(tools_found)} (kinit: {kinit_path})"
+        if search_path is None:
+            _DEFAULT_HOST_TOOLS_CACHE = {k: list(v) if isinstance(v, list) else v for k, v in result.items()}
         return result
 
     result["status"] = "WARN"
@@ -913,6 +922,8 @@ def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
     result["recommendation"] = (
         f"Install client tools: {install_cmd} (unprivileged: use portable client with KRB5_CONFIG)"
     )
+    if search_path is None:
+        _DEFAULT_HOST_TOOLS_CACHE = {k: list(v) if isinstance(v, list) else v for k, v in result.items()}
     return result
 
 

@@ -229,6 +229,16 @@ def main() -> None:
             json_output=args.json,
         )
 
+    if os.path.getsize(args.keytab_path) == 0:
+        emit_error(
+            f"Keytab file is empty: '{args.keytab_path}'",
+            reason_code="EMPTY_KEYTAB",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=args.keytab_path,
+            json_output=args.json,
+        )
+
     try:
         entries = parse_keytab_file(args.keytab_path)
     except Exception as exc:

@@ -852,9 +852,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         elif not arg.startswith("-"):
             positional_args.append(arg)
         else:
-            sys.stderr.write(f"Unknown option: {arg}\n")
-            print_usage()
-            sys.exit(1)
+            emit_cli_error(
+                f"Unknown option: {arg}",
+                reason_code="UNKNOWN_OPTION",
+                category="USAGE_ERROR",
+                exit_code=EXIT_USAGE_ERROR,
+                target=arg,
+                json_output=global_json,
+            )
         i += 1
 
     command = explicit_command
@@ -918,6 +923,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     elif command == "skill":
         handle_skill(global_json)
     else:
-        sys.stderr.write(f"Unknown command: {command}\n")
-        print_usage()
-        sys.exit(1)
+        emit_cli_error(
+            f"Unknown command: {command}",
+            reason_code="UNKNOWN_COMMAND",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            target=command,
+            json_output=global_json,
+        )
