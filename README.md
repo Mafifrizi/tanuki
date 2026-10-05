@@ -98,7 +98,7 @@ All protocol parsers, diagnostics, and CLI workflows are empirically validated a
 
 ### Full-Stack End-to-End Walkthrough (Live Lab Validation)
 
-> 📺 **Watch Demo Video:** [youtu.be/wqZRYmEn0eY](https://youtu.be/wqZRYmEn0eY) — Full-stack operational walkthrough across live domain infrastructure.
+> 📺 **Watch Demo Video:** [youtu.be/wqZRYmEn0eY](https://youtu.be/wqZRYmEn0eY) - Full-stack operational walkthrough across live domain infrastructure.
 
 Visual verification of the complete 3-act operational lifecycle across live domain infrastructure:
 
