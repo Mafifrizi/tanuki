@@ -76,7 +76,30 @@ impl PurgeReport {
 
 pub fn shred_file(path: &str) -> ShredResult {
     let p = Path::new(path);
-    if !p.exists() {
+    // Security: Check symlink metadata first to prevent following symlinks (CWE-59).
+    if let Ok(meta) = fs::symlink_metadata(p) {
+        if meta.file_type().is_symlink() {
+            return match fs::remove_file(p) {
+                Ok(_) => ShredResult {
+                    path: path.to_string(),
+                    status: "SHREDDED".to_string(),
+                    bytes_shredded: 0,
+                },
+                Err(_) => ShredResult {
+                    path: path.to_string(),
+                    status: "UNLINK_FAILED".to_string(),
+                    bytes_shredded: 0,
+                },
+            };
+        }
+        if meta.is_dir() {
+            return ShredResult {
+                path: path.to_string(),
+                status: "DIRECTORY_ERROR".to_string(),
+                bytes_shredded: 0,
+            };
+        }
+    } else {
         return ShredResult {
             path: path.to_string(),
             status: "NOT_FOUND".to_string(),
@@ -150,6 +173,28 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
     }
 
     if purge_all || target_path.is_none() {
+        if let Ok(cc) = env::var("KRB5CCNAME") {
+            let clean_cc = if let Some(stripped) = cc.strip_prefix("FILE:") {
+                stripped
+            } else {
+                &cc
+            };
+            if !clean_cc.is_empty()
+                && !clean_cc.starts_with("DIR:")
+                && !clean_cc.starts_with("KEYRING:")
+                && !clean_cc.starts_with("KCM:")
+                && !clean_cc.starts_with("API:")
+                && !clean_cc.starts_with("MEMORY:")
+            {
+                targets.push(clean_cc.to_string());
+            }
+        }
+        if let Ok(cfg) = env::var("KRB5_CONFIG") {
+            if !cfg.is_empty() {
+                targets.push(cfg);
+            }
+        }
+
         if let Ok(entries) = fs::read_dir("/tmp") {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
@@ -207,8 +252,17 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
         }
     }
 
+    let has_error = shredded.iter().any(|r| {
+        r.status == "ERROR"
+            || r.status == "UNLINK_FAILED"
+            || r.status == "NOT_FOUND"
+            || r.status == "DIRECTORY_ERROR"
+            || r.status == "METADATA_ERROR"
+    });
+    let status_str = if has_error { "PARTIAL_ERROR" } else { "SUCCESS" };
+
     PurgeReport {
-        status: "SUCCESS".to_string(),
+        status: status_str.to_string(),
         shredded_files: shredded,
         cleared_env,
     }

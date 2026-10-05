@@ -1668,11 +1668,54 @@ fn handle_fix(
 }
 
 fn handle_purge(target_path: Option<String>, purge_all: bool, json_output: bool) {
+    if target_path.is_none() && !purge_all {
+        emit_cli_error(
+            "Error: Purge requires either --all to purge all caches or a target file (--target <file>). Example: tanuki purge --all",
+            "MISSING_ARGUMENT",
+            "USAGE_ERROR",
+            EXIT_USAGE_ERROR,
+            None,
+            None,
+            json_output,
+        );
+    }
+
+    if let Some(ref target) = target_path {
+        let p = Path::new(target);
+        let exists = p.exists() || fs::symlink_metadata(p).is_ok();
+        if !exists {
+            emit_cli_error(
+                &format!("Error: Purge target not found: {}", target),
+                "MISSING_TARGET_FILE",
+                "RESOURCE_MISSING",
+                EXIT_RESOURCE_MISSING,
+                Some(target),
+                None,
+                json_output,
+            );
+        }
+        if p.is_dir() {
+            emit_cli_error(
+                &format!("Error: Purge target is a directory, not a file: {}", target),
+                "INVALID_TARGET_DIRECTORY",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                Some(target),
+                None,
+                json_output,
+            );
+        }
+    }
+
     let res = run_purge(target_path.as_deref(), purge_all);
     if json_output {
         println!("{}", res.to_json());
     } else {
         println!("{}", res.format_terminal());
+    }
+
+    if res.status != "SUCCESS" {
+        process::exit(EXIT_PARSE_FAILURE);
     }
 }
 
