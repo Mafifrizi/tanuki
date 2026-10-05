@@ -9,6 +9,9 @@ import unittest
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+tests_dir = os.path.dirname(__file__)
+if tests_dir not in sys.path:
+    sys.path.insert(0, tests_dir)
 
 from tanuki.protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
 from tanuki.telemetry import (
@@ -18,6 +21,15 @@ from tanuki.telemetry import (
     OPERATIONAL_REMEDIATIONS,
     format_telemetry_inline,
     format_telemetry_terminal,
+)
+from verify_m2_challenger_2 import (
+    TestAdversarialAuditdRules,
+    TestAdversarialEventIds,
+    TestAdversarialSigmaAndFalcoRules,
+    TestAdversarialRung5LadderFormat,
+    TestRustParityAndAntislop,
+    TestAdversarialQueryFuzzing,
+    TestRustTelemetryConstantsParity,
 )
 
 ALL_10_ERROR_CODES = [

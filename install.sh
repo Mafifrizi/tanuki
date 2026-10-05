@@ -119,10 +119,11 @@ cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${SRC_DIR}/scripts" "${CLAU
 echo -e "  [+] Claude Code skill linked -> ${CLAUDE_SKILL_DIR}"
 
 # Google Antigravity
-AGY_SKILL_DIR="${HOME}/.gemini/antigravity/skills/tanuki"
-mkdir -p "${AGY_SKILL_DIR}"
-cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${SRC_DIR}/scripts" "${AGY_SKILL_DIR}/" 2>/dev/null || true
-echo -e "  [+] Google Antigravity skill linked -> ${AGY_SKILL_DIR}"
+for AGY_SKILL_DIR in "${HOME}/.gemini/config/skills/tanuki" "${HOME}/.gemini/antigravity/skills/tanuki"; do
+    mkdir -p "${AGY_SKILL_DIR}"
+    cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${SRC_DIR}/scripts" "${AGY_SKILL_DIR}/" 2>/dev/null || true
+    echo -e "  [+] Google Antigravity skill linked -> ${AGY_SKILL_DIR}"
+done
 
 # Cursor
 CURSOR_RULES_DIR="${HOME}/.cursor/rules"

@@ -690,9 +690,9 @@ class TestCliAdversarialAndFuzzExecution(unittest.TestCase):
         self.assertEqual(data["error"], "invalid_grant")
 
     def test_cli_token_nonexistent_file(self):
-        """CLI tanuki token -f with nonexistent file exits with code 1."""
+        """CLI tanuki token -f with nonexistent file exits with code 3 (RESOURCE_MISSING)."""
         code, stdout, stderr = self.run_cli(["token", "-f", "nonexistent_token_file.jwt"])
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 3)
         self.assertIn("Error: Token file not found", stderr)
         self.assertNotIn("Traceback", stderr)
 
@@ -712,14 +712,14 @@ class TestCliAdversarialAndFuzzExecution(unittest.TestCase):
                 os.remove(tf_path)
 
     def test_cli_token_binary_file(self):
-        """CLI tanuki token -f with binary/corrupt bytes exits cleanly."""
+        """CLI tanuki token -f with binary/corrupt bytes exits with code 4 (PARSE_FAILURE)."""
         import tempfile
         with tempfile.NamedTemporaryFile("wb", delete=False) as tf:
             tf.write(b"\x80\xff\xfe\x00")
             tf_path = tf.name
         try:
             code, stdout, stderr = self.run_cli(["token", "-f", tf_path])
-            self.assertEqual(code, 1)
+            self.assertEqual(code, 4)
             self.assertIn("Error: File is not valid text", stderr)
             self.assertNotIn("Traceback", stderr)
         finally:
