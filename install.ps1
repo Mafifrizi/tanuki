@@ -65,12 +65,17 @@ Copy-Item -Path (Join-Path $SourceDir "scripts") -Destination $ClaudeDir -Recurs
 Write-Host "  [+] Claude Code skill linked -> $ClaudeDir" -ForegroundColor Green
 
 # Google Antigravity
-$AgyDir = Join-Path $HOME ".gemini\antigravity\skills\tanuki"
-New-Item -ItemType Directory -Path $AgyDir -Force | Out-Null
-Copy-Item -Path (Join-Path $SourceDir "SKILL.md") -Destination $AgyDir -Force
-Copy-Item -Path (Join-Path $SourceDir "references") -Destination $AgyDir -Recurse -Force
-Copy-Item -Path (Join-Path $SourceDir "scripts") -Destination $AgyDir -Recurse -Force
-Write-Host "  [+] Google Antigravity skill linked -> $AgyDir" -ForegroundColor Green
+$AgyPaths = @(
+    (Join-Path $HOME ".gemini\config\skills\tanuki"),
+    (Join-Path $HOME ".gemini\antigravity\skills\tanuki")
+)
+foreach ($AgyDir in $AgyPaths) {
+    New-Item -ItemType Directory -Path $AgyDir -Force | Out-Null
+    Copy-Item -Path (Join-Path $SourceDir "SKILL.md") -Destination $AgyDir -Force
+    Copy-Item -Path (Join-Path $SourceDir "references") -Destination $AgyDir -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceDir "scripts") -Destination $AgyDir -Recurse -Force
+    Write-Host "  [+] Google Antigravity skill linked -> $AgyDir" -ForegroundColor Green
+}
 
 # Cursor
 $CursorDir = Join-Path $HOME ".cursor\rules"

@@ -4,7 +4,7 @@ Written by Challenger 1 to empirically stress-test and verify:
 1. CLI subcommands 'tanuki token' and 'tanuki nhi' in both text and --json modes.
 2. Token input via direct argument, -f/--file, and stdin pipe.
 3. RFC 8693 token exchange parameter errors (unsupported_grant_type, invalid_request, invalid_grant).
-4. JSON output schema conformance against PROJECT.md specification.
+4. JSON output schema conformance against RFC 8693 / NHI specification.
 5. Edge cases: corrupt tokens, padding variations, oversized payloads, unicode, algorithm none.
 """
 
@@ -178,9 +178,9 @@ class TestTokenInputMethods(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("No token provided", err)
 
-    def test_nonexistent_file_exits_with_code_1(self):
+    def test_nonexistent_file_exits_with_code_3(self):
         code, out, err = run_cli(["token", "-f", "non_existent_token_file_xyz.jwt"])
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 3)
         self.assertIn("Token file not found", err)
 
     def test_empty_file_exits_with_code_1(self):
@@ -324,8 +324,8 @@ class TestRfc8693TokenExchangeErrors(unittest.TestCase):
         self.assertIn("Failed to parse subject_token JWT", report["error_description"])
 
 
-class TestSchemaConformanceAgainstProjectMd(unittest.TestCase):
-    """Challenge 4: Schema verification against PROJECT.md interface contract."""
+class TestSchemaConformanceAgainstRfc8693(unittest.TestCase):
+    """Challenge 4: Schema verification against RFC 8693 / NHI interface contract."""
 
     def test_token_exchange_schema_keys(self):
         # Valid token exchange request
@@ -341,7 +341,7 @@ class TestSchemaConformanceAgainstProjectMd(unittest.TestCase):
         self.assertEqual(code, 0)
         report = json.loads(out)
 
-        # Expected top-level keys in PROJECT.md:
+        # Expected top-level keys in RFC 8693 report:
         # valid, exchange_valid, error, error_description, parameters, security_warnings, subject_token_report
         self.assertIn("valid", report)
         self.assertIn("exchange_valid", report)
@@ -367,7 +367,7 @@ class TestSchemaConformanceAgainstProjectMd(unittest.TestCase):
         self.assertEqual(code, 0)
         rep = json.loads(out)
 
-        # Verify exact fields required by PROJECT.md
+        # Verify exact fields required by RFC 8693 / NHI schema
         self.assertIn("valid", rep)
         self.assertIn("header", rep)
         self.assertIn("claims", rep)
