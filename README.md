@@ -18,12 +18,14 @@
   <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/standards-RFC_4120-orange.svg" alt="RFC 4120">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0">
+  <a href="https://youtu.be/wqZRYmEn0eY"><img src="https://img.shields.io/badge/demo-YouTube-red.svg?logo=youtube&logoColor=white" alt="Demo Video"></a>
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#dual-engine-architecture">Dual-Engine Architecture</a> &bull;
   <a href="#live-lab-empirical-validation">Live Lab Validation</a> &bull;
+  <a href="https://youtu.be/wqZRYmEn0eY">Demo Video ↗</a> &bull;
   <a href="#the-decision-ladder">Decision Ladder</a> &bull;
   <a href="#before--after">Before & After</a> &bull;
   <a href="#tooling--usage">Tooling & Usage</a> &bull;
@@ -95,6 +97,8 @@ All protocol parsers, diagnostics, and CLI workflows are empirically validated a
 - **Operator Workstation**: Kali Linux 2024 (`kraii@kraiiandreyy`, IP: `192.168.56.105`)
 
 ### Full-Stack End-to-End Walkthrough (Live Lab Validation)
+
+> 📺 **Watch Demo Video:** [youtu.be/wqZRYmEn0eY](https://youtu.be/wqZRYmEn0eY) — Full-stack operational walkthrough across live domain infrastructure.
 
 Visual verification of the complete 3-act operational lifecycle across live domain infrastructure:
 
