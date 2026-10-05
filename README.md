@@ -25,7 +25,7 @@
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#dual-engine-architecture">Dual-Engine Architecture</a> &bull;
   <a href="#live-lab-empirical-validation">Live Lab Validation</a> &bull;
-  <a href="https://youtu.be/wqZRYmEn0eY">Demo Video ↗</a> &bull;
+  <a href="https://youtu.be/wqZRYmEn0eY">Demo Video</a> &bull;
   <a href="#the-decision-ladder">Decision Ladder</a> &bull;
   <a href="#before--after">Before & After</a> &bull;
   <a href="#tooling--usage">Tooling & Usage</a> &bull;
