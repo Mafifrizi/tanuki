@@ -658,7 +658,7 @@ def handle_token(
                 f"Error: Token file not found: {file_path}",
                 reason_code="MISSING_RESOURCE",
                 category="RESOURCE_MISSING",
-                exit_code=EXIT_USAGE_ERROR,
+                exit_code=EXIT_RESOURCE_MISSING,
                 target=file_path,
                 json_output=json_output,
             )
@@ -670,7 +670,7 @@ def handle_token(
                 f"Error: File is not valid text: {file_path}",
                 reason_code="CORRUPT_DATA",
                 category="PARSE_FAILURE",
-                exit_code=EXIT_USAGE_ERROR,
+                exit_code=EXIT_PARSE_FAILURE,
                 target=file_path,
                 json_output=json_output,
             )
@@ -679,7 +679,7 @@ def handle_token(
                 f"Error reading token file: {exc}",
                 reason_code="CORRUPT_DATA",
                 category="PARSE_FAILURE",
-                exit_code=EXIT_USAGE_ERROR,
+                exit_code=EXIT_PARSE_FAILURE,
                 target=file_path,
                 details=str(exc),
                 json_output=json_output,
@@ -832,13 +832,27 @@ def handle_nhi(
         handle_token(subcmd, file_path, audience, issuer, json_output)
 
 
-def handle_pac(source: Optional[str], json_output: bool) -> None:
+def handle_pac(source: Optional[str], json_output: bool, is_file: bool = False) -> None:
     if not source:
         emit_cli_error(
             "Error: PAC source required (file path, hex string, or base64). Example: tanuki pac ./ticket.pac",
             reason_code="MISSING_ARGUMENT",
             category="USAGE_ERROR",
             exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    if (
+        is_file
+        or source.endswith((".pac", ".bin", ".raw", ".der"))
+        or "/" in source
+        or "\\" in source
+    ) and not os.path.exists(source):
+        emit_cli_error(
+            f"Error reading PAC file at '{source}': No such file or directory",
+            reason_code="MISSING_PAC_FILE",
+            category="RESOURCE_MISSING",
+            exit_code=EXIT_RESOURCE_MISSING,
+            target=source,
             json_output=json_output,
         )
     try:
@@ -902,6 +916,7 @@ def handle_purge(
 def handle_adcs(
     source: Optional[str],
     json_output: bool,
+    is_file: bool = False,
 ) -> None:
     if not source:
         emit_cli_error(
@@ -909,6 +924,20 @@ def handle_adcs(
             reason_code="MISSING_ARGUMENT",
             category="USAGE_ERROR",
             exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    if (
+        is_file
+        or source.endswith((".json", ".ldif", ".pem", ".crt", ".der", ".txt"))
+        or "/" in source
+        or "\\" in source
+    ) and not os.path.exists(source):
+        emit_cli_error(
+            f"Error reading AD CS source at '{source}': No such file or directory",
+            reason_code="MISSING_ADCS_FILE",
+            category="RESOURCE_MISSING",
+            exit_code=EXIT_RESOURCE_MISSING,
+            target=source,
             json_output=json_output,
         )
     try:
@@ -1195,7 +1224,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                     exit_code=EXIT_USAGE_ERROR,
                     json_output=global_json,
                 )
-        elif arg in ("-f", "--file"):
+        elif arg in ("-f", "--file", "--template-dump", "--target"):
             if i + 1 < len(argv):
                 file_opt = argv[i + 1]
                 i += 1
@@ -1254,7 +1283,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             dry_run_opt = True
         elif arg == "--all":
             purge_all_opt = True
-        elif arg == "--host":
+        elif arg in ("--host", "--server"):
             if i + 1 < len(argv):
                 host_opt = argv[i + 1]
                 i += 1
@@ -1380,7 +1409,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         )
     elif command == "pac":
         target = file_opt or (positional_args[0] if positional_args else None)
-        handle_pac(target, global_json)
+        handle_pac(target, global_json, is_file=bool(file_opt))
     elif command == "fix":
         target_kt = keytab_opt or file_opt or (positional_args[0] if positional_args else None)
         handle_fix(
@@ -1398,7 +1427,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         handle_purge(target, purge_all_opt, global_json)
     elif command == "adcs":
         target = file_opt or (positional_args[0] if positional_args else None)
-        handle_adcs(target, global_json)
+        handle_adcs(target, global_json, is_file=bool(file_opt))
     elif command == "ldap":
         target_host = host_opt or (positional_args[0] if positional_args else None)
         handle_ldap(
