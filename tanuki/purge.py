@@ -23,8 +23,34 @@ def shred_file(file_path: str, passes: int = 2) -> Dict[str, Any]:
     Pass 2: Overwrite with null bytes (0x00).
     Flushes buffers and invokes os.fsync after each pass before unlinking.
     """
+    if os.path.islink(file_path):
+        try:
+            os.unlink(file_path)
+            return {
+                "path": file_path,
+                "status": "SHREDDED",
+                "bytes_shredded": 0,
+                "passes": 0,
+                "note": "Symlink unlinked without following target",
+            }
+        except OSError as exc:
+            return {
+                "path": file_path,
+                "status": "UNLINK_FAILED",
+                "error": str(exc),
+                "bytes_shredded": 0,
+            }
+
     if not os.path.exists(file_path):
         return {"path": file_path, "status": "NOT_FOUND", "bytes_shredded": 0}
+
+    if os.path.isdir(file_path):
+        return {
+            "path": file_path,
+            "status": "ERROR",
+            "error": f"Target is a directory: {file_path}",
+            "bytes_shredded": 0,
+        }
 
     try:
         file_size = os.path.getsize(file_path)
@@ -124,6 +150,7 @@ class PurgeReport:
                 is_last = idx == len(self.cleared_env) - 1
                 branch = l_branch if is_last else t_branch
                 lines.append(f"    {branch} Unset variable: {var}")
+            lines.append("    [*] Shell Guidance: Run 'unset KRB5_CONFIG KRB5CCNAME' to synchronize shell.")
 
         lines.append(f"[+] Memory Hygiene: In-process credential buffers cryptographically zeroized.")
         lines.append("")
@@ -143,6 +170,17 @@ def run_purge(
         candidates.extend(target_paths)
 
     if purge_all or not target_paths:
+        # Check active session environment variables before unsetting
+        env_cc = os.environ.get("KRB5CCNAME")
+        if env_cc:
+            clean_cc = env_cc[5:] if env_cc.startswith("FILE:") else env_cc
+            if clean_cc and not clean_cc.startswith(("DIR:", "KEYRING:", "KCM:", "API:", "MEMORY:")):
+                candidates.append(clean_cc)
+
+        env_cfg = os.environ.get("KRB5_CONFIG")
+        if env_cfg:
+            candidates.append(env_cfg)
+
         # Standard ccache locations
         if os.name != "nt":
             candidates.extend(glob.glob("/tmp/krb5cc_*"))
@@ -160,13 +198,20 @@ def run_purge(
                 if os.path.isdir(ed):
                     candidates.extend(glob.glob(os.path.join(ed, "*")))
 
-    # Deduplicate existing file candidates
+    # Deduplicate existing file or symlink candidates
     unique_files: List[str] = []
     for c in candidates:
-        if c and os.path.isfile(c) and c not in unique_files:
+        if c and (os.path.isfile(c) or os.path.islink(c)) and c not in unique_files:
             unique_files.append(c)
 
     shred_results: List[Dict[str, Any]] = []
+
+    # If explicit target_paths provided, record missing targets
+    if target_paths:
+        for tp in target_paths:
+            if tp and not os.path.exists(tp) and not os.path.islink(tp):
+                shred_results.append({"path": tp, "status": "NOT_FOUND", "bytes_shredded": 0})
+
     for fpath in unique_files:
         res = shred_file(fpath)
         shred_results.append(res)
@@ -188,7 +233,7 @@ def run_purge(
             del os.environ[ev]
             cleared.append(ev)
 
-    has_error = any(r.get("status") in ("ERROR", "UNLINK_FAILED") for r in shred_results)
+    has_error = any(r.get("status") in ("ERROR", "UNLINK_FAILED", "NOT_FOUND") for r in shred_results)
     status_str = "PARTIAL_ERROR" if has_error else "SUCCESS"
 
     return PurgeReport(

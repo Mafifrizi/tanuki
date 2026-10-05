@@ -905,12 +905,44 @@ def handle_purge(
     purge_all: bool,
     json_output: bool,
 ) -> None:
+    if not target_path and not purge_all:
+        emit_cli_error(
+            "Error: Purge requires either --all to purge all caches or a target file (--target <file>). Example: tanuki purge --all",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+
+    if target_path:
+        if not os.path.exists(target_path) and not os.path.islink(target_path):
+            emit_cli_error(
+                f"Error: Purge target not found: {target_path}",
+                reason_code="MISSING_TARGET_FILE",
+                category="RESOURCE_MISSING",
+                exit_code=EXIT_RESOURCE_MISSING,
+                target=target_path,
+                json_output=json_output,
+            )
+        if os.path.isdir(target_path):
+            emit_cli_error(
+                f"Error: Purge target is a directory, not a file: {target_path}",
+                reason_code="INVALID_TARGET_DIRECTORY",
+                category="USAGE_ERROR",
+                exit_code=EXIT_USAGE_ERROR,
+                target=target_path,
+                json_output=json_output,
+            )
+
     targets = [target_path] if target_path else None
     rep = run_purge(target_paths=targets, purge_all=purge_all)
     if json_output:
         print(rep.to_json())
     else:
         print(rep.format_terminal())
+
+    if rep.status != "SUCCESS":
+        sys.exit(EXIT_PARSE_FAILURE)
 
 
 def handle_adcs(
