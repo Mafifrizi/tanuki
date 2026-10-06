@@ -126,6 +126,136 @@ def parse_rpc_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
     return sid_str, total_len
 
 
+def parse_windows_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
+    """Parse standard Windows binary SID (MS-DTYP 2.4.2) with strict bounds validation.
+
+    Format:
+      - Revision: 1 byte
+      - SubAuthorityCount: 1 byte
+      - IdentifierAuthority: 6 bytes (big-endian 48-bit int)
+      - SubAuthorities: SubAuthorityCount * 4 bytes (little-endian uint32 each)
+
+    Returns (sid_string, bytes_consumed).
+    """
+    if len(data) - offset < 8:
+        raise PacDecodeError(f"Buffer underflow reading SID header at offset {offset}")
+
+    revision = data[offset]
+    sub_auth_count = data[offset + 1]
+    id_auth = int.from_bytes(data[offset + 2 : offset + 8], byteorder="big")
+
+    total_len = 8 + (sub_auth_count * 4)
+    if len(data) - offset < total_len:
+        raise PacDecodeError(
+            f"Buffer underflow reading {sub_auth_count} subauthorities at offset {offset}"
+        )
+
+    sub_authorities: List[int] = []
+    for i in range(sub_auth_count):
+        sa_offset = offset + 8 + (i * 4)
+        (sa,) = struct.unpack_from("<I", data, sa_offset)
+        sub_authorities.append(sa)
+
+    sid_parts = [f"S-{revision}-{id_auth}"] + [str(sa) for sa in sub_authorities]
+    return "-".join(sid_parts), total_len
+
+
+def parse_rbcd_security_descriptor(data: bytes) -> Dict[str, Any]:
+    """Parse Active Directory msDS-AllowedToActOnBehalfOfOtherIdentity (SECURITY_DESCRIPTOR_RELATIVE).
+
+    Extracts DACL offset, ACE count, and permitted Trustee SIDs configured for RBCD.
+    """
+    if len(data) < 20:
+        raise PacDecodeError(
+            f"Buffer underflow reading SECURITY_DESCRIPTOR_RELATIVE header: {len(data)} bytes < 20"
+        )
+
+    revision, sbz1, control, off_owner, off_group, off_sacl, off_dacl = struct.unpack_from(
+        "<BBHIIII", data, 0
+    )
+
+    result: Dict[str, Any] = {
+        "revision": revision,
+        "control": control,
+        "dacl_offset": off_dacl,
+        "ace_count": 0,
+        "trustee_sids": [],
+        "aces": [],
+    }
+
+    if off_dacl == 0:
+        return result
+
+    if off_dacl + 8 > len(data):
+        raise PacDecodeError(f"Buffer underflow reading ACL header at offset {off_dacl}")
+
+    acl_rev, acl_sbz1, acl_size, ace_count, acl_sbz2 = struct.unpack_from(
+        "<BBHHH", data, off_dacl
+    )
+
+    if off_dacl + acl_size > len(data):
+        raise PacDecodeError(
+            f"ACL size {acl_size} exceeds remaining buffer length {len(data) - off_dacl}"
+        )
+
+    result["ace_count"] = ace_count
+    trustee_sids: List[str] = []
+    aces_detail: List[Dict[str, Any]] = []
+
+    cur_off = off_dacl + 8
+    for _ in range(ace_count):
+        if cur_off + 4 > off_dacl + acl_size:
+            break
+        ace_type, ace_flags, ace_size = struct.unpack_from("<BBH", data, cur_off)
+        if ace_size < 4 or cur_off + ace_size > off_dacl + acl_size:
+            break
+
+        mask = 0
+        sid_str = None
+
+        if cur_off + 8 <= off_dacl + acl_size:
+            (mask,) = struct.unpack_from("<I", data, cur_off + 4)
+
+        try:
+            if ace_type in (0x05, 0x06, 0x0B, 0x0C):
+                obj_flags_off = cur_off + 8
+                if obj_flags_off + 4 <= cur_off + ace_size:
+                    (flags,) = struct.unpack_from("<I", data, obj_flags_off)
+                    sid_start = cur_off + 12
+                    if flags & 0x01:
+                        sid_start += 16
+                    if flags & 0x02:
+                        sid_start += 16
+                    if sid_start < cur_off + ace_size:
+                        sid_str, _ = parse_windows_sid(data, sid_start)
+            else:
+                sid_start = cur_off + 8
+                if sid_start < cur_off + ace_size:
+                    sid_str, _ = parse_windows_sid(data, sid_start)
+        except Exception:
+            pass
+
+        ace_info = {
+            "type": ace_type,
+            "flags": ace_flags,
+            "size": ace_size,
+            "mask": mask,
+            "trustee_sid": sid_str,
+        }
+        aces_detail.append(ace_info)
+        if sid_str and sid_str not in trustee_sids:
+            trustee_sids.append(sid_str)
+
+        cur_off += ace_size
+
+    result["trustee_sids"] = trustee_sids
+    result["aces"] = aces_detail
+    return result
+
+
+parse_nt_security_descriptor = parse_rbcd_security_descriptor
+
+
 def parse_rpc_unicode_string(
     data: bytes, str_hdr_offset: int, deferral_offset: int
 ) -> Tuple[str, int]:

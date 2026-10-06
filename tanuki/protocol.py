@@ -92,6 +92,14 @@ ERROR_DICTIONARY: List[Dict[str, Any]] = [
         "tactical_cmd": ERROR_TELEMETRY["KRB_AP_ERR_BADKEYVER"]["tactical_cmd"],
         "telemetry": ERROR_TELEMETRY["KRB_AP_ERR_BADKEYVER"]["telemetry"],
     },
+    {
+        "code": "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST",
+        "event_id": 93,
+        "root_cause": "KDC policy enforces Kerberos FAST armoring (RFC 6113). Unarmored AS-REQ requests are rejected with failure code 0x18.",
+        "resolution": "Enable Kerberos FAST armoring in request or /etc/krb5.conf:\n[libdefaults]\n    fast_req_armoring = true\nOr supply armor credentials cache: $ kinit -T <ARMOR_CCACHE> <USER>@<REALM>",
+        "tactical_cmd": ERROR_TELEMETRY["KDC_ERR_PREAUTH_REQUIRED_FOR_FAST"]["tactical_cmd"],
+        "telemetry": ERROR_TELEMETRY["KDC_ERR_PREAUTH_REQUIRED_FOR_FAST"]["telemetry"],
+    },
 ]
 
 DECISION_LADDER: List[Dict[str, Any]] = [
@@ -134,11 +142,31 @@ def find_error_resolution(query: str) -> Optional[Dict[str, Any]]:
     if not clean:
         return None
 
+    query_int: Optional[int] = None
+    try:
+        query_int = int(clean)
+    except ValueError:
+        pass
+
+    # Exact match on error code or Kerberos error code / event_id
     for item in ERROR_DICTIONARY:
         if (
             item["code"] == clean
             or (item["event_id"] is not None and str(item["event_id"]) == clean)
-            or clean in item["code"]
         ):
             return item
+
+    # Check if numeric query matches Windows Event IDs in telemetry
+    if query_int is not None:
+        for item in ERROR_DICTIONARY:
+            event_ids = item.get("telemetry", {}).get("event_ids", [])
+            if query_int in event_ids:
+                return item
+
+    # Substring match on error code
+    for item in ERROR_DICTIONARY:
+        if clean in item["code"]:
+            return item
+
     return None
+

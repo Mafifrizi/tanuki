@@ -52,6 +52,13 @@ FILTER_LE = 0xA6
 FILTER_PRESENT = 0x87
 FILTER_EXTENSIBLE = 0xA9
 
+BINARY_AD_ATTRIBUTES = {
+    "msds-allowedtoactonbehalfofotheridentity",
+    "msds-keycredentiallink",
+    "objectsid",
+    "objectguid",
+}
+
 
 class LdapError(Exception):
     """Raised when LDAP network or BER parsing encounters an error."""
@@ -252,7 +259,16 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
             op_tag, op_val, _ = ber_decode_tlv(seq_val, inner_off)
 
             if op_tag == LDAP_RESP_BIND:
-                res_code = op_val[0] if op_val else 0
+                res_code = 0
+                if op_val:
+                    if op_val[0] in (TAG_ENUMERATED, TAG_INTEGER):
+                        try:
+                            _, res_bytes, _ = ber_decode_tlv(op_val, 0)
+                            res_code = ber_decode_int(res_bytes)
+                        except Exception:
+                            res_code = op_val[0]
+                    else:
+                        res_code = op_val[0]
                 messages.append({
                     "message_id": msg_id,
                     "type": "bind_response",
@@ -265,7 +281,7 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
                 dn = ber_decode_string(dn_val)
 
                 attrs_tag, attrs_val, _ = ber_decode_tlv(op_val, e_off)
-                attrs_dict: Dict[str, List[str]] = {}
+                attrs_dict: Dict[str, List[Any]] = {}
 
                 a_off = 0
                 while a_off < len(attrs_val):
@@ -273,13 +289,17 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
                     sub_off = 0
                     _, type_val, sub_off = ber_decode_tlv(attr_seq, sub_off)
                     attr_name = ber_decode_string(type_val)
+                    is_binary = attr_name.lower() in BINARY_AD_ATTRIBUTES
 
                     _, vals_set, _ = ber_decode_tlv(attr_seq, sub_off)
-                    vals_list: List[str] = []
+                    vals_list: List[Any] = []
                     v_off = 0
                     while v_off < len(vals_set):
                         _, v_bytes, v_off = ber_decode_tlv(vals_set, v_off)
-                        vals_list.append(ber_decode_string(v_bytes))
+                        if is_binary:
+                            vals_list.append(v_bytes)
+                        else:
+                            vals_list.append(ber_decode_string(v_bytes))
 
                     attrs_dict[attr_name] = vals_list
 
@@ -290,10 +310,20 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
                     "attributes": attrs_dict,
                 })
             elif op_tag == LDAP_RESP_SEARCH_DONE:
+                res_code = 0
+                if op_val:
+                    if op_val[0] in (TAG_ENUMERATED, TAG_INTEGER):
+                        try:
+                            _, res_bytes, _ = ber_decode_tlv(op_val, 0)
+                            res_code = ber_decode_int(res_bytes)
+                        except Exception:
+                            res_code = op_val[0]
+                    else:
+                        res_code = op_val[0]
                 messages.append({
                     "message_id": msg_id,
                     "type": "search_done",
-                    "result_code": op_val[0] if op_val else 0,
+                    "result_code": res_code,
                 })
         except Exception:
             break
@@ -546,7 +576,13 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
         lines.append(f"    {t_branch} DN: {dn}")
         for a_name, a_vals in attrs.items():
             if a_name != "sAMAccountName":
-                val_preview = ", ".join(a_vals[:3])
+                val_strs: List[str] = []
+                for v in a_vals[:3]:
+                    if isinstance(v, bytes):
+                        val_strs.append(f"<binary: {len(v)} bytes, hex: {v[:8].hex()}...>")
+                    else:
+                        val_strs.append(str(v))
+                val_preview = ", ".join(val_strs)
                 if len(a_vals) > 3:
                     val_preview += f" (+{len(a_vals) - 3} more)"
                 lines.append(f"    {t_branch} {a_name}: {val_preview}")

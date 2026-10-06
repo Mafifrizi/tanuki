@@ -306,6 +306,32 @@ ERROR_TELEMETRY: Dict[str, Dict[str, Any]] = {
             ],
         },
     },
+    "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST": {
+        "tactical_cmd": "kinit -T <ARMOR_CCACHE> <USER>@<REALM> || sed -i '/\\[libdefaults\\]/a \\    fast_req_armoring = true' /etc/krb5.conf",
+        "telemetry": {
+            "auditd": [
+                "-w /etc/krb5.conf -p wa -k krb5_fast_modify",
+                "-w /etc/krb5.conf.d/ -p wa -k krb5_fast_modify",
+            ],
+            "event_ids": [4771, 4768],
+            "sigma": [
+                {
+                    "title": "Kerberos FAST Armoring Required Failure",
+                    "status": "stable",
+                    "logsource": "windows:security",
+                    "tags": ["attack.credential_access", "attack.t1558"],
+                }
+            ],
+            "falco": [
+                {
+                    "rule": "Kerberos FAST Armoring Configuration Update",
+                    "priority": "NOTICE",
+                    "condition": "open_write and fd.name in (/etc/krb5.conf, /etc/krb5.conf.d) and not proc.name in (dpkg, rpm, yum, apt, puppet, ansible)",
+                    "output": "Kerberos configuration updated for FAST armoring (user=%user.name file=%fd.name command=%proc.cmdline)",
+                }
+            ],
+        },
+    },
 }
 
 LADDER_TELEMETRY: Dict[int, Dict[str, Any]] = {
