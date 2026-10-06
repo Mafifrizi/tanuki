@@ -1,4 +1,4 @@
-# Dual-Engine Architecture: Python vs Rust Evaluation (2026-2030)
+# Dual-Engine Architecture: Python vs Rust Evaluation
 
 This document outlines the architectural rationale, security evaluation, and multi-language roadmap for Tanuki.
 
