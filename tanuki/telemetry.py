@@ -332,6 +332,82 @@ ERROR_TELEMETRY: Dict[str, Dict[str, Any]] = {
             ],
         },
     },
+    "EVENT_4768": {
+        "tactical_cmd": 'wevtutil qe Security "/q:*[System[(EventID=4768)]]" /f:text /c:5 /rd:true',
+        "telemetry": {
+            "auditd": [
+                "-w /etc/krb5.keytab -p r -k keytab_read",
+                "-w /tmp/krb5cc_* -p r -k krb5_ccache_read",
+            ],
+            "event_ids": [4768],
+            "sigma": [
+                {
+                    "title": "Kerberos TGT Request (Event 4768)",
+                    "status": "stable",
+                    "logsource": "windows:security",
+                    "tags": ["attack.credential_access", "attack.t1558"],
+                }
+            ],
+            "falco": [
+                {
+                    "rule": "Kerberos TGT Request Observed",
+                    "priority": "NOTICE",
+                    "condition": "open_read and fd.name startswith \"/tmp/krb5cc_\" and not proc.name in (sssd, sshd, systemd)",
+                    "output": "Kerberos ticket requested or accessed (user=%user.name ccache=%fd.name)",
+                }
+            ],
+        },
+    },
+    "EVENT_4769": {
+        "tactical_cmd": 'wevtutil qe Security "/q:*[System[(EventID=4769)]]" /f:text /c:5 /rd:true',
+        "telemetry": {
+            "auditd": [
+                "-w /tmp/krb5cc_* -p r -k krb5_ccache_read",
+            ],
+            "event_ids": [4769],
+            "sigma": [
+                {
+                    "title": "Kerberos Service Ticket Request (Event 4769)",
+                    "status": "stable",
+                    "logsource": "windows:security",
+                    "tags": ["attack.credential_access", "attack.t1558.003"],
+                }
+            ],
+            "falco": [
+                {
+                    "rule": "Kerberos Service Ticket Accessed",
+                    "priority": "NOTICE",
+                    "condition": "open_read and fd.name startswith \"/tmp/krb5cc_\"",
+                    "output": "Kerberos TGS accessed (user=%user.name ccache=%fd.name)",
+                }
+            ],
+        },
+    },
+    "EVENT_4771": {
+        "tactical_cmd": 'wevtutil qe Security "/q:*[System[(EventID=4771)]]" /f:text /c:5 /rd:true',
+        "telemetry": {
+            "auditd": [
+                "-w /etc/krb5.keytab -p r -k keytab_read",
+            ],
+            "event_ids": [4771],
+            "sigma": [
+                {
+                    "title": "Kerberos Pre-Authentication Failure (Event 4771)",
+                    "status": "stable",
+                    "logsource": "windows:security",
+                    "tags": ["attack.credential_access", "attack.t1110"],
+                }
+            ],
+            "falco": [
+                {
+                    "rule": "Kerberos Pre-Authentication Failure Observed",
+                    "priority": "WARNING",
+                    "condition": "open_read and fd.name = \"/etc/krb5.keytab\"",
+                    "output": "Kerberos preauth failed keytab inspected (user=%user.name file=%fd.name)",
+                }
+            ],
+        },
+    },
 }
 
 LADDER_TELEMETRY: Dict[int, Dict[str, Any]] = {

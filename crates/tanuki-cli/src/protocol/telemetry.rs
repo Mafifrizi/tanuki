@@ -405,6 +405,64 @@ pub const TELEMETRY_KDC_ERR_PREAUTH_REQUIRED_FOR_FAST: TelemetryData = Telemetry
     }],
 };
 
+pub const TELEMETRY_EVENT_4768: TelemetryData = TelemetryData {
+    auditd: &[
+        "-w /etc/krb5.keytab -p r -k keytab_read",
+        "-w /tmp/krb5cc_* -p r -k krb5_ccache_read",
+    ],
+    event_ids: &[4768],
+    sigma: &[SigmaRuleRef {
+        title: "Kerberos TGT Request (Event 4768)",
+        status: "stable",
+        logsource: "windows:security",
+        tags: &["attack.credential_access", "attack.t1558"],
+    }],
+    falco: &[FalcoRuleRef {
+        rule: "Kerberos TGT Request Observed",
+        priority: "NOTICE",
+        condition: "open_read and fd.name startswith \"/tmp/krb5cc_\" and not proc.name in (sssd, sshd, systemd)",
+        output: "Kerberos ticket requested or accessed (user=%user.name ccache=%fd.name)",
+    }],
+};
+
+pub const TELEMETRY_EVENT_4769: TelemetryData = TelemetryData {
+    auditd: &[
+        "-w /tmp/krb5cc_* -p r -k krb5_ccache_read",
+    ],
+    event_ids: &[4769],
+    sigma: &[SigmaRuleRef {
+        title: "Kerberos Service Ticket Request (Event 4769)",
+        status: "stable",
+        logsource: "windows:security",
+        tags: &["attack.credential_access", "attack.t1558.003"],
+    }],
+    falco: &[FalcoRuleRef {
+        rule: "Kerberos Service Ticket Accessed",
+        priority: "NOTICE",
+        condition: "open_read and fd.name startswith \"/tmp/krb5cc_\"",
+        output: "Kerberos TGS accessed (user=%user.name ccache=%fd.name)",
+    }],
+};
+
+pub const TELEMETRY_EVENT_4771: TelemetryData = TelemetryData {
+    auditd: &[
+        "-w /etc/krb5.keytab -p r -k keytab_read",
+    ],
+    event_ids: &[4771],
+    sigma: &[SigmaRuleRef {
+        title: "Kerberos Pre-Authentication Failure (Event 4771)",
+        status: "stable",
+        logsource: "windows:security",
+        tags: &["attack.credential_access", "attack.t1110"],
+    }],
+    falco: &[FalcoRuleRef {
+        rule: "Kerberos Pre-Authentication Failure Observed",
+        priority: "WARNING",
+        condition: "open_read and fd.name = \"/etc/krb5.keytab\"",
+        output: "Kerberos preauth failed keytab inspected (user=%user.name file=%fd.name)",
+    }],
+};
+
 pub const TELEMETRY_LADDER_RUNG_1: TelemetryData = TelemetryData {
     auditd: &[
         "-w /etc/krb5.keytab -p r -k keytab_read",

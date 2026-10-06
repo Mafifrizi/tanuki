@@ -1345,9 +1345,13 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                 let errors: Vec<_> = ERROR_DICTIONARY.iter().cloned().collect();
                 println!("{}", errors_to_json(&errors));
             } else {
+                let subtitle = format!(
+                    "{} Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
+                    ERROR_DICTIONARY.len()
+                );
                 print_card_header(
                     "KERBEROS & SSSD ERROR RESOLUTION DICTIONARY",
-                    Some("11 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry"),
+                    Some(&subtitle),
                     72,
                 );
                 for item in ERROR_DICTIONARY {

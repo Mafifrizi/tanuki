@@ -320,7 +320,7 @@ def handle_triage(query: Optional[str], json_output: bool) -> None:
         else:
             for line in render_card_header(
                 "KERBEROS & SSSD ERROR RESOLUTION DICTIONARY",
-                "11 Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
+                f"{len(ERROR_DICTIONARY)} Pre-compiled Protocol Vectors · Dual-Use Detection Telemetry",
             ):
                 print(line)
 

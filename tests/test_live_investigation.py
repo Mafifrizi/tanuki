@@ -41,16 +41,19 @@ class TestEventIdTriageLookup(unittest.TestCase):
         # Event ID 4768 (Kerberos TGT Request)
         res_4768 = find_error_resolution("4768")
         self.assertIsNotNone(res_4768)
+        self.assertEqual(res_4768["code"], "EVENT_4768")
         self.assertIn(4768, res_4768["telemetry"]["event_ids"])
 
         # Event ID 4769 (Kerberos Service Ticket Request)
         res_4769 = find_error_resolution("4769")
         self.assertIsNotNone(res_4769)
+        self.assertEqual(res_4769["code"], "EVENT_4769")
         self.assertIn(4769, res_4769["telemetry"]["event_ids"])
 
         # Event ID 4771 (Kerberos Pre-authentication Failed)
         res_4771 = find_error_resolution("4771")
         self.assertIsNotNone(res_4771)
+        self.assertEqual(res_4771["code"], "EVENT_4771")
         self.assertIn(4771, res_4771["telemetry"]["event_ids"])
 
     def test_lookup_fast_armoring_error_by_code(self):
@@ -73,7 +76,7 @@ class TestEventIdTriageLookup(unittest.TestCase):
         proc = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0)
         data = json.loads(proc.stdout)
-        self.assertIn("code", data)
+        self.assertEqual(data["code"], "EVENT_4768")
         self.assertIn(4768, data["telemetry"]["event_ids"])
 
     def test_cli_triage_fast_code_json(self):
@@ -95,6 +98,7 @@ class TestEventIdTriageLookup(unittest.TestCase):
     def test_lookup_by_integer_event_id(self):
         item_4768 = find_error_resolution(4768)
         self.assertIsNotNone(item_4768)
+        self.assertEqual(item_4768["code"], "EVENT_4768")
         self.assertIn(4768, item_4768["telemetry"]["event_ids"])
 
         item_93 = find_error_resolution(93)

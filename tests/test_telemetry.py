@@ -22,7 +22,7 @@ class TestErrorTelemetryData(unittest.TestCase):
     """Verify detection telemetry structure and content for all 12 Kerberos errors."""
 
     def test_all_ten_errors_present_and_enriched(self):
-        self.assertEqual(len(ERROR_DICTIONARY), 12)
+        self.assertEqual(len(ERROR_DICTIONARY), 15)
         for item in ERROR_DICTIONARY:
             self.assertIn("code", item)
             self.assertIn("tactical_cmd", item, f"Missing tactical_cmd in {item['code']}")
