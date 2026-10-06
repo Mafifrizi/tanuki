@@ -131,6 +131,41 @@ class TestRustCompatibility(unittest.TestCase):
                                     f"Slop comment pattern '{pat.pattern}' found in {file_path}:{line_idx}: {line.strip()}",
                                 )
 
+    def test_rust_fast_and_rbcd_parity(self):
+        config_rs = os.path.join(self.crates_dir, "src", "config.rs")
+        with open(config_rs, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("fast: bool", content)
+        self.assertIn("armor_cache: Option<&str>", content)
+        self.assertIn("fast_req_armoring = true", content)
+        self.assertIn("armor_cache = {}", content)
+        self.assertIn("Realm cannot contain newline characters", content)
+
+        pac_rs = os.path.join(self.crates_dir, "src", "pac.rs")
+        with open(pac_rs, "r", encoding="utf-8") as f:
+            pac_content = f.read()
+        self.assertIn("pub fn parse_windows_sid", pac_content)
+        self.assertIn("pub fn parse_rbcd_security_descriptor", pac_content)
+        self.assertIn("pub struct RbcdSecurityDescriptor", pac_content)
+        self.assertIn("pub struct AceDetail", pac_content)
+        self.assertIn("exceeds MS-DTYP maximum of 15", pac_content)
+
+        lib_rs = os.path.join(self.crates_dir, "src", "lib.rs")
+        with open(lib_rs, "r", encoding="utf-8") as f:
+            lib_content = f.read()
+        self.assertIn("parse_windows_sid", lib_content)
+        self.assertIn("parse_rbcd_security_descriptor", lib_content)
+
+    def test_no_em_dashes_in_rust_source(self):
+        src_dir = os.path.join(self.crates_dir)
+        for root, _, files in os.walk(src_dir):
+            for file in files:
+                if file.endswith((".rs", ".toml")):
+                    file_path = os.path.join(root, file)
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                        self.assertNotIn("—", text, f"Em dash found in {file_path}")
+
 
 if __name__ == "__main__":
     unittest.main()

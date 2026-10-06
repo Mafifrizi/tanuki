@@ -67,6 +67,8 @@ OPTIONS:
     --admin-server <HOST_OR_IP> Optional admin server for config
     --clock-skew <SECS> Clock skew tolerance in seconds (unprivileged hypervisors)
     --enforce-aes       Strictly enforce AES-128/256 and reject legacy RC4
+    --fast              Enable RFC 6113 FAST armoring (fast_req_armoring = true)
+    --armor-cache <PATH> Armor credentials cache path for FAST armoring
     --stdout            Print generated config directly to stdout
     --keytab <PATH>     Target keytab path for doctor/auth/config/fix
     --krb5-conf <PATH>  Target krb5.conf path for doctor/fix
@@ -320,6 +322,8 @@ fn main() {
     let mut query_opt: Option<String> = None;
     let mut base_dn_opt: Option<String> = None;
     let mut port_opt: Option<u16> = None;
+    let mut fast_opt = false;
+    let mut armor_cache_opt: Option<String> = None;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -489,6 +493,25 @@ fn main() {
             "--enforce-aes" => {
                 enforce_aes_opt = true;
             }
+            "--fast" => {
+                fast_opt = true;
+            }
+            "--armor-cache" => {
+                if i + 1 < raw_args.len() && !raw_args[i + 1].starts_with('-') {
+                    armor_cache_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --armor-cache",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
+                }
+            }
             "--stdout" => {
                 stdout_opt = true;
             }
@@ -654,6 +677,8 @@ fn main() {
                 global_json,
                 clock_skew_opt,
                 enforce_aes_opt,
+                fast_opt,
+                armor_cache_opt,
             );
         }
         "token" => {
@@ -810,6 +835,8 @@ fn handle_config(
     json_output: bool,
     clock_skew_opt: Option<u32>,
     enforce_aes_opt: bool,
+    fast_opt: bool,
+    armor_cache_opt: Option<String>,
 ) {
     let realm = match realm_opt {
         Some(r) if !r.trim().is_empty() => r.trim().to_uppercase(),
@@ -927,7 +954,15 @@ fn handle_config(
         }
     };
 
-    let content = match generate_krb5_conf(&realm, &kdc, admin_server_opt.as_deref(), clock_skew_opt, enforce_aes_opt) {
+    let content = match generate_krb5_conf(
+        &realm,
+        &kdc,
+        admin_server_opt.as_deref(),
+        clock_skew_opt,
+        enforce_aes_opt,
+        fast_opt,
+        armor_cache_opt.as_deref(),
+    ) {
         Ok(c) => c,
         Err(err) => {
             emit_cli_error(
@@ -995,6 +1030,12 @@ fn handle_config(
         if enforce_aes_opt {
             out.push_str(",\n  \"enforce_aes\": true");
         }
+        if fast_opt {
+            out.push_str(",\n  \"fast\": true");
+        }
+        if let Some(ref armor) = armor_cache_opt {
+            out.push_str(&format!(",\n  \"armor_cache\": \"{}\"", escape_json(armor)));
+        }
         out.push_str(&format!(",\n  \"content\": \"{}\"\n}}", tanuki::escape_json(&content)));
         println!("{}", out);
         return;
@@ -1014,6 +1055,12 @@ fn handle_config(
     }
     if enforce_aes_opt {
         println!("    ├─ Encryption     : AES-128/256 enforced (RC4 disabled)");
+    }
+    if fast_opt {
+        println!("    ├─ FAST Armoring  : Enabled (fast_req_armoring = true)");
+    }
+    if let Some(ref armor) = armor_cache_opt {
+        println!("    ├─ Armor Cache    : {}", armor);
     }
     println!("    ╰─ Status         : Active configuration ready");
     println!("\n[+] To activate in your current session (unprivileged / no root required):");

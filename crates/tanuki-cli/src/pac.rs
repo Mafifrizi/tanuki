@@ -21,6 +21,28 @@ pub const GROUP_POLICY_CREATOR_OWNERS_RID: u32 = 520;
 pub const BUILTIN_ADMINISTRATORS_RID: u32 = 544;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AceDetail {
+    pub ace_type: u8,
+    pub flags: u8,
+    pub size: u16,
+    pub mask: u32,
+    pub trustee_sid: Option<String>,
+    pub is_allowed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RbcdSecurityDescriptor {
+    pub revision: u8,
+    pub control: u16,
+    pub dacl_offset: u32,
+    pub ace_count: u16,
+    pub trustee_sids: Vec<String>,
+    pub allowed_trustee_sids: Vec<String>,
+    pub denied_trustee_sids: Vec<String>,
+    pub aces: Vec<AceDetail>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacBufferInfo {
     pub index: usize,
     pub type_id: u32,
@@ -163,6 +185,227 @@ pub fn parse_rpc_sid(data: &[u8], offset: usize) -> Result<(String, usize), Stri
 
     Ok((sid_parts.join("-"), total_len))
 }
+
+pub fn parse_windows_sid(
+    data: &[u8],
+    offset: usize,
+    max_len: Option<usize>,
+) -> Result<(String, usize), String> {
+    if data.len() < offset + 8 {
+        return Err(format!("Buffer underflow reading SID header at offset {}", offset));
+    }
+    if let Some(limit) = max_len {
+        if limit < 8 {
+            return Err(format!(
+                "Buffer underflow: max_len {} < 8 bytes for SID header at offset {}",
+                limit, offset
+            ));
+        }
+    }
+
+    let revision = data[offset];
+    let sub_auth_count = data[offset + 1] as usize;
+    if sub_auth_count > 15 {
+        return Err(format!(
+            "Invalid SID SubAuthorityCount {} exceeds MS-DTYP maximum of 15",
+            sub_auth_count
+        ));
+    }
+
+    let mut id_auth: u64 = 0;
+    for &b in &data[offset + 2..offset + 8] {
+        id_auth = (id_auth << 8) | (b as u64);
+    }
+
+    let total_len = 8 + (sub_auth_count * 4);
+    if data.len() < offset + total_len {
+        return Err(format!(
+            "Buffer underflow reading {} subauthorities at offset {}",
+            sub_auth_count, offset
+        ));
+    }
+
+    if let Some(limit) = max_len {
+        if total_len > limit {
+            return Err(format!(
+                "SID length {} exceeds bounded container limit {} at offset {}",
+                total_len, limit, offset
+            ));
+        }
+    }
+
+    let mut sid_parts = vec![format!("S-{}-{}", revision, id_auth)];
+    for i in 0..sub_auth_count {
+        let sa_offset = offset + 8 + (i * 4);
+        let sa = u32::from_le_bytes([
+            data[sa_offset],
+            data[sa_offset + 1],
+            data[sa_offset + 2],
+            data[sa_offset + 3],
+        ]);
+        sid_parts.push(sa.to_string());
+    }
+
+    Ok((sid_parts.join("-"), total_len))
+}
+
+pub fn parse_rbcd_security_descriptor(data: &[u8]) -> Result<RbcdSecurityDescriptor, String> {
+    if data.len() < 20 {
+        return Err(format!(
+            "Buffer underflow reading SECURITY_DESCRIPTOR_RELATIVE header: {} bytes < 20",
+            data.len()
+        ));
+    }
+
+    let revision = data[0];
+    let control = u16::from_le_bytes([data[2], data[3]]);
+    let off_dacl = u32::from_le_bytes([data[16], data[17], data[18], data[19]]) as usize;
+
+    if revision != 1 {
+        return Err(format!(
+            "Unsupported SECURITY_DESCRIPTOR revision {}, expected 1",
+            revision
+        ));
+    }
+
+    let mut result = RbcdSecurityDescriptor {
+        revision,
+        control,
+        dacl_offset: off_dacl as u32,
+        ace_count: 0,
+        trustee_sids: Vec::new(),
+        allowed_trustee_sids: Vec::new(),
+        denied_trustee_sids: Vec::new(),
+        aces: Vec::new(),
+    };
+
+    if off_dacl == 0 || (control & 0x0004) == 0 {
+        return Ok(result);
+    }
+
+    if off_dacl < 20 {
+        return Err(format!(
+            "Invalid DACL offset {} points inside 20-byte security descriptor header",
+            off_dacl
+        ));
+    }
+
+    if data.len() < off_dacl + 8 {
+        return Err(format!(
+            "Buffer underflow reading ACL header at offset {}",
+            off_dacl
+        ));
+    }
+
+    let acl_size = u16::from_le_bytes([data[off_dacl + 2], data[off_dacl + 3]]) as usize;
+    let ace_count = u16::from_le_bytes([data[off_dacl + 4], data[off_dacl + 5]]) as usize;
+
+    if acl_size < 8 {
+        return Err(format!("Invalid ACL size {} < 8 bytes", acl_size));
+    }
+
+    if data.len() < off_dacl + acl_size {
+        return Err(format!(
+            "ACL size {} exceeds remaining buffer length {}",
+            acl_size,
+            data.len() - off_dacl
+        ));
+    }
+
+    result.ace_count = ace_count as u16;
+
+    let mut cur_off = off_dacl + 8;
+    let acl_end = off_dacl + acl_size;
+
+    for _ in 0..ace_count {
+        if cur_off + 4 > acl_end {
+            break;
+        }
+        let ace_type = data[cur_off];
+        let ace_flags = data[cur_off + 1];
+        let ace_size = u16::from_le_bytes([data[cur_off + 2], data[cur_off + 3]]) as usize;
+
+        if ace_size < 4 || cur_off + ace_size > acl_end {
+            break;
+        }
+
+        let is_allowed = matches!(ace_type, 0x00 | 0x05 | 0x09 | 0x0B);
+        let mut mask: u32 = 0;
+        let mut sid_str: Option<String> = None;
+
+        if matches!(ace_type, 0x05 | 0x06 | 0x07 | 0x08 | 0x0B | 0x0C) {
+            if ace_size >= 12 {
+                mask = u32::from_le_bytes([
+                    data[cur_off + 4],
+                    data[cur_off + 5],
+                    data[cur_off + 6],
+                    data[cur_off + 7],
+                ]);
+                let flags = u32::from_le_bytes([
+                    data[cur_off + 8],
+                    data[cur_off + 9],
+                    data[cur_off + 10],
+                    data[cur_off + 11],
+                ]);
+                let mut sid_start = cur_off + 12;
+                if (flags & 0x01) != 0 {
+                    sid_start += 16;
+                }
+                if (flags & 0x02) != 0 {
+                    sid_start += 16;
+                }
+                if sid_start + 8 <= cur_off + ace_size {
+                    let max_sid_len = (cur_off + ace_size) - sid_start;
+                    if let Ok((parsed_sid, _)) = parse_windows_sid(data, sid_start, Some(max_sid_len)) {
+                        sid_str = Some(parsed_sid);
+                    }
+                }
+            }
+        } else if ace_size >= 8 {
+            mask = u32::from_le_bytes([
+                data[cur_off + 4],
+                data[cur_off + 5],
+                data[cur_off + 6],
+                data[cur_off + 7],
+            ]);
+            if cur_off + 8 + 8 <= cur_off + ace_size {
+                let max_sid_len = ace_size - 8;
+                if let Ok((parsed_sid, _)) = parse_windows_sid(data, cur_off + 8, Some(max_sid_len)) {
+                    sid_str = Some(parsed_sid);
+                }
+            }
+        }
+
+        let ace_info = AceDetail {
+            ace_type,
+            flags: ace_flags,
+            size: ace_size as u16,
+            mask,
+            trustee_sid: sid_str.clone(),
+            is_allowed,
+        };
+        result.aces.push(ace_info);
+
+        if let Some(ref s) = sid_str {
+            if is_allowed {
+                if !result.trustee_sids.contains(s) {
+                    result.trustee_sids.push(s.clone());
+                }
+                if !result.allowed_trustee_sids.contains(s) {
+                    result.allowed_trustee_sids.push(s.clone());
+                }
+            } else if !result.denied_trustee_sids.contains(s) {
+                result.denied_trustee_sids.push(s.clone());
+            }
+        }
+
+        cur_off += ace_size;
+    }
+
+    Ok(result)
+}
+
+pub use parse_rbcd_security_descriptor as parse_nt_security_descriptor;
 
 pub fn parse_pac_client_info(data: &[u8]) -> Result<PacClientInfo, String> {
     if data.len() < 10 {
