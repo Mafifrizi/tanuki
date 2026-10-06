@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution,
+    candidates_to_json, entries_to_json, errors_to_json, escape_json, find_error_resolution,
     format_pac_report_terminal, generate_krb5_conf, ladder_to_json, pac_report_to_json,
     parse_and_validate_jwt, parse_keytab_bytes, parse_pac_source, query_active_directory_ldap,
     run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source, scan_for_ccache_blobs,
@@ -1034,7 +1034,7 @@ fn handle_config(
             out.push_str(",\n  \"fast\": true");
         }
         if let Some(ref armor) = armor_cache_opt {
-            out.push_str(&format!(",\n  \"armor_cache\": \"{}\"", escape_json(armor)));
+            out.push_str(&format!(",\n  \"armor_cache\": \"{}\"", tanuki::escape_json(armor)));
         }
         out.push_str(&format!(",\n  \"content\": \"{}\"\n}}", tanuki::escape_json(&content)));
         println!("{}", out);
