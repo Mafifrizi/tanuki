@@ -627,7 +627,7 @@ class TestRustParityAndDiscrepancies(unittest.TestCase):
             rust_content = f.read()
 
         py_codes = [e["code"] for e in ERROR_DICTIONARY]
-        self.assertEqual(len(py_codes), 12)
+        self.assertEqual(len(py_codes), 15)
         for code in py_codes:
             self.assertIn(f'code: "{code}"', rust_content, f"Missing {code} in Rust kerberos.rs")
 

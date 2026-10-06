@@ -139,6 +139,30 @@ pub const ERROR_DICTIONARY: &[ErrorResolution] = &[
         tactical_cmd: "kinit -T <ARMOR_CCACHE> <USER>@<REALM> || sed -i '/\\[libdefaults\\]/a \\    fast_req_armoring = true' /etc/krb5.conf",
         telemetry: TELEMETRY_KDC_ERR_PREAUTH_REQUIRED_FOR_FAST,
     },
+    ErrorResolution {
+        code: "EVENT_4768",
+        event_id: Some(4768),
+        root_cause: "A Kerberos authentication ticket (TGT) was requested. Emitted by Active Directory Domain Controllers during AS-REQ evaluation.",
+        resolution: "Inspect Result Code in Windows Security Event Log: 0x0 (Success), 0x6 (Client principal unknown), 0x12 (Client revoked/disabled), 0x17 (User key expired), 0x18 (Pre-authentication failed / invalid password), 0x25 (Clock skew too great). Correlate client IP and requested encryption type (0x12 AES256, 0x17 RC4).",
+        tactical_cmd: "wevtutil qe Security \"/q:*[System[(EventID=4768)]]\" /f:text /c:5 /rd:true",
+        telemetry: TELEMETRY_EVENT_4768,
+    },
+    ErrorResolution {
+        code: "EVENT_4769",
+        event_id: Some(4769),
+        root_cause: "A Kerberos service ticket (TGS) was requested. Emitted by Active Directory Domain Controllers during TGS-REQ evaluation.",
+        resolution: "Inspect Result Code in Windows Security Event Log: 0x0 (Success), 0x1b (Server principal not found in AD), 0x1f (Key version number KVNO desynchronization between keytab and AD), 0x20 (Target service ticket encryption type not supported).",
+        tactical_cmd: "wevtutil qe Security \"/q:*[System[(EventID=4769)]]\" /f:text /c:5 /rd:true",
+        telemetry: TELEMETRY_EVENT_4769,
+    },
+    ErrorResolution {
+        code: "EVENT_4771",
+        event_id: Some(4771),
+        root_cause: "Kerberos pre-authentication failed. Emitted by Active Directory Domain Controllers when an account fails pre-authentication.",
+        resolution: "Inspect Failure Code: 0x18 (Wrong password or outdated keytab key), 0x17 (Password expired), 0x12 (Account locked or disabled), 0x25 (Clock skew between client and KDC > 300s). For FAST armoring policy, verify armor cache.",
+        tactical_cmd: "wevtutil qe Security \"/q:*[System[(EventID=4771)]]\" /f:text /c:5 /rd:true",
+        telemetry: TELEMETRY_EVENT_4771,
+    },
 ];
 
 pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
@@ -153,21 +177,26 @@ pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
     };
 
     if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
-        item.code == clean || item.event_id.map(|id| id.to_string() == clean).unwrap_or(false)
+        item.code == clean
+            || item.event_id.map(|id| id.to_string() == clean).unwrap_or(false)
+            || (query_int.is_some() && item.event_id == query_int)
     }) {
+        return Some(item);
+    }
+
+    if let Some(item) = ERROR_DICTIONARY.iter().find(|item| item.code.contains(&clean)) {
         return Some(item);
     }
 
     if let Some(qid) = query_int {
         if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
-            item.event_id.map(|id| id as u32 == qid).unwrap_or(false)
-                || item.telemetry.event_ids.contains(&qid)
+            item.telemetry.event_ids.contains(&qid)
         }) {
             return Some(item);
         }
     }
 
-    ERROR_DICTIONARY.iter().find(|item| item.code.contains(&clean))
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -101,6 +101,33 @@ ERROR_DICTIONARY: List[Dict[str, Any]] = [
         "tactical_cmd": ERROR_TELEMETRY["KDC_ERR_PREAUTH_REQUIRED_FOR_FAST"]["tactical_cmd"],
         "telemetry": ERROR_TELEMETRY["KDC_ERR_PREAUTH_REQUIRED_FOR_FAST"]["telemetry"],
     },
+    {
+        "code": "EVENT_4768",
+        "event_id": 4768,
+        "failure_code": "0x0",
+        "root_cause": "A Kerberos authentication ticket (TGT) was requested. Emitted by Active Directory Domain Controllers during AS-REQ evaluation.",
+        "resolution": "Inspect Result Code in Windows Security Event Log: 0x0 (Success), 0x6 (Client principal unknown), 0x12 (Client revoked/disabled), 0x17 (User key expired), 0x18 (Pre-authentication failed / invalid password), 0x25 (Clock skew too great). Correlate client IP and requested encryption type (0x12 AES256, 0x17 RC4).",
+        "tactical_cmd": ERROR_TELEMETRY["EVENT_4768"]["tactical_cmd"],
+        "telemetry": ERROR_TELEMETRY["EVENT_4768"]["telemetry"],
+    },
+    {
+        "code": "EVENT_4769",
+        "event_id": 4769,
+        "failure_code": "0x0",
+        "root_cause": "A Kerberos service ticket (TGS) was requested. Emitted by Active Directory Domain Controllers during TGS-REQ evaluation.",
+        "resolution": "Inspect Result Code in Windows Security Event Log: 0x0 (Success), 0x1b (Server principal not found in AD), 0x1f (Key version number KVNO desynchronization between keytab and AD), 0x20 (Target service ticket encryption type not supported).",
+        "tactical_cmd": ERROR_TELEMETRY["EVENT_4769"]["tactical_cmd"],
+        "telemetry": ERROR_TELEMETRY["EVENT_4769"]["telemetry"],
+    },
+    {
+        "code": "EVENT_4771",
+        "event_id": 4771,
+        "failure_code": "0x18",
+        "root_cause": "Kerberos pre-authentication failed. Emitted by Active Directory Domain Controllers when an account fails pre-authentication.",
+        "resolution": "Inspect Failure Code: 0x18 (Wrong password or outdated keytab key), 0x17 (Password expired), 0x12 (Account locked or disabled), 0x25 (Clock skew between client and KDC > 300s). For FAST armoring policy, verify armor cache.",
+        "tactical_cmd": ERROR_TELEMETRY["EVENT_4771"]["tactical_cmd"],
+        "telemetry": ERROR_TELEMETRY["EVENT_4771"]["telemetry"],
+    },
 ]
 
 DECISION_LADDER: List[Dict[str, Any]] = [
@@ -156,28 +183,28 @@ def find_error_resolution(query: Union[str, int]) -> Optional[Dict[str, Any]]:
 
     clean_lower = clean.lower()
 
-    # Exact match on error code, event_id, or failure code
+    # Pass 1: Exact match on error code, failure code, or event_id equality
     for item in ERROR_DICTIONARY:
-        if (
-            item["code"] == clean
-            or (item["event_id"] is not None and str(item["event_id"]) == clean)
-            or (item.get("failure_code") and item["failure_code"].lower() == clean_lower)
+        if item["code"] == clean:
+            return item
+        if item.get("failure_code") and item["failure_code"].lower() == clean_lower:
+            return item
+        if item.get("event_id") is not None and (
+            str(item["event_id"]) == clean or (isinstance(query, int) and item["event_id"] == query)
         ):
             return item
 
-    # Check if numeric query matches Windows Event IDs or Kerberos error codes
-    if query_int is not None:
-        for item in ERROR_DICTIONARY:
-            if item.get("event_id") == query_int:
-                return item
-            event_ids = item.get("telemetry", {}).get("event_ids", [])
-            if query_int in event_ids:
-                return item
-
-    # Substring match on error code
+    # Pass 2: Substring match on error code
     for item in ERROR_DICTIONARY:
         if clean in item["code"]:
             return item
+
+    # Pass 3: Fallback match on auxiliary telemetry event_ids
+    if query_int is not None:
+        for item in ERROR_DICTIONARY:
+            event_ids = item.get("telemetry", {}).get("event_ids", [])
+            if query_int in event_ids:
+                return item
 
     return None
 

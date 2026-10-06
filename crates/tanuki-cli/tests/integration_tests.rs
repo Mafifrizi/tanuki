@@ -192,6 +192,7 @@ fn test_error_dictionary_lookups() {
     assert_eq!(fast_num.code, "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST");
 
     let event_4768 = find_error_resolution("4768").expect("Found by Windows Event ID 4768");
+    assert_eq!(event_4768.code, "EVENT_4768");
     assert!(event_4768.telemetry.event_ids.contains(&4768));
 
     let hex_fail = find_error_resolution("0x18").expect("Found by hex failure code");
