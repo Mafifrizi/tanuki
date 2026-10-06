@@ -23,11 +23,24 @@ def generate_krb5_conf(
     """Generate an RFC 4120-compliant Kerberos configuration with uppercase realm."""
     if not realm or not realm.strip():
         raise ValueError("Realm cannot be empty")
+    if "\n" in realm or "\r" in realm:
+        raise ValueError("Realm cannot contain newline characters")
     if not kdc:
         raise ValueError("KDC cannot be empty")
 
     clean_realm = realm.strip().upper()
     domain = clean_realm.lower()
+
+    if armor_cache is not None:
+        armor_cache = armor_cache.strip()
+        if not armor_cache:
+            armor_cache = None
+        elif "\n" in armor_cache or "\r" in armor_cache:
+            raise ValueError("armor_cache cannot contain newline characters")
+
+    if admin_server is not None:
+        if "\n" in admin_server or "\r" in admin_server:
+            raise ValueError("admin_server cannot contain newline characters")
 
     if isinstance(kdc, str):
         kdc_candidates = [k.strip() for k in kdc.split(",") if k.strip()]
@@ -43,6 +56,10 @@ def generate_krb5_conf(
 
     if not kdc_candidates:
         raise ValueError("KDC cannot be empty")
+
+    for k in kdc_candidates:
+        if "\n" in k or "\r" in k:
+            raise ValueError("KDC cannot contain newline characters")
 
     admin_target = admin_server.strip() if admin_server else kdc_candidates[0]
 

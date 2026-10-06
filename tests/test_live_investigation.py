@@ -84,6 +84,23 @@ class TestEventIdTriageLookup(unittest.TestCase):
         self.assertEqual(data["code"], "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST")
         self.assertEqual(data["event_id"], 93)
 
+    def test_lookup_by_failure_code_0x18(self):
+        item = find_error_resolution("0x18")
+        self.assertIsNotNone(item)
+        self.assertIn("0x18", item.get("root_cause", "") + item.get("failure_code", ""))
+
+        item_upper = find_error_resolution("0X18")
+        self.assertIsNotNone(item_upper)
+
+    def test_lookup_by_integer_event_id(self):
+        item_4768 = find_error_resolution(4768)
+        self.assertIsNotNone(item_4768)
+        self.assertIn(4768, item_4768["telemetry"]["event_ids"])
+
+        item_93 = find_error_resolution(93)
+        self.assertIsNotNone(item_93)
+        self.assertEqual(item_93["code"], "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST")
+
 
 class TestLdapBerDecoderAndBinaryAttributes(unittest.TestCase):
     """Verify ASN.1 BER resultCode decoding bug fix and preservation of raw binary AD attributes."""
@@ -123,6 +140,7 @@ class TestLdapBerDecoderAndBinaryAttributes(unittest.TestCase):
         self.assertEqual(msg["type"], "bind_response")
         self.assertEqual(msg["result_code"], 49)
         self.assertFalse(msg["success"])
+        self.assertIn("data 52e", msg.get("diagnostic_message", ""))
 
     def test_ber_decode_search_done_enumerated_success(self):
         # SearchResultDone with TAG_ENUMERATED 0x00
@@ -293,6 +311,52 @@ class TestBinaryNtSecurityDescriptorParser(unittest.TestCase):
         self.assertEqual(res["ace_count"], 0)
         self.assertEqual(res["trustee_sids"], [])
 
+    def test_parse_windows_sid_subauthorities_exceeding_15_fails(self):
+        buf = bytearray([1, 16, 0, 0, 0, 0, 0, 5])
+        buf.extend(b"\x00" * 64)
+        with self.assertRaises(PacDecodeError):
+            parse_windows_sid(bytes(buf), 0)
+
+    def test_parse_windows_sid_zero_subauthorities(self):
+        buf = bytes([1, 0, 0, 0, 0, 0, 0, 5])
+        sid_str, consumed = parse_windows_sid(buf, 0)
+        self.assertEqual(sid_str, "S-1-5")
+        self.assertEqual(consumed, 8)
+
+    def test_parse_rbcd_ace_bounds_overrun_prevented(self):
+        sid_header = struct.pack("<BB6s", 1, 5, b"\x00\x00\x00\x00\x00\x05")
+        sub_auths = struct.pack("<IIIII", 21, 100, 200, 300, 400)
+        # Fraudulent ACE claiming ace_size = 12 while SID payload requires 28 bytes
+        ace_bytes = struct.pack("<BBH", 0, 0, 12) + struct.pack("<I", 0x20000) + sid_header + sub_auths
+        acl_bytes = struct.pack("<BBHHH", 2, 0, 8 + len(ace_bytes), 1, 0) + ace_bytes
+        sd_bytes = struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 20) + acl_bytes
+
+        res = parse_rbcd_security_descriptor(sd_bytes)
+        # Bounded parsing must NOT extract trustee SID from truncated container
+        self.assertEqual(res["trustee_sids"], [])
+
+    def test_parse_rbcd_denied_ace_filtered_from_trustee_sids(self):
+        # Build synthetic SD with ACCESS_DENIED_ACE (type 0x01)
+        sid_denied = self._build_synthetic_sid(1, 5, [21, 999, 888, 777, 1105])
+        ace_denied = struct.pack("<BBH", 1, 0, 8 + len(sid_denied)) + struct.pack("<I", 0x00020000) + sid_denied
+        acl_bytes = struct.pack("<BBHHH", 2, 0, 8 + len(ace_denied), 1, 0) + ace_denied
+        sd_bytes = struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 20) + acl_bytes
+
+        res = parse_rbcd_security_descriptor(sd_bytes)
+        self.assertEqual(res["trustee_sids"], [])
+        self.assertIn("S-1-5-21-999-888-777-1105", res["denied_trustee_sids"])
+
+    def test_parse_rbcd_invalid_dacl_offset_under_20_raises(self):
+        sd_header = struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 10)
+        with self.assertRaises(PacDecodeError):
+            parse_rbcd_security_descriptor(sd_header)
+
+    def test_parse_rbcd_invalid_acl_size_under_8_raises(self):
+        sd_header = struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 20)
+        acl_header = struct.pack("<BBHHH", 2, 0, 4, 1, 0)
+        with self.assertRaises(PacDecodeError):
+            parse_rbcd_security_descriptor(sd_header + acl_header)
+
 
 class TestFastConfigSynthesis(unittest.TestCase):
     """Verify RFC 6113 FAST armoring configuration synthesis."""
@@ -371,6 +435,34 @@ class TestFastConfigSynthesis(unittest.TestCase):
         self.assertEqual(data.get("armor_cache"), "/tmp/armor_ticket")
         self.assertIn("fast_req_armoring = true", data["content"])
         self.assertIn("armor_cache = /tmp/armor_ticket", data["content"])
+
+    def test_generate_krb5_conf_crlf_injection_raises(self):
+        with self.assertRaises(ValueError):
+            generate_krb5_conf(
+                "CORP.LOCAL",
+                "192.168.56.106",
+                armor_cache="/tmp/armor\n    evil = true",
+            )
+        with self.assertRaises(ValueError):
+            generate_krb5_conf("CORP.LOCAL\r\n[evil]", "192.168.56.106")
+        with self.assertRaises(ValueError):
+            generate_krb5_conf("CORP.LOCAL", "192.168.56.106\nkdc = evil")
+
+    def test_cli_config_armor_cache_missing_arg_exits_with_error(self):
+        cmd = [
+            sys.executable,
+            "-m",
+            "tanuki",
+            "config",
+            "--realm",
+            "CORP.LOCAL",
+            "--kdc",
+            "192.168.56.106",
+            "--armor-cache",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("Option requires an argument: --armor-cache", proc.stderr + proc.stdout)
 
 
 if __name__ == "__main__":

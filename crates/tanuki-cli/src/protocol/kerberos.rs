@@ -146,7 +146,11 @@ pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
     if clean.is_empty() {
         return None;
     }
-    let query_int: Option<u32> = clean.parse().ok();
+    let query_int: Option<u32> = if clean.starts_with("0X") {
+        u32::from_str_radix(&clean[2..], 16).ok()
+    } else {
+        clean.parse().ok()
+    };
 
     if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
         item.code == clean || item.event_id.map(|id| id.to_string() == clean).unwrap_or(false)
@@ -156,7 +160,8 @@ pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
 
     if let Some(qid) = query_int {
         if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
-            item.telemetry.event_ids.contains(&qid)
+            item.event_id.map(|id| id as u32 == qid).unwrap_or(false)
+                || item.telemetry.event_ids.contains(&qid)
         }) {
             return Some(item);
         }

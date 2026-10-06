@@ -184,6 +184,18 @@ fn test_error_dictionary_lookups() {
     let preauth = find_error_resolution("PREAUTH").expect("Found by substring");
     assert_eq!(preauth.code, "KDC_ERR_PREAUTH_FAILED");
 
+    let fast = find_error_resolution("KDC_ERR_PREAUTH_REQUIRED_FOR_FAST").expect("Found FAST");
+    assert_eq!(fast.event_id, Some(93));
+
+    let fast_num = find_error_resolution("93").expect("Found FAST by 93");
+    assert_eq!(fast_num.code, "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST");
+
+    let event_4768 = find_error_resolution("4768").expect("Found by Windows Event ID 4768");
+    assert!(event_4768.telemetry.event_ids.contains(&4768));
+
+    let hex_fail = find_error_resolution("0x18").expect("Found by hex failure code");
+    assert_eq!(hex_fail.event_id, Some(24));
+
     assert_eq!(find_error_resolution(""), None);
     assert_eq!(find_error_resolution("   "), None);
 }

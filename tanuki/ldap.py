@@ -57,6 +57,9 @@ BINARY_AD_ATTRIBUTES = {
     "msds-keycredentiallink",
     "objectsid",
     "objectguid",
+    "usercertificate",
+    "ntsecuritydescriptor",
+    "tokengroups",
 }
 
 
@@ -260,11 +263,19 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
 
             if op_tag == LDAP_RESP_BIND:
                 res_code = 0
+                matched_dn = ""
+                diagnostic_message = ""
                 if op_val:
                     if op_val[0] in (TAG_ENUMERATED, TAG_INTEGER):
                         try:
-                            _, res_bytes, _ = ber_decode_tlv(op_val, 0)
+                            _, res_bytes, inner_b_off = ber_decode_tlv(op_val, 0)
                             res_code = ber_decode_int(res_bytes)
+                            if inner_b_off < len(op_val):
+                                _, dn_bytes, inner_b_off = ber_decode_tlv(op_val, inner_b_off)
+                                matched_dn = ber_decode_string(dn_bytes)
+                            if inner_b_off < len(op_val):
+                                _, diag_bytes, inner_b_off = ber_decode_tlv(op_val, inner_b_off)
+                                diagnostic_message = ber_decode_string(diag_bytes)
                         except Exception:
                             res_code = op_val[0]
                     else:
@@ -273,6 +284,8 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
                     "message_id": msg_id,
                     "type": "bind_response",
                     "result_code": res_code,
+                    "matched_dn": matched_dn,
+                    "diagnostic_message": diagnostic_message,
                     "success": (res_code == 0),
                 })
             elif op_tag == LDAP_RESP_SEARCH_ENTRY:
@@ -311,11 +324,19 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
                 })
             elif op_tag == LDAP_RESP_SEARCH_DONE:
                 res_code = 0
+                matched_dn = ""
+                diagnostic_message = ""
                 if op_val:
                     if op_val[0] in (TAG_ENUMERATED, TAG_INTEGER):
                         try:
-                            _, res_bytes, _ = ber_decode_tlv(op_val, 0)
+                            _, res_bytes, inner_s_off = ber_decode_tlv(op_val, 0)
                             res_code = ber_decode_int(res_bytes)
+                            if inner_s_off < len(op_val):
+                                _, dn_bytes, inner_s_off = ber_decode_tlv(op_val, inner_s_off)
+                                matched_dn = ber_decode_string(dn_bytes)
+                            if inner_s_off < len(op_val):
+                                _, diag_bytes, inner_s_off = ber_decode_tlv(op_val, inner_s_off)
+                                diagnostic_message = ber_decode_string(diag_bytes)
                         except Exception:
                             res_code = op_val[0]
                     else:
@@ -324,6 +345,8 @@ def parse_ldap_response_stream(raw_data: bytes) -> List[Dict[str, Any]]:
                     "message_id": msg_id,
                     "type": "search_done",
                     "result_code": res_code,
+                    "matched_dn": matched_dn,
+                    "diagnostic_message": diagnostic_message,
                 })
         except Exception:
             break
