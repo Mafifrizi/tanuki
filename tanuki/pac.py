@@ -106,6 +106,10 @@ def parse_rpc_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
         raise PacDecodeError(f"Buffer underflow parsing RPC_SID at offset {offset}")
 
     sub_auth_count = data[offset]
+    if sub_auth_count > 15:
+        raise PacDecodeError(
+            f"Invalid RPC_SID SubAuthorityCount {sub_auth_count} exceeds MS-DTYP maximum of 15"
+        )
     revision = data[offset + 1]
     id_auth = int.from_bytes(data[offset + 2 : offset + 8], byteorder="big")
 
@@ -126,7 +130,9 @@ def parse_rpc_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
     return sid_str, total_len
 
 
-def parse_windows_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
+def parse_windows_sid(
+    data: bytes, offset: int = 0, max_len: Optional[int] = None
+) -> Tuple[str, int]:
     """Parse standard Windows binary SID (MS-DTYP 2.4.2) with strict bounds validation.
 
     Format:
@@ -140,14 +146,28 @@ def parse_windows_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
     if len(data) - offset < 8:
         raise PacDecodeError(f"Buffer underflow reading SID header at offset {offset}")
 
+    if max_len is not None and max_len < 8:
+        raise PacDecodeError(
+            f"Buffer underflow: max_len {max_len} < 8 bytes for SID header at offset {offset}"
+        )
+
     revision = data[offset]
     sub_auth_count = data[offset + 1]
+    if sub_auth_count > 15:
+        raise PacDecodeError(
+            f"Invalid SID SubAuthorityCount {sub_auth_count} exceeds MS-DTYP maximum of 15"
+        )
     id_auth = int.from_bytes(data[offset + 2 : offset + 8], byteorder="big")
 
     total_len = 8 + (sub_auth_count * 4)
     if len(data) - offset < total_len:
         raise PacDecodeError(
             f"Buffer underflow reading {sub_auth_count} subauthorities at offset {offset}"
+        )
+
+    if max_len is not None and total_len > max_len:
+        raise PacDecodeError(
+            f"SID length {total_len} exceeds bounded container limit {max_len} at offset {offset}"
         )
 
     sub_authorities: List[int] = []
@@ -158,6 +178,10 @@ def parse_windows_sid(data: bytes, offset: int = 0) -> Tuple[str, int]:
 
     sid_parts = [f"S-{revision}-{id_auth}"] + [str(sa) for sa in sub_authorities]
     return "-".join(sid_parts), total_len
+
+
+ALLOWED_ACE_TYPES = {0x00, 0x05, 0x09, 0x0B}
+DENIED_ACE_TYPES = {0x01, 0x06, 0x0D, 0x0C}
 
 
 def parse_rbcd_security_descriptor(data: bytes) -> Dict[str, Any]:
@@ -174,17 +198,30 @@ def parse_rbcd_security_descriptor(data: bytes) -> Dict[str, Any]:
         "<BBHIIII", data, 0
     )
 
+    if revision != 1:
+        raise PacDecodeError(
+            f"Unsupported SECURITY_DESCRIPTOR revision {revision}, expected 1"
+        )
+
     result: Dict[str, Any] = {
         "revision": revision,
         "control": control,
         "dacl_offset": off_dacl,
         "ace_count": 0,
         "trustee_sids": [],
+        "allowed_trustee_sids": [],
+        "denied_trustee_sids": [],
         "aces": [],
     }
 
-    if off_dacl == 0:
+    # SE_DACL_PRESENT bitmask = 0x0004
+    if off_dacl == 0 or not (control & 0x0004):
         return result
+
+    if 0 < off_dacl < 20:
+        raise PacDecodeError(
+            f"Invalid DACL offset {off_dacl} points inside 20-byte security descriptor header"
+        )
 
     if off_dacl + 8 > len(data):
         raise PacDecodeError(f"Buffer underflow reading ACL header at offset {off_dacl}")
@@ -193,6 +230,9 @@ def parse_rbcd_security_descriptor(data: bytes) -> Dict[str, Any]:
         "<BBHHH", data, off_dacl
     )
 
+    if acl_size < 8:
+        raise PacDecodeError(f"Invalid ACL size {acl_size} < 8 bytes")
+
     if off_dacl + acl_size > len(data):
         raise PacDecodeError(
             f"ACL size {acl_size} exceeds remaining buffer length {len(data) - off_dacl}"
@@ -200,38 +240,47 @@ def parse_rbcd_security_descriptor(data: bytes) -> Dict[str, Any]:
 
     result["ace_count"] = ace_count
     trustee_sids: List[str] = []
+    denied_sids: List[str] = []
     aces_detail: List[Dict[str, Any]] = []
 
     cur_off = off_dacl + 8
+    acl_end = off_dacl + acl_size
     for _ in range(ace_count):
-        if cur_off + 4 > off_dacl + acl_size:
+        if cur_off + 4 > acl_end:
             break
         ace_type, ace_flags, ace_size = struct.unpack_from("<BBH", data, cur_off)
-        if ace_size < 4 or cur_off + ace_size > off_dacl + acl_size:
+        if ace_size < 4 or cur_off + ace_size > acl_end:
             break
 
         mask = 0
         sid_str = None
-
-        if cur_off + 8 <= off_dacl + acl_size:
-            (mask,) = struct.unpack_from("<I", data, cur_off + 4)
+        is_allowed = ace_type in ALLOWED_ACE_TYPES
 
         try:
-            if ace_type in (0x05, 0x06, 0x0B, 0x0C):
-                obj_flags_off = cur_off + 8
-                if obj_flags_off + 4 <= cur_off + ace_size:
-                    (flags,) = struct.unpack_from("<I", data, obj_flags_off)
+            if ace_type in (0x05, 0x06, 0x07, 0x08, 0x0B, 0x0C):
+                # Object ACE format (MS-DTYP 2.4.4.2 / 2.4.4.3)
+                if ace_size >= 12:
+                    (mask,) = struct.unpack_from("<I", data, cur_off + 4)
+                    (flags,) = struct.unpack_from("<I", data, cur_off + 8)
                     sid_start = cur_off + 12
                     if flags & 0x01:
                         sid_start += 16
                     if flags & 0x02:
                         sid_start += 16
-                    if sid_start < cur_off + ace_size:
-                        sid_str, _ = parse_windows_sid(data, sid_start)
+                    if sid_start + 8 <= cur_off + ace_size:
+                        max_sid_len = (cur_off + ace_size) - sid_start
+                        sid_str, _ = parse_windows_sid(
+                            data, offset=sid_start, max_len=max_sid_len
+                        )
             else:
-                sid_start = cur_off + 8
-                if sid_start < cur_off + ace_size:
-                    sid_str, _ = parse_windows_sid(data, sid_start)
+                # Standard ACE format (MS-DTYP 2.4.4.1)
+                if ace_size >= 8:
+                    (mask,) = struct.unpack_from("<I", data, cur_off + 4)
+                    if cur_off + 8 + 8 <= cur_off + ace_size:
+                        max_sid_len = ace_size - 8
+                        sid_str, _ = parse_windows_sid(
+                            data, offset=cur_off + 8, max_len=max_sid_len
+                        )
         except Exception:
             pass
 
@@ -241,14 +290,20 @@ def parse_rbcd_security_descriptor(data: bytes) -> Dict[str, Any]:
             "size": ace_size,
             "mask": mask,
             "trustee_sid": sid_str,
+            "is_allowed": is_allowed,
         }
         aces_detail.append(ace_info)
-        if sid_str and sid_str not in trustee_sids:
-            trustee_sids.append(sid_str)
+        if sid_str:
+            if is_allowed and sid_str not in trustee_sids:
+                trustee_sids.append(sid_str)
+            elif (not is_allowed) and sid_str not in denied_sids:
+                denied_sids.append(sid_str)
 
         cur_off += ace_size
 
     result["trustee_sids"] = trustee_sids
+    result["allowed_trustee_sids"] = trustee_sids
+    result["denied_trustee_sids"] = denied_sids
     result["aces"] = aces_detail
     return result
 

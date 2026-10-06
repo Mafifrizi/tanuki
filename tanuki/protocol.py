@@ -1,6 +1,6 @@
 """Kerberos/SSSD Error Resolution Dictionary and 5-Rung Tactical Decision Ladder."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from .telemetry import ERROR_TELEMETRY, LADDER_TELEMETRY
 
 ERROR_DICTIONARY: List[Dict[str, Any]] = [
@@ -95,6 +95,7 @@ ERROR_DICTIONARY: List[Dict[str, Any]] = [
     {
         "code": "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST",
         "event_id": 93,
+        "failure_code": "0x18",
         "root_cause": "KDC policy enforces Kerberos FAST armoring (RFC 6113). Unarmored AS-REQ requests are rejected with failure code 0x18.",
         "resolution": "Enable Kerberos FAST armoring in request or /etc/krb5.conf:\n[libdefaults]\n    fast_req_armoring = true\nOr supply armor credentials cache: $ kinit -T <ARMOR_CCACHE> <USER>@<REALM>",
         "tactical_cmd": ERROR_TELEMETRY["KDC_ERR_PREAUTH_REQUIRED_FOR_FAST"]["tactical_cmd"],
@@ -136,29 +137,39 @@ DECISION_LADDER: List[Dict[str, Any]] = [
 ]
 
 
-def find_error_resolution(query: str) -> Optional[Dict[str, Any]]:
-    """Lookup error resolution by Kerberos error name or Windows Security Event ID."""
-    clean = query.strip().upper()
-    if not clean:
+def find_error_resolution(query: Union[str, int]) -> Optional[Dict[str, Any]]:
+    """Lookup error resolution by Kerberos error name, failure code, or Windows Security Event ID."""
+    if isinstance(query, int):
+        clean = str(query)
+        query_int: Optional[int] = query
+    elif isinstance(query, str):
+        clean = query.strip().upper()
+        if not clean:
+            return None
+        query_int = None
+        try:
+            query_int = int(clean, 0)
+        except ValueError:
+            pass
+    else:
         return None
 
-    query_int: Optional[int] = None
-    try:
-        query_int = int(clean)
-    except ValueError:
-        pass
+    clean_lower = clean.lower()
 
-    # Exact match on error code or Kerberos error code / event_id
+    # Exact match on error code, event_id, or failure code
     for item in ERROR_DICTIONARY:
         if (
             item["code"] == clean
             or (item["event_id"] is not None and str(item["event_id"]) == clean)
+            or (item.get("failure_code") and item["failure_code"].lower() == clean_lower)
         ):
             return item
 
-    # Check if numeric query matches Windows Event IDs in telemetry
+    # Check if numeric query matches Windows Event IDs or Kerberos error codes
     if query_int is not None:
         for item in ERROR_DICTIONARY:
+            if item.get("event_id") == query_int:
+                return item
             event_ids = item.get("telemetry", {}).get("event_ids", [])
             if query_int in event_ids:
                 return item

@@ -1324,9 +1324,17 @@ def main(argv: Optional[List[str]] = None) -> None:
         elif arg == "--fast":
             fast_opt = True
         elif arg == "--armor-cache":
-            if i + 1 < len(argv):
+            if i + 1 < len(argv) and not argv[i + 1].startswith("-"):
                 armor_cache_opt = argv[i + 1]
                 i += 1
+            else:
+                emit_cli_error(
+                    "Option requires an argument: --armor-cache",
+                    reason_code="MISSING_ARGUMENT",
+                    category="USAGE_ERROR",
+                    exit_code=EXIT_USAGE_ERROR,
+                    json_output=global_json,
+                )
         elif arg == "--use-ctypes":
             force_ctypes_opt = True
         elif arg == "--stdout":
