@@ -605,7 +605,9 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
             if len(ahead) < 6:
                 return _finalize_ticket(best_ticket)
             _, alen = struct.unpack(">HI", ahead)
-            stream.read(alen)
+            adata = stream.read(alen)
+            if len(adata) < alen:
+                return _finalize_ticket(best_ticket)
 
         ad_count_b = stream.read(4)
         if len(ad_count_b) < 4:
@@ -616,7 +618,9 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
             if len(ahead) < 6:
                 return _finalize_ticket(best_ticket)
             _, alen = struct.unpack(">HI", ahead)
-            stream.read(alen)
+            adata = stream.read(alen)
+            if len(adata) < alen:
+                return _finalize_ticket(best_ticket)
 
         t_len_b = stream.read(4)
         if len(t_len_b) < 4:

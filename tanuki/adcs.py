@@ -185,16 +185,33 @@ def load_certificate_or_templates(source: str) -> Union[List[Dict[str, Any]], Di
     raise AdcsScannerError(f"Could not load certificate or template data from: {source[:40]}")
 
 
+def _parse_flag_int(val: Any, default: int = 0) -> int:
+    """Safely parse integer flag from int, string, hex string, or None."""
+    if val is None:
+        return default
+    if isinstance(val, int):
+        return val
+    try:
+        s = str(val).strip()
+        if s.startswith(("0x", "0X")):
+            return int(s, 16)
+        return int(s)
+    except (ValueError, TypeError):
+        return default
+
+
 def evaluate_template_misconfigurations(template: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Evaluate a single Certificate Template for ESC1 through ESC11 misconfigurations."""
     findings: List[Dict[str, Any]] = []
 
     name = template.get("cn") or template.get("displayName") or template.get("name") or "Unknown-Template"
-    name_flags = int(template.get("msPKI-Certificate-Name-Flag", 0))
-    enrollment_flags = int(template.get("msPKI-Enrollment-Flag", 0))
-    ra_signatures = int(template.get("msPKI-RA-Signature", 0))
-    ekus = template.get("pKIExtendedKeyUsage", [])
-    if isinstance(ekus, str):
+    name_flags = _parse_flag_int(template.get("msPKI-Certificate-Name-Flag"))
+    enrollment_flags = _parse_flag_int(template.get("msPKI-Enrollment-Flag"))
+    ra_signatures = _parse_flag_int(template.get("msPKI-RA-Signature"))
+    ekus = template.get("pKIExtendedKeyUsage")
+    if ekus is None:
+        ekus = []
+    elif isinstance(ekus, str):
         ekus = [ekus]
 
     requires_manager_approval = bool(enrollment_flags & CT_FLAG_PEND_ALL_REQUESTS)
@@ -345,19 +362,21 @@ def evaluate_ca_misconfigurations(ca_config: Dict[str, Any]) -> List[Dict[str, A
             })
 
     # ESC10: Weak Certificate Mapping on Domain Controllers
-    cert_mapping_methods = ca_config.get("CertificateMappingMethods")
-    if cert_mapping_methods is not None and cert_mapping_methods in (0x4, 0x2):
-        findings.append({
-            "vector": "ESC10",
-            "severity": "HIGH",
-            "ca": ca_name,
-            "title": "Weak DC Certificate Mapping Methods (UPN vs objectSid)",
-            "description": (
-                f"Domain Controller certificate mapping registry key is set to {hex(cert_mapping_methods)}, "
-                "allowing weak UPN mapping without enforcing strong objectSid binding."
-            ),
-            "remediation": "Set HKLM\\System\\CurrentControlSet\\Control\\SecurityProviders\\Schannel\\CertificateMappingMethods to 0x18.",
-        })
+    cmm_raw = ca_config.get("CertificateMappingMethods")
+    if cmm_raw is not None:
+        cert_mapping_methods = _parse_flag_int(cmm_raw, -1)
+        if cert_mapping_methods in (0x4, 0x2):
+            findings.append({
+                "vector": "ESC10",
+                "severity": "HIGH",
+                "ca": ca_name,
+                "title": "Weak DC Certificate Mapping Methods (UPN vs objectSid)",
+                "description": (
+                    f"Domain Controller certificate mapping registry key is set to {hex(cert_mapping_methods)}, "
+                    "allowing weak UPN mapping without enforcing strong objectSid binding."
+                ),
+                "remediation": "Set HKLM\\System\\CurrentControlSet\\Control\\SecurityProviders\\Schannel\\CertificateMappingMethods to 0x18.",
+            })
 
     # ESC11: Relaying NTLM to RPC Enrollment Endpoint
     if ca_config.get("rpc_enrollment_without_packet_privacy", False):

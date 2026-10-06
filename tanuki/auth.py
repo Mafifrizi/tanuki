@@ -273,6 +273,12 @@ def acquire_tgt_via_ctypes(
                                 ]
                                 krb5.krb5_get_init_creds_opt_free(ctx, opt)
 
+                    if hasattr(os, "chmod") and os.path.exists(ccache_path):
+                        try:
+                            os.chmod(ccache_path, 0o600)
+                        except OSError:
+                            pass
+
                     return {
                         "status": "SUCCESS",
                         "method": "ctypes",
@@ -385,6 +391,11 @@ def acquire_tgt(
         try:
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
             if proc.returncode == 0:
+                if hasattr(os, "chmod") and os.path.exists(abs_ccache):
+                    try:
+                        os.chmod(abs_ccache, 0o600)
+                    except OSError:
+                        pass
                 return {
                     "status": "SUCCESS",
                     "method": "kinit",

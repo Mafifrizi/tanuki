@@ -118,6 +118,34 @@ class TestAdcsScanner(unittest.TestCase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    def test_null_and_hex_flags_tolerance(self):
+        template = {
+            "name": "HexAndNullTemplate",
+            "msPKI-Certificate-Name-Flag": "0x00000001",
+            "msPKI-Enrollment-Flag": None,
+            "msPKI-RA-Signature": None,
+            "pKIExtendedKeyUsage": None,
+        }
+        findings = evaluate_template_misconfigurations(template)
+        vectors = [f["vector"] for f in findings]
+        self.assertIn("ESC1", vectors)
+        self.assertIn("ESC2", vectors)
+
+    def test_esc10_detection_tolerance(self):
+        ca_config_hex = {
+            "ca_name": "DC-CA01",
+            "CertificateMappingMethods": "0x4",
+        }
+        findings_hex = evaluate_ca_misconfigurations(ca_config_hex)
+        self.assertIn("ESC10", [f["vector"] for f in findings_hex])
+
+        ca_config_int = {
+            "ca_name": "DC-CA02",
+            "CertificateMappingMethods": 2,
+        }
+        findings_int = evaluate_ca_misconfigurations(ca_config_int)
+        self.assertIn("ESC10", [f["vector"] for f in findings_int])
+
 
 if __name__ == "__main__":
     unittest.main()
