@@ -166,6 +166,13 @@ class TestRustCompatibility(unittest.TestCase):
                         text = f.read()
                         self.assertNotIn("—", text, f"Em dash found in {file_path}")
 
+    def test_rust_main_symbols_validity(self):
+        main_rs = os.path.join(self.crates_dir, "src", "main.rs")
+        with open(main_rs, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("escape_json", content)
+        self.assertNotIn("escape_json(armor)", content.replace("tanuki::escape_json(armor)", ""))
+
 
 if __name__ == "__main__":
     unittest.main()
