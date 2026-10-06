@@ -4,7 +4,26 @@ pub fn generate_krb5_conf(
     admin_server: Option<&str>,
     clockskew: Option<u32>,
     enforce_aes: bool,
+    fast: bool,
+    armor_cache: Option<&str>,
 ) -> Result<String, String> {
+    if realm.contains('\n') || realm.contains('\r') {
+        return Err("Realm cannot contain newline characters".to_string());
+    }
+    if kdc.contains('\n') || kdc.contains('\r') {
+        return Err("KDC cannot contain newline characters".to_string());
+    }
+    if let Some(admin) = admin_server {
+        if admin.contains('\n') || admin.contains('\r') {
+            return Err("Admin server cannot contain newline characters".to_string());
+        }
+    }
+    if let Some(armor) = armor_cache {
+        if armor.contains('\n') || armor.contains('\r') {
+            return Err("Armor cache cannot contain newline characters".to_string());
+        }
+    }
+
     let clean_realm = realm.trim().to_uppercase();
     if clean_realm.is_empty() {
         return Err("Realm cannot be empty".to_string());
@@ -41,6 +60,17 @@ pub fn generate_krb5_conf(
     if enforce_aes {
         libdefaults.push_str("    default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n");
         libdefaults.push_str("    permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n");
+    }
+
+    if fast {
+        libdefaults.push_str("    fast_req_armoring = true\n");
+    }
+
+    if let Some(armor) = armor_cache {
+        let trimmed_armor = armor.trim();
+        if !trimmed_armor.is_empty() {
+            libdefaults.push_str(&format!("    armor_cache = {}\n", trimmed_armor));
+        }
     }
 
     let mut kdc_lines = String::new();

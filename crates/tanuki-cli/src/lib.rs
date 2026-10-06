@@ -27,7 +27,9 @@ pub use nhi::{
 };
 pub use pac::{
     extract_pac_from_authorization_data, format_pac_report_terminal, pac_report_to_json,
-    parse_pac_bytes, parse_pac_source, PacReport,
+    parse_nt_security_descriptor, parse_pac_bytes, parse_pac_source,
+    parse_rbcd_security_descriptor, parse_windows_sid, AceDetail, PacReport,
+    RbcdSecurityDescriptor,
 };
 pub use protocol::{
     errors_to_json, find_error_resolution, ladder_to_json, ErrorResolution, LadderRung,

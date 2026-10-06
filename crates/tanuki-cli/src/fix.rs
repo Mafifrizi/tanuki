@@ -157,7 +157,7 @@ pub fn run_fix(
     let target_conf = krb5_conf.unwrap_or("./krb5.conf");
     let target_realm = realm.map(|r| r.trim().to_uppercase());
     if let (Some(r), Some(k)) = (target_realm, kdc) {
-        if let Ok(optimal_content) = generate_krb5_conf(&r, k, None, Some(clock_skew), false) {
+        if let Ok(optimal_content) = generate_krb5_conf(&r, k, None, Some(clock_skew), false, false, None) {
             let existing_content = fs::read_to_string(target_conf).ok();
             if existing_content.as_deref() == Some(&optimal_content) {
                 actions.push(FixAction {

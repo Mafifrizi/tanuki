@@ -1,7 +1,8 @@
 use tanuki::{
     candidates_to_json, entries_to_json, errors_to_json, escape_json, find_error_resolution,
-    ladder_to_json, parse_keytab_bytes, save_candidates, scan_for_ccache_blobs, KeytabError,
-    DECISION_LADDER, ERROR_DICTIONARY,
+    generate_krb5_conf, ladder_to_json, parse_keytab_bytes, parse_rbcd_security_descriptor,
+    parse_windows_sid, save_candidates, scan_for_ccache_blobs, KeytabError, DECISION_LADDER,
+    ERROR_DICTIONARY,
 };
 
 fn build_keytab_entry(
@@ -217,4 +218,102 @@ fn test_json_escaping_control_characters() {
     assert_eq!(escape_json("foo\x1bbar"), "foo\\u001bbar");
     assert_eq!(escape_json("tab\there\r\n"), "tab\\there\\r\\n");
     assert_eq!(escape_json("\"quoted\""), "\\\"quoted\\\"");
+}
+
+#[test]
+fn test_generate_krb5_conf_fast_and_crlf_defense() {
+    assert!(generate_krb5_conf("CORP.LOCAL\r\nINJECT", "10.0.0.1", None, None, false, false, None).is_err());
+    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1\nINJECT", None, None, false, false, None).is_err());
+    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1", Some("admin\r\n"), None, false, false, None).is_err());
+    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1", None, None, false, false, Some("/tmp/armor\n")).is_err());
+
+    let conf = generate_krb5_conf(
+        "LAB.LOCAL",
+        "192.168.56.106",
+        None,
+        Some(36000),
+        true,
+        true,
+        Some("/tmp/krb5cc_armor"),
+    ).expect("Valid config synthesis");
+
+    assert!(conf.contains("default_realm = LAB.LOCAL"));
+    assert!(conf.contains("clockskew = 36000"));
+    assert!(conf.contains("fast_req_armoring = true"));
+    assert!(conf.contains("armor_cache = /tmp/krb5cc_armor"));
+    assert!(conf.contains("default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96"));
+}
+
+#[test]
+fn test_parse_windows_sid_bounds() {
+    let mut sid_bytes = vec![0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05];
+    sid_bytes.extend_from_slice(&21u32.to_le_bytes());
+    sid_bytes.extend_from_slice(&1000u32.to_le_bytes());
+    sid_bytes.extend_from_slice(&2000u32.to_le_bytes());
+    sid_bytes.extend_from_slice(&3000u32.to_le_bytes());
+
+    let (sid_str, len) = parse_windows_sid(&sid_bytes, 0, None).expect("Valid SID");
+    assert_eq!(sid_str, "S-1-5-21-1000-2000-3000");
+    assert_eq!(len, 24);
+
+    let bounded = parse_windows_sid(&sid_bytes, 0, Some(24)).expect("Bounded SID within container");
+    assert_eq!(bounded.0, "S-1-5-21-1000-2000-3000");
+
+    let under_bounded = parse_windows_sid(&sid_bytes, 0, Some(20));
+    assert!(under_bounded.is_err());
+
+    let invalid_subauth = vec![0x01, 16, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05];
+    assert!(parse_windows_sid(&invalid_subauth, 0, None).is_err());
+}
+
+#[test]
+fn test_parse_rbcd_security_descriptor_parity() {
+    let mut sid1 = vec![0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05];
+    sid1.extend_from_slice(&21u32.to_le_bytes());
+    sid1.extend_from_slice(&500u32.to_le_bytes());
+
+    let mut sid2 = vec![0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05];
+    sid2.extend_from_slice(&21u32.to_le_bytes());
+    sid2.extend_from_slice(&501u32.to_le_bytes());
+
+    let ace1_len = 8 + sid1.len();
+    let mut ace1 = vec![0x00, 0x00];
+    ace1.extend_from_slice(&(ace1_len as u16).to_le_bytes());
+    ace1.extend_from_slice(&0x10000000u32.to_le_bytes());
+    ace1.extend_from_slice(&sid1);
+
+    let ace2_len = 8 + sid2.len();
+    let mut ace2 = vec![0x01, 0x00];
+    ace2.extend_from_slice(&(ace2_len as u16).to_le_bytes());
+    ace2.extend_from_slice(&0x10000000u32.to_le_bytes());
+    ace2.extend_from_slice(&sid2);
+
+    let acl_len = 8 + ace1.len() + ace2.len();
+    let mut acl = vec![0x02, 0x00];
+    acl.extend_from_slice(&(acl_len as u16).to_le_bytes());
+    acl.extend_from_slice(&2u16.to_le_bytes());
+    acl.extend_from_slice(&0u16.to_le_bytes());
+    acl.extend_from_slice(&ace1);
+    acl.extend_from_slice(&ace2);
+
+    let mut sd = vec![0x01, 0x00];
+    sd.extend_from_slice(&0x0004u16.to_le_bytes());
+    sd.extend_from_slice(&0u32.to_le_bytes());
+    sd.extend_from_slice(&0u32.to_le_bytes());
+    sd.extend_from_slice(&0u32.to_le_bytes());
+    sd.extend_from_slice(&20u32.to_le_bytes());
+    sd.extend_from_slice(&acl);
+
+    let rbcd = parse_rbcd_security_descriptor(&sd).expect("Valid RBCD SD");
+    assert_eq!(rbcd.ace_count, 2);
+    assert_eq!(rbcd.trustee_sids, vec!["S-1-5-21-500".to_string()]);
+    assert_eq!(rbcd.allowed_trustee_sids, vec!["S-1-5-21-500".to_string()]);
+    assert_eq!(rbcd.denied_trustee_sids, vec!["S-1-5-21-501".to_string()]);
+    assert_eq!(rbcd.aces.len(), 2);
+    assert!(rbcd.aces[0].is_allowed);
+    assert!(!rbcd.aces[1].is_allowed);
+
+    let mut invalid_offset_sd = sd.clone();
+    invalid_offset_sd[16..20].copy_from_slice(&10u32.to_le_bytes());
+    assert!(parse_rbcd_security_descriptor(&invalid_offset_sd).is_err());
 }

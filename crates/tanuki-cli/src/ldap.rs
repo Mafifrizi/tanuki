@@ -339,7 +339,37 @@ impl LdapReport {
 
             for (a_name, a_vals) in &e.attributes {
                 if a_name != "sAMAccountName" {
-                    let preview = if a_vals.len() > 3 {
+                    let is_binary_attr = matches!(
+                        a_name.to_ascii_lowercase().as_str(),
+                        "msds-allowedtoactonbehalfofotheridentity"
+                            | "msds-keycredentiallink"
+                            | "objectsid"
+                            | "objectguid"
+                            | "usercertificate"
+                    );
+                    let preview = if is_binary_attr {
+                        let formatted: Vec<String> = a_vals
+                            .iter()
+                            .map(|hex_val| {
+                                let byte_len = hex_val.len() / 2;
+                                let prefix = if hex_val.len() > 16 {
+                                    &hex_val[..16]
+                                } else {
+                                    hex_val.as_str()
+                                };
+                                format!("<binary: {} bytes, hex: {}...>", byte_len, prefix)
+                            })
+                            .collect();
+                        if formatted.len() > 3 {
+                            format!(
+                                "{}, ... (+{} more)",
+                                formatted[..3].join(", "),
+                                formatted.len() - 3
+                            )
+                        } else {
+                            formatted.join(", ")
+                        }
+                    } else if a_vals.len() > 3 {
                         format!("{}, ... (+{} more)", a_vals[..3].join(", "), a_vals.len() - 3)
                     } else {
                         a_vals.join(", ")
@@ -414,6 +444,14 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
                 };
                 sub_off = n_suboff;
                 let attr_name = ber_decode_string(type_val);
+                let is_binary = matches!(
+                    attr_name.to_ascii_lowercase().as_str(),
+                    "msds-allowedtoactonbehalfofotheridentity"
+                        | "msds-keycredentiallink"
+                        | "objectsid"
+                        | "objectguid"
+                        | "usercertificate"
+                );
 
                 let (_, vals_set, _) = match ber_decode_tlv(attr_seq, sub_off) {
                     Ok(res) => res,
@@ -428,7 +466,12 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
                         Err(_) => break,
                     };
                     v_off = n_voff;
-                    vals_list.push(ber_decode_string(v_bytes));
+                    if is_binary {
+                        let hex_str: String = v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                        vals_list.push(hex_str);
+                    } else {
+                        vals_list.push(ber_decode_string(v_bytes));
+                    }
                 }
 
                 attrs_vec.push((attr_name, vals_list));
