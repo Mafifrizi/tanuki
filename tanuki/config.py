@@ -1,7 +1,7 @@
 """Unprivileged Kerberos Configuration Generator for Linux Active Directory."""
 
 import os
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 def generate_krb5_conf(
@@ -17,6 +17,8 @@ def generate_krb5_conf(
     udp_preference_limit: int = 0,
     clockskew: Optional[int] = None,
     enforce_aes: bool = False,
+    fast: bool = False,
+    armor_cache: Optional[str] = None,
 ) -> str:
     """Generate an RFC 4120-compliant Kerberos configuration with uppercase realm."""
     if not realm or not realm.strip():
@@ -68,6 +70,12 @@ def generate_krb5_conf(
         libdefaults_lines.append("    default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96")
         libdefaults_lines.append("    permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96")
 
+    if fast or armor_cache:
+        libdefaults_lines.append("    fast_req_armoring = true")
+
+    if armor_cache:
+        libdefaults_lines.append(f"    armor_cache = {armor_cache}")
+
     libdefaults_block = "\n".join(libdefaults_lines)
     kdc_lines = "\n".join(f"        kdc = {k}" for k in kdc_candidates)
 
@@ -92,7 +100,9 @@ def write_krb5_conf_file(
     admin_server: Optional[str] = None,
     clockskew: Optional[int] = None,
     enforce_aes: bool = False,
-) -> Dict[str, str]:
+    fast: bool = False,
+    armor_cache: Optional[str] = None,
+) -> Dict[str, Any]:
     """Write generated Kerberos configuration to target filepath."""
     content = generate_krb5_conf(
         realm=realm,
@@ -100,6 +110,8 @@ def write_krb5_conf_file(
         admin_server=admin_server,
         clockskew=clockskew,
         enforce_aes=enforce_aes,
+        fast=fast,
+        armor_cache=armor_cache,
     )
     abs_path = os.path.abspath(filepath)
     parent_dir = os.path.dirname(abs_path)
@@ -111,7 +123,7 @@ def write_krb5_conf_file(
 
     kdc_str = kdc if isinstance(kdc, str) else ",".join(kdc)
 
-    return {
+    res: Dict[str, Any] = {
         "status": "SUCCESS",
         "realm": realm.strip().upper(),
         "kdc": kdc_str,
@@ -120,3 +132,8 @@ def write_krb5_conf_file(
         "export_command": f"export KRB5_CONFIG={abs_path}",
         "content": content,
     }
+    if fast:
+        res["fast"] = True
+    if armor_cache:
+        res["armor_cache"] = armor_cache
+    return res

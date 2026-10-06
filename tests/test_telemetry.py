@@ -19,10 +19,10 @@ from tanuki.telemetry import (
 
 
 class TestErrorTelemetryData(unittest.TestCase):
-    """Verify detection telemetry structure and content for all 11 Kerberos errors."""
+    """Verify detection telemetry structure and content for all 12 Kerberos errors."""
 
     def test_all_ten_errors_present_and_enriched(self):
-        self.assertEqual(len(ERROR_DICTIONARY), 11)
+        self.assertEqual(len(ERROR_DICTIONARY), 12)
         for item in ERROR_DICTIONARY:
             self.assertIn("code", item)
             self.assertIn("tactical_cmd", item, f"Missing tactical_cmd in {item['code']}")
@@ -141,6 +141,17 @@ class TestErrorTelemetryData(unittest.TestCase):
         self.assertTrue(any("/etc/krb5.keytab" in r for r in telem["auditd"]))
         self.assertTrue(any("Key Version" in s["title"] for s in telem["sigma"]))
         self.assertTrue(any("Keytab" in f["rule"] for f in telem["falco"]))
+
+    def test_fast_telemetry_coupling(self):
+        item = find_error_resolution("KDC_ERR_PREAUTH_REQUIRED_FOR_FAST")
+        self.assertIsNotNone(item)
+        self.assertEqual(item["event_id"], 93)
+        telem = item["telemetry"]
+        self.assertIn(4771, telem["event_ids"])
+        self.assertIn(4768, telem["event_ids"])
+        self.assertTrue(any("krb5.conf" in r for r in telem["auditd"]))
+        self.assertTrue(any("FAST" in s["title"] for s in telem["sigma"]))
+        self.assertTrue(any("FAST" in f["rule"] for f in telem["falco"]))
 
 
 class TestDecisionLadderTelemetry(unittest.TestCase):

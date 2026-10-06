@@ -131,6 +131,14 @@ pub const ERROR_DICTIONARY: &[ErrorResolution] = &[
         tactical_cmd: "kvno <SPN> && klist -k -t /etc/krb5.keytab || Set-ADUser -Identity <ACCOUNT> -KerberosEncryptionType AES128,AES256",
         telemetry: TELEMETRY_KRB_AP_ERR_BADKEYVER,
     },
+    ErrorResolution {
+        code: "KDC_ERR_PREAUTH_REQUIRED_FOR_FAST",
+        event_id: Some(93),
+        root_cause: "KDC policy enforces Kerberos FAST armoring (RFC 6113). Unarmored AS-REQ requests are rejected with failure code 0x18.",
+        resolution: "Enable Kerberos FAST armoring in request or /etc/krb5.conf:\n[libdefaults]\n    fast_req_armoring = true\nOr supply armor credentials cache: $ kinit -T <ARMOR_CCACHE> <USER>@<REALM>",
+        tactical_cmd: "kinit -T <ARMOR_CCACHE> <USER>@<REALM> || sed -i '/\\[libdefaults\\]/a \\    fast_req_armoring = true' /etc/krb5.conf",
+        telemetry: TELEMETRY_KDC_ERR_PREAUTH_REQUIRED_FOR_FAST,
+    },
 ];
 
 pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
@@ -138,14 +146,23 @@ pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
     if clean.is_empty() {
         return None;
     }
-    ERROR_DICTIONARY.iter().find(|item| {
-        item.code == clean
-            || item
-                .event_id
-                .map(|id| id.to_string() == clean)
-                .unwrap_or(false)
-            || item.code.contains(&clean)
-    })
+    let query_int: Option<u32> = clean.parse().ok();
+
+    if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
+        item.code == clean || item.event_id.map(|id| id.to_string() == clean).unwrap_or(false)
+    }) {
+        return Some(item);
+    }
+
+    if let Some(qid) = query_int {
+        if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
+            item.telemetry.event_ids.contains(&qid)
+        }) {
+            return Some(item);
+        }
+    }
+
+    ERROR_DICTIONARY.iter().find(|item| item.code.contains(&clean))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

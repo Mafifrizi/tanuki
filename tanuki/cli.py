@@ -83,6 +83,8 @@ OPTIONS:
     --admin-server <HOST_OR_IP> Optional admin server for config
     --clock-skew <SECS> Clock skew tolerance in seconds (unprivileged hypervisors)
     --enforce-aes       Strictly enforce AES-128/256 and reject legacy RC4
+    --fast              Enable RFC 6113 FAST armoring (fast_req_armoring = true)
+    --armor-cache <PATH> Armor credentials cache path for FAST armoring
     --stdout            Print generated config directly to stdout
     --keytab <PATH>     Target keytab path for doctor/auth/config/fix
     --krb5-conf <PATH>  Target krb5.conf path for doctor/fix
@@ -415,6 +417,8 @@ def handle_config(
     clockskew_opt: Optional[int] = None,
     enforce_aes_opt: bool = False,
     kdc_list_opt: Optional[List[str]] = None,
+    fast_opt: bool = False,
+    armor_cache_opt: Optional[str] = None,
 ) -> None:
     clean_realm = None
     if realm_opt and realm_opt.strip():
@@ -510,6 +514,8 @@ def handle_config(
         admin_server=target_admin,
         clockskew=clockskew_opt,
         enforce_aes=enforce_aes_opt,
+        fast=fast_opt,
+        armor_cache=armor_cache_opt,
     )
 
     if stdout_mode and not json_output:
@@ -552,6 +558,10 @@ def handle_config(
             res["clockskew"] = clockskew_opt
         if enforce_aes_opt:
             res["enforce_aes"] = True
+        if fast_opt:
+            res["fast"] = True
+        if armor_cache_opt:
+            res["armor_cache"] = armor_cache_opt
         print(json.dumps(res, indent=2))
         return
 
@@ -573,6 +583,10 @@ def handle_config(
         print(f"    {t_branch} Clock Skew     : {clockskew_opt}s (drift tolerance)")
     if enforce_aes_opt:
         print(f"    {t_branch} Encryption     : AES-128/256 enforced (RC4 disabled)")
+    if fast_opt:
+        print(f"    {t_branch} FAST Armoring : RFC 6113 FAST enabled (fast_req_armoring = true)")
+    if armor_cache_opt:
+        print(f"    {t_branch} Armor Cache   : {armor_cache_opt}")
     print(f"    {l_branch} Status         : Active configuration ready")
     print("\n[+] To activate in your current session (unprivileged / no root required):")
     print(f"    $ {export_cmd}")
@@ -1014,7 +1028,7 @@ def handle_ldap(
         use_ssl=use_ssl,
     )
     if json_output:
-        print(json.dumps(rep, indent=2))
+        print(json.dumps(rep, indent=2, default=lambda o: o.hex() if isinstance(o, bytes) else str(o)))
     else:
         print(format_ldap_report_terminal(rep))
     if rep.get("status") in ("BIND_FAILED", "CONNECTION_FAILED"):
@@ -1225,6 +1239,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     ssl_opt: bool = False
     live_opt: bool = False
     endpoint_opt: Optional[str] = None
+    fast_opt: bool = False
+    armor_cache_opt: Optional[str] = None
 
     i = 0
     while i < len(argv):
@@ -1305,6 +1321,12 @@ def main(argv: Optional[List[str]] = None) -> None:
                 i += 1
         elif arg == "--enforce-aes":
             enforce_aes_opt = True
+        elif arg == "--fast":
+            fast_opt = True
+        elif arg == "--armor-cache":
+            if i + 1 < len(argv):
+                armor_cache_opt = argv[i + 1]
+                i += 1
         elif arg == "--use-ctypes":
             force_ctypes_opt = True
         elif arg == "--stdout":
@@ -1502,6 +1524,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             clockskew_opt=clock_skew_opt,
             enforce_aes_opt=enforce_aes_opt,
             kdc_list_opt=kdc_list_opt if kdc_list_opt else None,
+            fast_opt=fast_opt,
+            armor_cache_opt=armor_cache_opt,
         )
     elif command == "skill":
         handle_skill(global_json)

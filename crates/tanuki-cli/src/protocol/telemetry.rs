@@ -385,6 +385,26 @@ pub const TELEMETRY_KRB_AP_ERR_BADKEYVER: TelemetryData = TelemetryData {
     }],
 };
 
+pub const TELEMETRY_KDC_ERR_PREAUTH_REQUIRED_FOR_FAST: TelemetryData = TelemetryData {
+    auditd: &[
+        "-w /etc/krb5.conf -p wa -k krb5_fast_modify",
+        "-w /etc/krb5.conf.d/ -p wa -k krb5_fast_modify",
+    ],
+    event_ids: &[4771, 4768],
+    sigma: &[SigmaRuleRef {
+        title: "Kerberos FAST Armoring Required Failure",
+        status: "stable",
+        logsource: "windows:security",
+        tags: &["attack.credential_access", "attack.t1558"],
+    }],
+    falco: &[FalcoRuleRef {
+        rule: "Kerberos FAST Armoring Configuration Update",
+        priority: "NOTICE",
+        condition: "open_write and fd.name in (/etc/krb5.conf, /etc/krb5.conf.d) and not proc.name in (dpkg, rpm, yum, apt, puppet, ansible)",
+        output: "Kerberos configuration updated for FAST armoring (user=%user.name file=%fd.name command=%proc.cmdline)",
+    }],
+};
+
 pub const TELEMETRY_LADDER_RUNG_1: TelemetryData = TelemetryData {
     auditd: &[
         "-w /etc/krb5.keytab -p r -k keytab_read",

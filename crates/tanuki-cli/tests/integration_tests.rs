@@ -173,7 +173,7 @@ fn test_kcm_boundary_blob_detection() {
 
 #[test]
 fn test_error_dictionary_lookups() {
-    assert_eq!(ERROR_DICTIONARY.len(), 10);
+    assert_eq!(ERROR_DICTIONARY.len(), 12);
 
     let skew = find_error_resolution("KRB_AP_ERR_SKEW").expect("Found");
     assert_eq!(skew.event_id, Some(37));
