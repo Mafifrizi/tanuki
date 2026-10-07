@@ -2,4 +2,7 @@
 members = [
     "crates/tanuki-cli",
 ]
+default-members = [
+    "crates/tanuki-cli",
+]
 resolver = "2"
