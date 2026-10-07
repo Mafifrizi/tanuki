@@ -453,11 +453,16 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                 let mins = (remaining % 3600) / 60;
                 let secs = remaining % 60;
                 let human = format!("{}h {}m {}s", hours, mins, secs);
+                let enctypes_suffix = if !ticket.enctypes.is_empty() {
+                    format!(" [{}]", ticket.enctypes.join(", "))
+                } else {
+                    String::new()
+                };
                 (
                     "PASS",
                     false,
                     human.clone(),
-                    format!("{} remaining for {} (expires {})", human, default_principal, expiry_time),
+                    format!("{} remaining{} for {} (expires {})", human, enctypes_suffix, default_principal, expiry_time),
                     None,
                 )
             };

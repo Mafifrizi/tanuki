@@ -388,33 +388,32 @@ def acquire_tgt(
             "target": keytab_path,
         }
 
-    # Extract principal from keytab if omitted
-    target_princ = principal
-    if not target_princ or not target_princ.strip():
-        try:
-            entries = parse_keytab_file(keytab_path)
-            for e in entries:
-                p = (e.get("principal") or "").strip()
-                if p:
-                    target_princ = p
-                    break
-        except Exception as exc:
-            return {
-                "status": "ERROR",
-                "reason_code": "CORRUPT_KEYTAB",
-                "category": "PARSE_FAILURE",
-                "message": f"Error parsing keytab to determine principal: {exc}",
-                "target": keytab_path,
-            }
-
-    if not target_princ:
+    # Extract principals from keytab for resolution and helpful guidance
+    found_principals: List[str] = []
+    try:
+        entries = parse_keytab_file(keytab_path)
+        found_principals = list(dict.fromkeys(e.get("principal") for e in entries if e.get("principal")))
+    except Exception as exc:
         return {
             "status": "ERROR",
-            "reason_code": "MISSING_PRINCIPAL",
-            "category": "USAGE_ERROR",
-            "message": "No valid principal specified or found within keytab file.",
+            "reason_code": "CORRUPT_KEYTAB",
+            "category": "PARSE_FAILURE",
+            "message": f"Error parsing keytab to determine principal: {exc}",
             "target": keytab_path,
         }
+
+    target_princ = principal
+    if not target_princ or not target_princ.strip():
+        if found_principals:
+            target_princ = found_principals[0]
+        else:
+            return {
+                "status": "ERROR",
+                "reason_code": "MISSING_PRINCIPAL",
+                "category": "USAGE_ERROR",
+                "message": "No valid principal specified or found within keytab file.",
+                "target": keytab_path,
+            }
 
     target_princ = target_princ.strip()
 
@@ -527,8 +526,9 @@ def acquire_tgt(
 
     # If kinit was attempted and failed, and ctypes failed because libkrb5 was not found,
     # report kinit's error rather than masking it with LIBRARY_NOT_FOUND
+    res = ctypes_res
     if kinit_bin and not force_ctypes and ctypes_res.get("reason_code") in ("MISSING_GSSAPI_LIBRARY", "LIBRARY_NOT_FOUND", "LIBRARY_LOAD_FAILED"):
-        return {
+        res = {
             "status": "ERROR",
             "reason_code": "AUTH_FAILED",
             "category": "PROTOCOL_ERROR",
@@ -537,7 +537,13 @@ def acquire_tgt(
             "keytab": abs_keytab,
         }
 
-    return ctypes_res
+    if res.get("status") == "ERROR" and found_principals and target_princ not in found_principals:
+        cur_msg = res.get("message", "")
+        hint_text = f" (Principal '{target_princ}' was not found in keytab. Available in keytab: {', '.join(found_principals)}. If mapped via ktpass, use the SPN as --principal)"
+        res["message"] = cur_msg + hint_text
+        res["available_principals"] = found_principals
+
+    return res
 
 
 def inject_ticket_to_keyring(

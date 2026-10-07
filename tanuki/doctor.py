@@ -924,8 +924,9 @@ def check_ticket_lifetime(
             mins = (remaining % 3600) // 60
             secs = remaining % 60
             result["remaining_human"] = f"{hours}h {mins}m {secs}s"
+            enctype_suffix = f" [{', '.join(result['encryption_types'])}]" if result.get("encryption_types") else ""
             result["details"] = (
-                f"{result['remaining_human']} remaining for {result['default_principal']} (expires {result['expiry_time']})"
+                f"{result['remaining_human']} remaining{enctype_suffix} for {result['default_principal']} (expires {result['expiry_time']})"
             )
 
         if result["has_weak_enctypes"]:
