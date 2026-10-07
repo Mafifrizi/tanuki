@@ -261,40 +261,94 @@ pub fn ladder_to_json() -> String {
     format!("[\n{}\n]", body)
 }
 
-pub fn parse_krb_error_stime(data: &[u8]) -> Option<u64> {
-    if data.len() < 17 {
+fn parse_ymd_hms(time_str: &str) -> Option<u64> {
+    if time_str.len() < 14 {
         return None;
     }
-    for i in 0..(data.len() - 16) {
+    let y = time_str[0..4].parse::<u64>().ok()?;
+    let m = time_str[4..6].parse::<u64>().ok()?;
+    let d = time_str[6..8].parse::<u64>().ok()?;
+    let h = time_str[8..10].parse::<u64>().ok()?;
+    let mn = time_str[10..12].parse::<u64>().ok()?;
+    let s = time_str[12..14].parse::<u64>().ok()?;
+    if !(1970..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) || h >= 24 || mn >= 60 || s >= 60 {
+        return None;
+    }
+    let mut days = 0u64;
+    for year in 1970..y {
+        let leap = if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) { 1 } else { 0 };
+        days += 365 + leap;
+    }
+    let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+    let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    for month_idx in 1..m {
+        days += month_days[(month_idx - 1) as usize];
+    }
+    days += d.saturating_sub(1);
+    Some(days * 86400 + h * 3600 + mn * 60 + s)
+}
+
+pub fn parse_krb_error_stime(data: &[u8]) -> Option<u64> {
+    if data.len() < 14 {
+        return None;
+    }
+
+    // 1. Tag 0x18 GeneralizedTime
+    for i in 0..(data.len().saturating_sub(16)) {
         if data[i] == 0x18 {
             let glen = data[i + 1] as usize;
-            if (glen == 15 || glen == 17) && i + 2 + glen <= data.len() {
-                if let Ok(time_str) = std::str::from_utf8(&data[i + 2..i + 2 + 15]) {
-                    if time_str.len() == 15 && time_str.ends_with('Z') {
-                        let y = time_str[0..4].parse::<u64>().ok()?;
-                        let m = time_str[4..6].parse::<u64>().ok()?;
-                        let d = time_str[6..8].parse::<u64>().ok()?;
-                        let h = time_str[8..10].parse::<u64>().ok()?;
-                        let mn = time_str[10..12].parse::<u64>().ok()?;
-                        let s = time_str[12..14].parse::<u64>().ok()?;
-                        let mut days = 0u64;
-                        for year in 1970..y {
-                            let leap = if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) { 1 } else { 0 };
-                            days += 365 + leap;
-                        }
-                        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
-                        let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-                        for month_idx in 1..m {
-                            days += month_days[(month_idx - 1) as usize];
-                        }
-                        days += d.saturating_sub(1);
-                        let epoch_secs = days * 86400 + h * 3600 + mn * 60 + s;
-                        return Some(epoch_secs);
+            if glen >= 15 && i + 2 + glen <= data.len() {
+                if let Ok(time_str) = std::str::from_utf8(&data[i + 2..i + 2 + 14]) {
+                    if let Some(epoch) = parse_ymd_hms(time_str) {
+                        return Some(epoch);
                     }
                 }
             }
         }
     }
+
+    // 2. Text fallback: YYYYMMDDhhmmssZ
+    for i in 0..(data.len().saturating_sub(14)) {
+        if data[i..i + 14].iter().all(|b| b.is_ascii_digit()) {
+            if let Ok(time_str) = std::str::from_utf8(&data[i..i + 14]) {
+                if let Some(epoch) = parse_ymd_hms(time_str) {
+                    return Some(epoch);
+                }
+            }
+        }
+    }
+
+    // 3. Text fallback: YYYY-MM-DD[T ]hh:mm:ss
+    for i in 0..(data.len().saturating_sub(18)) {
+        if data[i..i + 4].iter().all(|b| b.is_ascii_digit())
+            && data[i + 4] == b'-'
+            && data[i + 5..i + 7].iter().all(|b| b.is_ascii_digit())
+            && data[i + 7] == b'-'
+            && data[i + 8..i + 10].iter().all(|b| b.is_ascii_digit())
+            && (data[i + 10] == b'T' || data[i + 10] == b' ')
+            && data[i + 11..i + 13].iter().all(|b| b.is_ascii_digit())
+            && data[i + 13] == b':'
+            && data[i + 14..i + 16].iter().all(|b| b.is_ascii_digit())
+            && data[i + 16] == b':'
+            && data[i + 17..i + 19].iter().all(|b| b.is_ascii_digit())
+        {
+            if let Ok(s) = std::str::from_utf8(&data[i..i + 19]) {
+                let compact = format!(
+                    "{}{}{}{}{}{}",
+                    &s[0..4],
+                    &s[5..7],
+                    &s[8..10],
+                    &s[11..13],
+                    &s[14..16],
+                    &s[17..19]
+                );
+                if let Some(epoch) = parse_ymd_hms(&compact) {
+                    return Some(epoch);
+                }
+            }
+        }
+    }
+
     None
 }
 

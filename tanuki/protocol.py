@@ -1,4 +1,5 @@
 import calendar
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Union
@@ -213,14 +214,21 @@ def find_error_resolution(query: Union[str, int]) -> Optional[Dict[str, Any]]:
 def parse_krb_error_stime(payload: Union[bytes, bytearray, str]) -> Optional[int]:
     """Parse stime (KDC KerberosTime) from RFC 4120 KRB-ERROR ASN.1 payload or error text."""
     if isinstance(payload, str):
-        clean_hex = payload.strip().replace(" ", "").replace("\n", "").replace("0x", "")
-        if len(clean_hex) >= 30 and all(c in "0123456789abcdefABCDEF" for c in clean_hex):
+        if os.path.isfile(payload):
             try:
-                data = bytes.fromhex(clean_hex)
-            except ValueError:
+                with open(payload, "rb") as f:
+                    data = f.read()
+            except OSError:
                 data = payload.encode("utf-8")
         else:
-            data = payload.encode("utf-8")
+            clean_hex = payload.strip().replace(" ", "").replace("\n", "").replace("0x", "")
+            if len(clean_hex) >= 30 and all(c in "0123456789abcdefABCDEF" for c in clean_hex):
+                try:
+                    data = bytes.fromhex(clean_hex)
+                except ValueError:
+                    data = payload.encode("utf-8")
+            else:
+                data = payload.encode("utf-8")
     else:
         data = bytes(payload)
 
@@ -228,9 +236,9 @@ def parse_krb_error_stime(payload: Union[bytes, bytearray, str]) -> Optional[int
     for i in range(len(data) - 16):
         if data[i] == 0x18:
             glen = data[i + 1]
-            if glen in (15, 17) and i + 2 + glen <= len(data):
+            if glen >= 15 and i + 2 + glen <= len(data):
                 time_str = data[i + 2 : i + 2 + 15].decode("ascii", errors="ignore")
-                if len(time_str) == 15 and time_str.endswith("Z") and time_str[:14].isdigit():
+                if len(time_str) >= 15 and time_str[:14].isdigit():
                     try:
                         y = int(time_str[0:4])
                         m = int(time_str[4:6])
@@ -243,10 +251,19 @@ def parse_krb_error_stime(payload: Union[bytes, bytearray, str]) -> Optional[int
                         pass
 
     # Regex fallback for YYYYMMDDhhmmssZ
-    match = re.search(rb"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z", data)
+    match = re.search(rb"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z?", data)
     if match:
         try:
             y, m, d, h, mn, s = [int(g) for g in match.groups()]
+            return calendar.timegm((y, m, d, h, mn, s, 0, 0, 0))
+        except Exception:
+            pass
+
+    # Regex fallback for ISO-8601 (YYYY-MM-DD[ T]hh:mm:ss)
+    iso_match = re.search(rb"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})", data)
+    if iso_match:
+        try:
+            y, m, d, h, mn, s = [int(g) for g in iso_match.groups()]
             return calendar.timegm((y, m, d, h, mn, s, 0, 0, 0))
         except Exception:
             pass

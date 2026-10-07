@@ -365,6 +365,7 @@ def handle_doctor(
     sssd_pid: Optional[str] = None,
     ccache_path: Optional[str] = None,
     opsec: bool = False,
+    secrets_path: Optional[str] = None,
 ) -> None:
     kwargs = {}
     if keytab_path:
@@ -379,6 +380,8 @@ def handle_doctor(
         kwargs["ccache_path"] = ccache_path
     if opsec:
         kwargs["include_opsec"] = True
+    if secrets_path:
+        kwargs["secrets_path"] = secrets_path
 
     report = diagnose_system(**kwargs)
     if json_output:
@@ -605,6 +608,7 @@ def handle_auth(
     json_output: bool,
     force_ctypes: bool = False,
     krb5_conf: Optional[str] = None,
+    kdc: Optional[str] = None,
 ) -> None:
     if not keytab_path:
         emit_cli_error(
@@ -621,6 +625,7 @@ def handle_auth(
         ccache_path=ccache_path,
         force_ctypes=force_ctypes,
         krb5_conf=krb5_conf,
+        kdc=kdc,
     )
 
     if res.get("status") == "SUCCESS":
@@ -644,13 +649,15 @@ def handle_auth(
         print("\n[+] Active Credential Cache Export:")
         print(f"    $ {res['export_command']}")
     else:
-        exit_code = EXIT_RESOURCE_MISSING
+        exit_code = res.get("exit_code", EXIT_RESOURCE_MISSING)
         if res.get("reason_code") == "AUTH_FAILED":
             exit_code = EXIT_POLICY_STOP
         elif res.get("reason_code") == "CORRUPT_KEYTAB":
             exit_code = EXIT_PARSE_FAILURE
         elif res.get("reason_code") == "MISSING_PRINCIPAL":
             exit_code = EXIT_USAGE_ERROR
+        elif res.get("reason_code") == "KDC_UNREACHABLE":
+            exit_code = EXIT_RESOURCE_MISSING
 
         emit_cli_error(
             message=res.get("message", "Authentication failed"),
@@ -1249,6 +1256,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     fast_opt: bool = False
     armor_cache_opt: Optional[str] = None
     krb_error_opt: Optional[str] = None
+    secrets_path_opt: Optional[str] = None
 
     i = 0
     while i < len(argv):
@@ -1420,6 +1428,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 krb_error_opt = argv[i + 1]
                 i += 1
+        elif arg == "--secrets-path":
+            if i + 1 < len(argv):
+                secrets_path_opt = argv[i + 1]
+                i += 1
         elif explicit_command is None and arg in (
             "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
             "pac", "fix", "purge", "adcs", "ldap",
@@ -1460,6 +1472,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             json_output=global_json,
             force_ctypes=force_ctypes_opt,
             krb5_conf=krb5_conf_opt,
+            kdc=kdc_opt,
         )
     elif command == "kcm":
         target = file_opt or (positional_args[0] if positional_args else None)
@@ -1480,6 +1493,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             sssd_pid=sssd_pid_opt,
             ccache_path=ccache_opt,
             opsec=opsec_opt,
+            secrets_path=secrets_path_opt,
         )
     elif command == "pac":
         target = file_opt or (positional_args[0] if positional_args else None)

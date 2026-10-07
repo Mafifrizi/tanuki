@@ -672,6 +672,18 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
         self.assertIn("Execution Time:", text)
         self.assertIn("Network Packets Emitted: 0", text)
 
+    def test_cli_doctor_custom_secrets_path(self):
+        import subprocess
+        import sys
+        proc = subprocess.run(
+            [sys.executable, "-m", "tanuki", "doctor", "--secrets-path", "/nonexistent/custom/secrets.ldb", "--json"],
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(proc.stdout)
+        sssd_check = next(c for c in data["checks"] if c["name"] == "sssd_subsystem")
+        self.assertEqual(sssd_check["secrets_status"], "ENOENT")
+
 
 if __name__ == "__main__":
     unittest.main()

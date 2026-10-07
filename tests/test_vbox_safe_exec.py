@@ -176,6 +176,83 @@ class TestVBoxSafeExec(unittest.TestCase):
         self.assertEqual(res["status"], "ERROR")
         self.assertEqual(res["returncode"], 1)
 
+    def test_safe_ipc_exec_canonical_result_json(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            task_id = "test_task_canonical"
+
+            def guest_worker():
+                task_path = os.path.join(tmp_dir, f"{task_id}.json")
+                for _ in range(50):
+                    if os.path.exists(task_path):
+                        # Guest writes canonical result.json
+                        result_path = os.path.join(tmp_dir, "result.json")
+                        with open(result_path, "w", encoding="utf-8") as f:
+                            json.dump({
+                                "returncode": 0,
+                                "stdout": "canonical result captured",
+                                "stderr": "",
+                                "task_id": task_id,
+                            }, f)
+                        break
+                    time.sleep(0.02)
+
+            t = threading.Thread(target=guest_worker)
+            t.daemon = True
+            t.start()
+
+            res = safe_ipc_exec(
+                shared_folder_dir=tmp_dir,
+                command="hostname",
+                timeout=5.0,
+                poll_interval=0.02,
+                task_id=task_id,
+            )
+
+            t.join()
+            self.assertEqual(res["status"], "SUCCESS")
+            self.assertEqual(res["stdout"], "canonical result captured")
+            self.assertFalse(os.path.exists(os.path.join(tmp_dir, "result.json")))
+
+    def test_safe_ipc_exec_concurrent_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            def run_worker(tid):
+                task_path = os.path.join(tmp_dir, f"{tid}.json")
+                for _ in range(50):
+                    if os.path.exists(task_path):
+                        result_path = os.path.join(tmp_dir, f"result_{tid}.json")
+                        with open(result_path, "w", encoding="utf-8") as f:
+                            json.dump({"returncode": 0, "stdout": f"done_{tid}"}, f)
+                        break
+                    time.sleep(0.02)
+
+            threads = []
+            results = {}
+
+            def run_client(tid):
+                results[tid] = safe_ipc_exec(
+                    shared_folder_dir=tmp_dir,
+                    command=f"cmd_{tid}",
+                    timeout=5.0,
+                    poll_interval=0.02,
+                    task_id=tid,
+                )
+
+            tids = [f"task_worker_{i}" for i in range(3)]
+            for tid in tids:
+                wt = threading.Thread(target=run_worker, args=(tid,))
+                wt.daemon = True
+                wt.start()
+                ct = threading.Thread(target=run_client, args=(tid,))
+                ct.start()
+                threads.extend([wt, ct])
+
+            for th in threads:
+                th.join()
+
+            for tid in tids:
+                self.assertEqual(results[tid]["status"], "SUCCESS")
+                self.assertEqual(results[tid]["stdout"], f"done_{tid}")
+
 
 if __name__ == "__main__":
     unittest.main()

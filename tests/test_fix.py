@@ -160,6 +160,37 @@ class TestSelfHealingFix(unittest.TestCase):
                     # Should be approx 500 + 60 = 560 (tolerance 540-580)
                     self.assertTrue(540 <= val <= 580, f"Expected clockskew ~560, got {val}")
 
+    def test_parse_krb_error_stime_fractional_and_iso(self):
+        from tanuki.protocol import parse_krb_error_stime
+        # 1. Fractional GeneralizedTime (.000Z)
+        sample_frac = b"\x30\x15\x18\x1320261007120000.000Z"
+        t_frac = parse_krb_error_stime(sample_frac)
+        self.assertIsNotNone(t_frac)
+
+        # 2. ISO text format
+        sample_iso = "Clock skew too great at 2026-10-07 12:00:00 UTC"
+        t_iso = parse_krb_error_stime(sample_iso)
+        self.assertIsNotNone(t_iso)
+        self.assertEqual(t_frac, t_iso)
+
+    def test_run_fix_with_krb_error_file_path(self):
+        err_file = os.path.join(self.tmp_dir.name, "krb_error.bin")
+        with open(err_file, "wb") as f:
+            f.write(b"\x30\x11\x18\x0f20261007120000Z")
+
+        rep = run_fix(
+            keytab_path=self.kt_path,
+            realm="CORP.LOCAL",
+            kdc="192.168.56.106",
+            krb5_conf=self.conf_path,
+            dry_run=False,
+            krb_error=err_file,
+        )
+        self.assertEqual(rep.status, "SUCCESS")
+        with open(self.conf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            self.assertIn("clockskew =", content)
+
 
 if __name__ == "__main__":
     unittest.main()
