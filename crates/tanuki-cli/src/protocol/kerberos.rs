@@ -261,6 +261,55 @@ pub fn ladder_to_json() -> String {
     format!("[\n{}\n]", body)
 }
 
+pub fn parse_krb_error_stime(data: &[u8]) -> Option<u64> {
+    if data.len() < 17 {
+        return None;
+    }
+    for i in 0..(data.len() - 16) {
+        if data[i] == 0x18 {
+            let glen = data[i + 1] as usize;
+            if (glen == 15 || glen == 17) && i + 2 + glen <= data.len() {
+                if let Ok(time_str) = std::str::from_utf8(&data[i + 2..i + 2 + 15]) {
+                    if time_str.len() == 15 && time_str.ends_with('Z') {
+                        let y = time_str[0..4].parse::<u64>().ok()?;
+                        let m = time_str[4..6].parse::<u64>().ok()?;
+                        let d = time_str[6..8].parse::<u64>().ok()?;
+                        let h = time_str[8..10].parse::<u64>().ok()?;
+                        let mn = time_str[10..12].parse::<u64>().ok()?;
+                        let s = time_str[12..14].parse::<u64>().ok()?;
+                        let mut days = 0u64;
+                        for year in 1970..y {
+                            let leap = if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) { 1 } else { 0 };
+                            days += 365 + leap;
+                        }
+                        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+                        let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                        for month_idx in 1..m {
+                            days += month_days[(month_idx - 1) as usize];
+                        }
+                        days += d.saturating_sub(1);
+                        let epoch_secs = days * 86400 + h * 3600 + mn * 60 + s;
+                        return Some(epoch_secs);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn calculate_clock_drift(kdc_time: u64, local_time: u64) -> u64 {
+    if kdc_time > local_time {
+        kdc_time - local_time
+    } else {
+        local_time - kdc_time
+    }
+}
+
+pub fn calculate_remediated_clockskew(drift: u64, padding: u64) -> u32 {
+    (drift + padding) as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,6 +326,19 @@ mod tests {
     fn test_lookup_by_event_id() {
         let res = find_error_resolution("14").expect("Should find error by event id");
         assert_eq!(res.code, "KDC_ERR_ETYPE_NOSUPP");
+    }
+
+    #[test]
+    fn test_parse_krb_error_stime() {
+        // Tag 0x18, len 15, "20261007120000Z"
+        let mut sample = vec![0x30, 0x11, 0x18, 0x0f];
+        sample.extend_from_slice(b"20261007120000Z");
+        let parsed = parse_krb_error_stime(&sample);
+        assert!(parsed.is_some());
+        let drift = calculate_clock_drift(parsed.unwrap(), parsed.unwrap() + 450);
+        assert_eq!(drift, 450);
+        let skew = calculate_remediated_clockskew(drift, 60);
+        assert_eq!(skew, 510);
     }
 
     #[test]

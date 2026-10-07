@@ -1,5 +1,6 @@
 """Proactive Pre-flight Diagnostic Engine for Linux Active Directory."""
 
+import errno
 import io
 import json
 import os
@@ -134,21 +135,65 @@ def check_keytab(keytab_path: str = "/etc/krb5.keytab") -> Dict[str, Any]:
         "encryption_types": [],
         "has_weak_enctypes": False,
         "issues": [],
+        "error_code": None,
     }
 
-    if not os.path.exists(keytab_path):
+    try:
+        st = os.stat(keytab_path)
+        result["exists"] = True
+    except FileNotFoundError:
         result["status"] = "N_A"
+        result["error_code"] = "ENOENT"
         result["details"] = f"Keytab file not found: {keytab_path}"
         result["recommendation"] = f"Join domain or generate keytab at {keytab_path}"
         result["issues"].append(f"File does not exist: {keytab_path}")
         return result
-
-    result["exists"] = True
+    except PermissionError as exc:
+        result["exists"] = True
+        result["status"] = "FAIL"
+        result["error_code"] = "EACCES"
+        result["details"] = f"Read access denied: {exc}"
+        username = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
+        uid = os.getuid() if hasattr(os, "getuid") else 1000
+        result["recommendation"] = (
+            f"Grant POSIX ACL (setfacl -m u:{username}:r {keytab_path}), group delegation (0640), "
+            f"or use unprivileged NHI token exchange (tanuki token / RFC 8693) into "
+            f"KRB5CCNAME=FILE:/tmp/krb5cc_{uid}_tanuki or KEYRING:persistent:{uid}"
+        )
+        result["issues"].append(str(exc))
+        return result
+    except OSError as exc:
+        if exc.errno == errno.ENOENT:
+            result["status"] = "N_A"
+            result["error_code"] = "ENOENT"
+            result["details"] = f"Keytab file not found: {keytab_path}"
+            result["recommendation"] = f"Join domain or generate keytab at {keytab_path}"
+            result["issues"].append(f"File does not exist: {keytab_path}")
+            return result
+        elif exc.errno == errno.EACCES:
+            result["exists"] = True
+            result["status"] = "FAIL"
+            result["error_code"] = "EACCES"
+            result["details"] = f"Read access denied: {exc}"
+            username = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
+            uid = os.getuid() if hasattr(os, "getuid") else 1000
+            result["recommendation"] = (
+                f"Grant POSIX ACL (setfacl -m u:{username}:r {keytab_path}), group delegation (0640), "
+                f"or use unprivileged NHI token exchange (tanuki token / RFC 8693) into "
+                f"KRB5CCNAME=FILE:/tmp/krb5cc_{uid}_tanuki or KEYRING:persistent:{uid}"
+            )
+            result["issues"].append(str(exc))
+            return result
+        result["status"] = "N_A"
+        result["error_code"] = "ENOENT"
+        result["details"] = f"Keytab file not found: {keytab_path}"
+        result["recommendation"] = f"Join domain or generate keytab at {keytab_path}"
+        result["issues"].append(str(exc))
+        return result
 
     is_windows = os.name == "nt"
     if not is_windows:
         try:
-            st = os.stat(keytab_path)
             mode = st.st_mode
             posix_octal = f"{mode & 0o777:04o}"
             result["permissions"] = posix_octal
@@ -191,7 +236,33 @@ def check_keytab(keytab_path: str = "/etc/krb5.keytab") -> Dict[str, Any]:
         with open(keytab_path, "rb") as f:
             data = f.read(65536)
         result["readable"] = True
+    except PermissionError as exc:
+        result["status"] = "FAIL"
+        result["error_code"] = "EACCES"
+        result["details"] = f"Read access denied: {exc}"
+        username = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
+        uid = os.getuid() if hasattr(os, "getuid") else 1000
+        result["recommendation"] = (
+            f"Grant POSIX ACL (setfacl -m u:{username}:r {keytab_path}), group delegation (0640), "
+            f"or use unprivileged NHI token exchange (tanuki token / RFC 8693) into "
+            f"KRB5CCNAME=FILE:/tmp/krb5cc_{uid}_tanuki or KEYRING:persistent:{uid}"
+        )
+        result["issues"].append(str(exc))
+        return result
     except OSError as exc:
+        if exc.errno == errno.EACCES:
+            result["status"] = "FAIL"
+            result["error_code"] = "EACCES"
+            result["details"] = f"Read access denied: {exc}"
+            username = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
+            uid = os.getuid() if hasattr(os, "getuid") else 1000
+            result["recommendation"] = (
+                f"Grant POSIX ACL (setfacl -m u:{username}:r {keytab_path}), group delegation (0640), "
+                f"or use unprivileged NHI token exchange (tanuki token / RFC 8693) into "
+                f"KRB5CCNAME=FILE:/tmp/krb5cc_{uid}_tanuki or KEYRING:persistent:{uid}"
+            )
+            result["issues"].append(str(exc))
+            return result
         result["status"] = "FAIL"
         result["details"] = f"Read access denied: {exc}"
         result["recommendation"] = f"Ensure read permissions for {keytab_path}"
@@ -406,8 +477,9 @@ def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
 def check_sssd(
     sssd_pipe: str = "/var/lib/sss/pipes/kcm",
     sssd_pid: str = "/var/run/sssd.pid",
+    secrets_path: str = "/var/lib/sss/secrets/secrets.ldb",
 ) -> Dict[str, Any]:
-    """Inspect SSSD daemon process status and KCM domain socket availability."""
+    """Inspect SSSD daemon process status, KCM domain socket, and secrets database permissions."""
     result: Dict[str, Any] = {
         "name": "sssd_subsystem",
         "status": "PASS",
@@ -417,6 +489,9 @@ def check_sssd(
         "pid": None,
         "kcm_socket_path": sssd_pipe,
         "kcm_socket_active": False,
+        "secrets_path": secrets_path,
+        "secrets_status": "N_A",
+        "secrets_error": None,
         "issues": [],
     }
 
@@ -477,6 +552,28 @@ def check_sssd(
     else:
         result["issues"].append(f"KCM socket not found at {sssd_pipe}")
 
+    # Audit SSSD secrets database (/var/lib/sss/secrets/secrets.ldb)
+    try:
+        with open(secrets_path, "rb") as f:
+            f.read(16)
+        result["secrets_status"] = "READABLE"
+    except FileNotFoundError:
+        result["secrets_status"] = "ENOENT"
+        result["secrets_error"] = "ENOENT"
+    except PermissionError as exc:
+        result["secrets_status"] = "EACCES"
+        result["secrets_error"] = "EACCES"
+    except OSError as exc:
+        if exc.errno == errno.ENOENT:
+            result["secrets_status"] = "ENOENT"
+            result["secrets_error"] = "ENOENT"
+        elif exc.errno == errno.EACCES:
+            result["secrets_status"] = "EACCES"
+            result["secrets_error"] = "EACCES"
+        else:
+            result["secrets_status"] = "ERROR"
+            result["secrets_error"] = str(exc)
+
     if result["daemon_running"] and result["kcm_socket_active"]:
         result["status"] = "PASS"
         result["details"] = (
@@ -496,6 +593,20 @@ def check_sssd(
         result["status"] = "WARN"
         result["details"] = "SSSD daemon inactive and KCM socket not present"
         result["recommendation"] = "Start SSSD if host is configured for domain authentication"
+
+    if result["secrets_status"] == "EACCES":
+        username = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
+        uid = os.getuid() if hasattr(os, "getuid") else 1000
+        sec_rec = (
+            f"Grant POSIX ACL (setfacl -m u:{username}:r {secrets_path}), group delegation (0640), "
+            f"or use unprivileged NHI token exchange (tanuki token / RFC 8693) into "
+            f"KRB5CCNAME=FILE:/tmp/krb5cc_{uid}_tanuki or KEYRING:persistent:{uid}"
+        )
+        result["issues"].append(f"SSSD secrets database inaccessible (EACCES): {secrets_path}")
+        if result["recommendation"]:
+            result["recommendation"] += f"; {sec_rec}"
+        else:
+            result["recommendation"] = sec_rec
 
     return result
 
@@ -1094,6 +1205,7 @@ def diagnose_system(
     netlink_path: str = "/proc/net/netlink",
     auditd_pid_path: str = "/run/auditd.pid",
     falco_socket: str = "/var/run/falco/falco.sock",
+    secrets_path: str = "/var/lib/sss/secrets/secrets.ldb",
 ) -> DoctorReport:
     """Run all pre-flight diagnostic probes deterministically in <5ms without network emissions."""
     t0 = time.perf_counter()
@@ -1103,7 +1215,7 @@ def diagnose_system(
     checks = [
         check_keytab(keytab_path),
         check_krb5_conf(resolved_krb5_conf),
-        check_sssd(sssd_pipe, sssd_pid),
+        check_sssd(sssd_pipe, sssd_pid, secrets_path),
         check_ticket_lifetime(ccache_path),
         check_host_tools(tools_search_path),
     ]

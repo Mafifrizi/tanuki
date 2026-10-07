@@ -1,5 +1,6 @@
-"""Kerberos/SSSD Error Resolution Dictionary and 5-Rung Tactical Decision Ladder."""
-
+import calendar
+import re
+import time
 from typing import Any, Dict, List, Optional, Union
 from .telemetry import ERROR_TELEMETRY, LADDER_TELEMETRY
 
@@ -207,4 +208,60 @@ def find_error_resolution(query: Union[str, int]) -> Optional[Dict[str, Any]]:
                 return item
 
     return None
+
+
+def parse_krb_error_stime(payload: Union[bytes, bytearray, str]) -> Optional[int]:
+    """Parse stime (KDC KerberosTime) from RFC 4120 KRB-ERROR ASN.1 payload or error text."""
+    if isinstance(payload, str):
+        clean_hex = payload.strip().replace(" ", "").replace("\n", "").replace("0x", "")
+        if len(clean_hex) >= 30 and all(c in "0123456789abcdefABCDEF" for c in clean_hex):
+            try:
+                data = bytes.fromhex(clean_hex)
+            except ValueError:
+                data = payload.encode("utf-8")
+        else:
+            data = payload.encode("utf-8")
+    else:
+        data = bytes(payload)
+
+    # Search for ASN.1 GeneralizedTime tag 0x18
+    for i in range(len(data) - 16):
+        if data[i] == 0x18:
+            glen = data[i + 1]
+            if glen in (15, 17) and i + 2 + glen <= len(data):
+                time_str = data[i + 2 : i + 2 + 15].decode("ascii", errors="ignore")
+                if len(time_str) == 15 and time_str.endswith("Z") and time_str[:14].isdigit():
+                    try:
+                        y = int(time_str[0:4])
+                        m = int(time_str[4:6])
+                        d = int(time_str[6:8])
+                        h = int(time_str[8:10])
+                        mn = int(time_str[10:12])
+                        s = int(time_str[12:14])
+                        return calendar.timegm((y, m, d, h, mn, s, 0, 0, 0))
+                    except Exception:
+                        pass
+
+    # Regex fallback for YYYYMMDDhhmmssZ
+    match = re.search(rb"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z", data)
+    if match:
+        try:
+            y, m, d, h, mn, s = [int(g) for g in match.groups()]
+            return calendar.timegm((y, m, d, h, mn, s, 0, 0, 0))
+        except Exception:
+            pass
+
+    return None
+
+
+def calculate_clock_drift(kdc_time: int, local_time: Optional[float] = None) -> int:
+    """Calculate mathematical clock drift in seconds: abs(kdc_time - local_time)."""
+    now = local_time if local_time is not None else time.time()
+    return abs(int(kdc_time - now))
+
+
+def calculate_remediated_clockskew(drift: int, padding: int = 60) -> int:
+    """Auto-synthesize clockskew tolerance: drift + 60 seconds padding."""
+    return int(drift + padding)
+
 

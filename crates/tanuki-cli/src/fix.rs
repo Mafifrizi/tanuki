@@ -89,6 +89,7 @@ pub fn run_fix(
     _ccache_path: Option<&str>,
     dry_run: bool,
     clock_skew: u32,
+    krb_error: Option<&str>,
 ) -> FixResult {
     let mut actions = Vec::new();
 
@@ -157,7 +158,37 @@ pub fn run_fix(
     let target_conf = krb5_conf.unwrap_or("./krb5.conf");
     let target_realm = realm.map(|r| r.trim().to_uppercase());
     if let (Some(r), Some(k)) = (target_realm, kdc) {
-        if let Ok(optimal_content) = generate_krb5_conf(&r, k, None, Some(clock_skew), false, false, None) {
+        let mut effective_skew = clock_skew;
+        if let Some(err_val) = krb_error {
+            let raw_bytes = if let Ok(bytes) = fs::read(err_val) {
+                bytes
+            } else {
+                let clean_hex = err_val.trim().replace(' ', "").replace('\n', "");
+                let clean_hex = clean_hex.strip_prefix("0x").unwrap_or(&clean_hex);
+                if clean_hex.len() >= 30 && clean_hex.chars().all(|c| c.is_ascii_hexdigit()) && clean_hex.len() % 2 == 0 {
+                    let mut decoded = Vec::new();
+                    for i in (0..clean_hex.len()).step_by(2) {
+                        if let Ok(b) = u8::from_str_radix(&clean_hex[i..i+2], 16) {
+                            decoded.push(b);
+                        }
+                    }
+                    decoded
+                } else {
+                    err_val.as_bytes().to_vec()
+                }
+            };
+
+            if let Some(stime) = crate::protocol::parse_krb_error_stime(&raw_bytes) {
+                let local_now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let drift = crate::protocol::calculate_clock_drift(stime, local_now);
+                effective_skew = crate::protocol::calculate_remediated_clockskew(drift, 60);
+            }
+        }
+
+        if let Ok(optimal_content) = generate_krb5_conf(&r, k, None, Some(effective_skew), false, false, None) {
             let existing_content = fs::read_to_string(target_conf).ok();
             if existing_content.as_deref() == Some(&optimal_content) {
                 actions.push(FixAction {
@@ -189,7 +220,7 @@ pub fn run_fix(
                             action: "krb5_configuration".to_string(),
                             target: Some(target_conf.to_string()),
                             status: "APPLIED".to_string(),
-                            details: format!("Generated unprivileged krb5.conf (clockskew={}s)", clock_skew),
+                            details: format!("Generated unprivileged krb5.conf (clockskew={}s)", effective_skew),
                             backup: backup_path,
                         });
                     }

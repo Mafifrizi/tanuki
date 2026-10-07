@@ -17,6 +17,11 @@ from typing import Any, Dict, List, Optional
 
 from .auth import acquire_tgt
 from .config import generate_krb5_conf
+from .protocol import (
+    calculate_clock_drift,
+    calculate_remediated_clockskew,
+    parse_krb_error_stime,
+)
 from .doctor import (
     check_keytab,
     check_krb5_conf,
@@ -108,6 +113,7 @@ def run_fix(
     ccache_path: Optional[str] = None,
     dry_run: bool = False,
     clock_skew: int = 300,
+    krb_error: Optional[Any] = None,
 ) -> FixReport:
     """Execute idempotent self-healing remediation pipeline."""
     actions: List[Dict[str, Any]] = []
@@ -207,11 +213,18 @@ def run_fix(
 
     # Action 2: Kerberos Configuration (krb5.conf)
     if clean_realm and target_kdc:
+        effective_skew = clock_skew
+        if krb_error:
+            kdc_time = parse_krb_error_stime(krb_error)
+            if kdc_time is not None:
+                drift = calculate_clock_drift(kdc_time)
+                effective_skew = calculate_remediated_clockskew(drift)
+
         optimal_conf = generate_krb5_conf(
             realm=clean_realm,
             kdc=[target_kdc],
             admin_server=target_kdc,
-            clockskew=clock_skew,
+            clockskew=effective_skew,
             enforce_aes=False,
         )
 
@@ -264,7 +277,7 @@ def run_fix(
                         "target": resolved_config_path,
                         "backup": backup_path,
                         "status": "APPLIED",
-                        "details": f"Generated unprivileged krb5.conf (udp_preference_limit=0, clockskew={clock_skew}s)",
+                        "details": f"Generated unprivileged krb5.conf (udp_preference_limit=0, clockskew={effective_skew}s)",
                     })
                 except OSError as exc:
                     actions.append({

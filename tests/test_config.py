@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -422,6 +423,42 @@ class TestConfigCLIIntegration(unittest.TestCase):
         finally:
             if os.path.exists(kt_path):
                 os.unlink(kt_path)
+
+    def test_dns_srv_packet_building_and_parsing(self):
+        from tanuki.config import build_dns_srv_query, parse_srv_response
+        query = build_dns_srv_query("_kerberos._tcp.corp.local", tx_id=0x1234)
+        self.assertTrue(len(query) > 12)
+        self.assertEqual(query[:2], b"\x12\x34")
+        self.assertIn(b"_kerberos", query)
+        self.assertIn(b"_tcp", query)
+        self.assertIn(b"corp", query)
+
+        # Build synthetic DNS response with SRV record
+        # Header (12 bytes): ID 0x1234, Flags 0x8180 (response, no error), QDCOUNT 1, ANCOUNT 1, NSCOUNT 0, ARCOUNT 0
+        header = struct.pack(">HHHHHH", 0x1234, 0x8180, 1, 1, 0, 0)
+        # Question echo: _kerberos._tcp.corp.local (same length as in query)
+        q_echo = query[12:]
+        # Answer RR:
+        # Name pointer to offset 12 (0xC00C), Type 33 (SRV), Class 1, TTL 300, RDLength 18
+        # SRV RDATA: priority 0, weight 100, port 88, target dc01.corp.local (\x04dc01\xc0\x1a)
+        target_name = b"\x04dc01\x04corp\x05local\x00"
+        srv_rdata = struct.pack(">HHH", 0, 100, 88) + target_name
+        ans_rr = struct.pack(">HHIH", 0xC00C, 33, 1, 300) + struct.pack(">H", len(srv_rdata)) + srv_rdata
+        synthetic_resp = header + q_echo + ans_rr
+
+        records = parse_srv_response(synthetic_resp)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0][0], 0)  # Priority
+        self.assertEqual(records[0][1], 100)  # Weight
+        self.assertEqual(records[0][2], 88)  # Port
+        self.assertEqual(records[0][3], "dc01.corp.local")
+
+    def test_discover_dc_via_srv_mocked(self):
+        from tanuki.config import discover_dc_via_srv
+        from unittest.mock import patch
+        with patch("tanuki.config.query_dns_srv", return_value=[(0, 100, 88, "dc01.corp.local")]):
+            dc = discover_dc_via_srv("CORP.LOCAL")
+            self.assertEqual(dc, ("dc01.corp.local", 88))
 
 
 if __name__ == "__main__":

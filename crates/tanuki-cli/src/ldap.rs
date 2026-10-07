@@ -555,7 +555,8 @@ pub fn query_active_directory_ldap(
         }
     };
 
-    let mut stream = match TcpStream::connect_timeout(&socket_addr, timeout) {
+    let probe_timeout = Duration::from_millis(800);
+    let mut stream = match TcpStream::connect_timeout(&socket_addr, probe_timeout) {
         Ok(s) => s,
         Err(e) => {
             return LdapReport {
@@ -567,7 +568,10 @@ pub fn query_active_directory_ldap(
                 count: 0,
                 entries: Vec::new(),
                 message: None,
-                error: Some(e.to_string()),
+                error: Some(format!(
+                    "Port {} unreachable on host '{}' ({}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: ssh -L 8888:{}:88 user@pivot -N / ssh -L {}:{}:{} user@pivot -N",
+                    port, host, e, host, port, host, port
+                )),
             };
         }
     };

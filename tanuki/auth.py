@@ -54,6 +54,45 @@ def find_krb5_library() -> Optional[str]:
     return None
 
 
+def find_static_binary() -> Optional[str]:
+    """Check if static binary tanuki-cli or tanuki is accessible on PATH or local locations."""
+    for name in ("tanuki-cli", "tanuki"):
+        found = shutil.which(name)
+        if found:
+            return found
+    local_candidates = [
+        "./tanuki-cli",
+        "./tanuki",
+        "/usr/local/bin/tanuki-cli",
+        "/usr/local/bin/tanuki",
+        os.path.expanduser("~/.local/bin/tanuki-cli"),
+        os.path.expanduser("~/.local/bin/tanuki"),
+    ]
+    for cand in local_candidates:
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def get_distro_guidance() -> str:
+    """Inspect /etc/os-release (if present) and return actionable distro-specific guidance."""
+    for path in ("/etc/os-release", "/usr/lib/os-release"):
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read().lower()
+                if "alpine" in content:
+                    return "Alpine: apk add krb5-libs"
+                if any(x in content for x in ("debian", "ubuntu", "kali")):
+                    return "Debian/Ubuntu/Kali: apt install libkrb5-3"
+                if any(x in content for x in ("rhel", "centos", "fedora", "rocky", "alma")):
+                    return "RHEL/CentOS/Fedora: dnf install krb5-libs"
+                break
+            except OSError:
+                pass
+    return "Standalone: Use the self-contained static musl binary."
+
+
 def acquire_tgt_via_ctypes(
     keytab_path: str,
     principal: str,
@@ -66,23 +105,45 @@ def acquire_tgt_via_ctypes(
         os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
 
     target_lib = lib_path or find_krb5_library()
-    if not target_lib:
-        return {
-            "status": "ERROR",
-            "reason_code": "LIBRARY_NOT_FOUND",
-            "category": "RESOURCE_MISSING",
-            "message": "libkrb5 shared library not found on host filesystem.",
-            "recommendation": "Install krb5-user/libkrb53 or make libkrb5.so.3 available in library path.",
-        }
+    krb5 = None
+    if target_lib:
+        try:
+            krb5 = ctypes.CDLL(target_lib)
+        except OSError:
+            krb5 = None
 
-    try:
-        krb5 = ctypes.CDLL(target_lib)
-    except OSError as exc:
+    if krb5 is None:
+        static_bin = find_static_binary()
+        if static_bin:
+            cmd = [static_bin, "auth", "--keytab", os.path.abspath(keytab_path), "--principal", principal]
+            if ccache_path:
+                cmd.extend(["--ccache", os.path.abspath(ccache_path)])
+            env = dict(os.environ)
+            if krb5_conf:
+                env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+            try:
+                proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
+                if proc.returncode == 0:
+                    return {
+                        "status": "SUCCESS",
+                        "method": "static-binary",
+                        "principal": principal,
+                        "keytab": os.path.abspath(keytab_path),
+                        "ccache": os.path.abspath(ccache_path),
+                        "export_command": f"export KRB5CCNAME={os.path.abspath(ccache_path)}",
+                    }
+            except (subprocess.SubprocessError, OSError):
+                pass
+
+        guidance = get_distro_guidance()
         return {
             "status": "ERROR",
-            "reason_code": "LIBRARY_LOAD_FAILED",
-            "category": "RESOURCE_MISSING",
-            "message": f"Failed to load shared library '{target_lib}': {exc}",
+            "reason_code": "MISSING_GSSAPI_LIBRARY",
+            "category": "DEPENDENCY_ERROR",
+            "exit_code": 3,
+            "message": f"libkrb5/libgssapi_krb5 shared library not found on host. {guidance}",
+            "details": guidance,
+            "recommendation": guidance,
         }
 
     # Initialize Kerberos context
@@ -420,20 +481,12 @@ def acquire_tgt(
         return ctypes_res
 
     # 3. Clean fallback when neither kinit nor libkrb5.so is available
-    if not kinit_bin and ctypes_res.get("reason_code") in ("LIBRARY_NOT_FOUND", "LIBRARY_LOAD_FAILED"):
-        return {
-            "status": "ERROR",
-            "reason_code": "NO_AUTHENTICATION_BACKEND",
-            "category": "RESOURCE_MISSING",
-            "message": "'kinit' utility not found on PATH and libkrb5 shared runtime not available.",
-            "recommendation": "Install krb5-user (Debian/Ubuntu/Kali) or ensure libkrb5.so.3 is present on host.",
-            "principal": target_princ,
-            "keytab": abs_keytab,
-        }
+    if not kinit_bin and ctypes_res.get("reason_code") in ("MISSING_GSSAPI_LIBRARY", "LIBRARY_NOT_FOUND", "LIBRARY_LOAD_FAILED"):
+        return ctypes_res
 
     # If kinit was attempted and failed, and ctypes failed because libkrb5 was not found,
     # report kinit's error rather than masking it with LIBRARY_NOT_FOUND
-    if kinit_bin and not force_ctypes and ctypes_res.get("reason_code") in ("LIBRARY_NOT_FOUND", "LIBRARY_LOAD_FAILED"):
+    if kinit_bin and not force_ctypes and ctypes_res.get("reason_code") in ("MISSING_GSSAPI_LIBRARY", "LIBRARY_NOT_FOUND", "LIBRARY_LOAD_FAILED"):
         return {
             "status": "ERROR",
             "reason_code": "AUTH_FAILED",

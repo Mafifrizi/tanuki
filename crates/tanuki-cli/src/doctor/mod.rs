@@ -34,7 +34,7 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
 
     let check1 = keytab::audit_keytab(keytab_path);
     let check2 = krb5_conf::audit_krb5_conf(krb5_conf_path);
-    let check3 = sssd::audit_sssd(sssd_pipe, sssd_pid);
+    let check3 = sssd::audit_sssd(sssd_pipe, sssd_pid, opts.secrets_path.as_deref());
     let check4 = ticket::audit_ticket_lifetime(opts.ccache_path.as_deref());
     let check5 = tools::audit_host_tools();
 

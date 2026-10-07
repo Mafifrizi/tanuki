@@ -4,7 +4,7 @@ use std::path::Path;
 use super::types::CheckResult;
 use crate::util::escape_json;
 
-pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str) -> CheckResult {
+pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -> CheckResult {
     let pid_candidates = [sssd_pid, "/run/sssd.pid", "/var/run/sssd.pid"];
     let mut daemon_running = false;
     let mut found_pid: Option<u32> = None;
@@ -69,6 +69,20 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str) -> CheckResult {
         }
     }
 
+    let target_secrets = secrets_path.unwrap_or("/var/lib/sss/secrets/secrets.ldb");
+    let (secrets_status, secrets_error) = match fs::read(target_secrets) {
+        Ok(_) => ("READABLE".to_string(), None),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                ("EACCES".to_string(), Some("EACCES".to_string()))
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+                ("ENOENT".to_string(), Some("ENOENT".to_string()))
+            } else {
+                ("ERROR".to_string(), Some(e.to_string()))
+            }
+        }
+    };
+
     let (status, details, recommendation) = if daemon_running && kcm_socket_active {
         (
             "PASS",
@@ -103,6 +117,19 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str) -> CheckResult {
         )
     };
 
+    let final_rec = if secrets_status == "EACCES" {
+        let sec_rec = format!(
+            "Grant POSIX ACL (setfacl -m u:<user>:r {}), group delegation (0640), or use unprivileged NHI token exchange (tanuki token / RFC 8693) into KRB5CCNAME=FILE:/tmp/krb5cc_<uid>_tanuki or KEYRING:persistent:<uid>",
+            target_secrets
+        );
+        match recommendation {
+            Some(r) => Some(format!("{}; {}", r, sec_rec)),
+            None => Some(sec_rec),
+        }
+    } else {
+        recommendation
+    };
+
     let pid_json = match found_pid {
         Some(p) => p.to_string(),
         None => "null".to_string(),
@@ -112,13 +139,22 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str) -> CheckResult {
         name: "sssd_subsystem".to_string(),
         status: status.to_string(),
         details,
-        recommendation,
+        recommendation: final_rec,
         remaining_seconds: None,
         extra_fields: vec![
             ("daemon_running".to_string(), daemon_running.to_string()),
             ("pid".to_string(), pid_json),
             ("kcm_socket_path".to_string(), format!("\"{}\"", escape_json(sssd_pipe))),
             ("kcm_socket_active".to_string(), kcm_socket_active.to_string()),
+            ("secrets_path".to_string(), format!("\"{}\"", escape_json(target_secrets))),
+            ("secrets_status".to_string(), format!("\"{}\"", escape_json(&secrets_status))),
+            (
+                "secrets_error".to_string(),
+                match &secrets_error {
+                    Some(err) => format!("\"{}\"", escape_json(err)),
+                    None => "null".to_string(),
+                },
+            ),
         ],
     }
 }
