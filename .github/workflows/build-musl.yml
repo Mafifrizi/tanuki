@@ -36,24 +36,26 @@ jobs:
 
       - name: Install Musl Tools & Cross
         if: ${{ matrix.use_cross }}
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross
+        uses: taiki-e/install-action@cross
 
       - name: Install Native Musl Tools
         if: ${{ !matrix.use_cross }}
         run: |
-          sudo apt-get update && sudo apt-get install -y musl-tools
+          sudo apt-get update && sudo apt-get install -y musl-tools musl-dev
 
       - name: Build Static Binary (Native Musl)
         if: ${{ !matrix.use_cross }}
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: |
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --target ${{ matrix.target }} --package tanuki-cli --bin tanuki --verbose
           strip target/${{ matrix.target }}/release/tanuki
 
       - name: Build Static Binary (Cross Musl)
         if: ${{ matrix.use_cross }}
         run: |
-          cross build --release --target ${{ matrix.target }}
+          cross build --release --target ${{ matrix.target }} --package tanuki-cli --bin tanuki --verbose
 
       - name: Stage Artifacts
         run: |
