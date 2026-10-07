@@ -205,6 +205,20 @@ class TestAuthEngine(unittest.TestCase):
             self.assertEqual(res["reason_code"], "AUTH_FAILED")
             self.assertIn("Clock skew too great", res["message"])
 
+    def test_acquire_tgt_kdc_port_88_unreachable(self):
+        kt_bytes = build_synthetic_keytab(realm="CORP.LOCAL", principal_comps=["user1"])
+        kt_path = os.path.join(self.temp_dir.name, "test.keytab")
+        with open(kt_path, "wb") as f:
+            f.write(kt_bytes)
+
+        with patch("tanuki.ldap.probe_tcp_port", return_value=(False, "Connection refused")):
+            res = acquire_tgt(kt_path, principal="user1@CORP.LOCAL", kdc="192.168.56.106")
+            self.assertEqual(res["status"], "ERROR")
+            self.assertEqual(res["reason_code"], "KDC_UNREACHABLE")
+            self.assertEqual(res["category"], "NETWORK_ERROR")
+            self.assertEqual(res["exit_code"], 3)
+            self.assertIn("ssh -L 8888:192.168.56.106:88 user@pivot -N", res["details"])
+
 
 class TestAuthCLI(unittest.TestCase):
     """CLI and subprocess integration tests for tanuki auth."""

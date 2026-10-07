@@ -376,6 +376,7 @@ def acquire_tgt(
     ccache_path: Optional[str] = None,
     force_ctypes: bool = False,
     krb5_conf: Optional[str] = None,
+    kdc: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire TGT using keytab via host kinit or fallback ctypes C library bridge."""
     if not os.path.exists(keytab_path):
@@ -439,6 +440,46 @@ def acquire_tgt(
     parent_dir = os.path.dirname(abs_ccache)
     if parent_dir and not os.path.exists(parent_dir):
         os.makedirs(parent_dir, exist_ok=True)
+
+    # Fast non-blocking socket probe (<800ms) before initiating Kerberos auth over live wire
+    target_kdc_host = kdc.split(",")[0].strip().split(":")[0].strip() if kdc else None
+    if not target_kdc_host:
+        conf_to_check = krb5_conf or os.environ.get("KRB5_CONFIG") or "/etc/krb5.conf"
+        if os.path.isfile(conf_to_check):
+            try:
+                with open(conf_to_check, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line_s = line.strip()
+                        if line_s.startswith("kdc") and "=" in line_s:
+                            target_kdc_host = line_s.split("=")[1].strip().split()[0].split(",")[0].split(":")[0]
+                            break
+            except OSError:
+                pass
+    if not target_kdc_host and target_princ and "@" in target_princ:
+        realm = target_princ.split("@")[-1].strip()
+        try:
+            from .config import discover_dc_via_srv
+            discovered = discover_dc_via_srv(realm, timeout=0.8)
+            if discovered:
+                target_kdc_host = discovered[0]
+        except Exception:
+            pass
+
+    if target_kdc_host:
+        from .ldap import probe_tcp_port
+        reachable, err_msg = probe_tcp_port(target_kdc_host, 88, timeout=0.8)
+        if not reachable:
+            remediation = f"ssh -L 8888:{target_kdc_host}:88 user@pivot -N"
+            return {
+                "status": "ERROR",
+                "reason_code": "KDC_UNREACHABLE",
+                "category": "NETWORK_ERROR",
+                "exit_code": 3,
+                "message": f"KDC port 88 unreachable on host '{target_kdc_host}' ({err_msg}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {remediation}",
+                "recommendation": f"Configure SSH port-forwarding pivot: {remediation}",
+                "details": remediation,
+                "target": abs_keytab,
+            }
 
     # 1. Try host kinit if available and not explicitly forcing ctypes
     kinit_bin = shutil.which("kinit")

@@ -74,6 +74,7 @@ OPTIONS:
     --krb5-conf <PATH>  Target krb5.conf path for doctor/fix
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
+    --secrets-path <PATH> Target SSSD secrets database path for doctor
     --ccache <PATH>     Target ccache path for doctor/auth/fix
     --opsec             Include live host OPSEC sensor probe in pre-flight doctor
     --dry-run           Simulate remediation without applying changes (for tanuki fix)
@@ -209,7 +210,7 @@ fn run_tui_wizard() {
                     _ => "/etc/krb5.keytab".to_string(),
                 };
                 let princ = read_line_prompt("Principal (optional): ").filter(|s| !s.is_empty());
-                handle_auth(Some(kt), princ, None, false, None);
+                handle_auth(Some(kt), princ, None, false, None, None);
             }
             "5" => {
                 let pac_src = read_line_prompt("Target PAC file path or hex: ").unwrap_or_default();
@@ -325,6 +326,7 @@ fn main() {
     let mut fast_opt = false;
     let mut armor_cache_opt: Option<String> = None;
     let mut krb_error_opt: Option<String> = None;
+    let mut secrets_path_opt: Option<String> = None;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -436,6 +438,12 @@ fn main() {
             "--sssd-pid" => {
                 if i + 1 < raw_args.len() {
                     sssd_pid_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--secrets-path" => {
+                if i + 1 < raw_args.len() {
+                    secrets_path_opt = Some(raw_args[i + 1].clone());
                     i += 1;
                 }
             }
@@ -632,6 +640,7 @@ fn main() {
                 sssd_pid_opt,
                 ccache_opt,
                 opsec_opt,
+                secrets_path_opt,
             );
         }
         "pac" => {
@@ -671,7 +680,7 @@ fn main() {
             let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
             let target_princ = principal_opt.or_else(|| positional_args.get(1).cloned());
             let target_ccache = ccache_opt.or(out_opt);
-            handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt);
+            handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt, kdc_opt);
         }
         "config" => {
             let out_target = out_opt.or(file_opt).or_else(|| positional_args.first().cloned());
@@ -1085,6 +1094,7 @@ fn handle_auth(
     ccache_path_opt: Option<String>,
     json_output: bool,
     krb5_conf_opt: Option<String>,
+    kdc_opt: Option<String>,
 ) {
     let kt_path = match keytab_path_opt {
         Some(p) => p,
@@ -1163,6 +1173,64 @@ fn handle_auth(
         },
     };
 
+    // Fast non-blocking socket probe (<800ms) before initiating Kerberos auth over live wire
+    let mut target_kdc_host = kdc_opt;
+    if target_kdc_host.is_none() {
+        let conf_path = krb5_conf_opt.as_deref().unwrap_or("/etc/krb5.conf");
+        if let Ok(conf_str) = fs::read_to_string(conf_path) {
+            for line in conf_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("kdc") && trimmed.contains('=') {
+                    if let Some(val) = trimmed.split('=').nth(1) {
+                        let host = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("").split(':').next().unwrap_or("");
+                        if !host.is_empty() {
+                            target_kdc_host = Some(host.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if target_kdc_host.is_none() && princ.contains('@') {
+        let realm = princ.split('@').last().unwrap_or("").trim();
+        if let Some(discovered) = tanuki::config::discover_dc_via_srv(realm) {
+            target_kdc_host = Some(discovered);
+        }
+    }
+
+    if let Some(ref raw_host) = target_kdc_host {
+        let clean_host = raw_host.split(',').next().unwrap_or(raw_host).trim().split(':').next().unwrap_or(raw_host).trim();
+        if !clean_host.is_empty() {
+            use std::net::{TcpStream, ToSocketAddrs};
+            use std::time::Duration;
+            let addr_str = format!("{}:88", clean_host);
+            let unreachable_err = match addr_str.to_socket_addrs() {
+                Ok(mut addrs) => match addrs.next() {
+                    Some(addr) => match TcpStream::connect_timeout(&addr, Duration::from_millis(800)) {
+                        Ok(_) => None,
+                        Err(e) => Some(e.to_string()),
+                    },
+                    None => Some(format!("Could not resolve host '{}'", clean_host)),
+                },
+                Err(e) => Some(e.to_string()),
+            };
+
+            if let Some(err_msg) = unreachable_err {
+                let remediation = format!("ssh -L 8888:{}:88 user@pivot -N", clean_host);
+                emit_cli_error(
+                    &format!("KDC port 88 unreachable on host '{}' ({}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {}", clean_host, err_msg, remediation),
+                    "KDC_UNREACHABLE",
+                    "NETWORK_ERROR",
+                    EXIT_RESOURCE_MISSING,
+                    Some(&kt_path),
+                    Some(&remediation),
+                    json_output,
+                );
+            }
+        }
+    }
+
     let ccache = ccache_path_opt
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
         .unwrap_or_else(|| "/tmp/krb5cc_1000".to_string());
@@ -1195,8 +1263,19 @@ fn handle_auth(
                 println!("\n[+] Active Credential Cache Export:\n    $ export KRB5CCNAME={}", ccache);
             }
         }
-        _ => {
-            let guidance = if let Ok(os_rel) = fs::read_to_string("/etc/os-release") {
+        Ok(status) => {
+            emit_cli_error(
+                &format!("kinit authentication failed with exit status {:?}", status.code()),
+                "AUTH_FAILED",
+                "PROTOCOL_ERROR",
+                EXIT_POLICY_STOP,
+                Some(&kt_path),
+                Some("Check keytab encryption types, principal KVNO, or Domain Controller clock skew."),
+                json_output,
+            );
+        }
+        Err(_) => {
+            let guidance = if let Ok(os_rel) = fs::read_to_string("/etc/os-release").or_else(|_| fs::read_to_string("/usr/lib/os-release")) {
                 let low = os_rel.to_lowercase();
                 if low.contains("alpine") {
                     "Alpine: apk add krb5-libs"
@@ -1423,13 +1502,14 @@ fn handle_doctor(
     sssd_pid: Option<String>,
     ccache_path: Option<String>,
     include_opsec: bool,
+    secrets_path: Option<String>,
 ) {
     let opts = DoctorOptions {
         keytab_path: keytab_path.or_else(|| Some("/etc/krb5.keytab".to_string())),
         krb5_conf_path: krb5_conf.or_else(|| Some("/etc/krb5.conf".to_string())),
         sssd_pipe: sssd_pipe.or_else(|| Some("/var/lib/sss/pipes/kcm".to_string())),
         sssd_pid: sssd_pid.or_else(|| Some("/var/run/sssd.pid".to_string())),
-        secrets_path: Some("/var/lib/sss/secrets/secrets.ldb".to_string()),
+        secrets_path: secrets_path.or_else(|| Some("/var/lib/sss/secrets/secrets.ldb".to_string())),
         ccache_path,
         include_opsec,
     };

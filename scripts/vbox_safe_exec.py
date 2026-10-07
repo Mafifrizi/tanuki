@@ -143,7 +143,14 @@ def safe_ipc_exec(
 
     Host drops task_<task_id>.json and waits for result_<task_id>.json.
     """
-    if not os.path.isdir(shared_folder_dir):
+    actual_dir = shared_folder_dir
+    if not os.path.isdir(actual_dir) and actual_dir in (None, "", "./ipc_shared"):
+        for cand in ("/media/sf_LAB", r"D:\kraii"):
+            if os.path.isdir(cand):
+                actual_dir = cand
+                break
+
+    if not os.path.isdir(actual_dir):
         return {
             "status": "ERROR",
             "returncode": 1,
@@ -153,8 +160,10 @@ def safe_ipc_exec(
         }
 
     tid = task_id or f"task_{uuid.uuid4().hex[:12]}"
-    task_file = os.path.join(shared_folder_dir, f"{tid}.json")
-    result_file = os.path.join(shared_folder_dir, f"result_{tid}.json")
+    task_file = os.path.join(actual_dir, f"{tid}.json")
+    result_file = os.path.join(actual_dir, f"result_{tid}.json")
+    canonical_result_file = os.path.join(actual_dir, "result.json")
+    used_canonical = False
 
     payload = {
         "task_id": tid,
@@ -180,10 +189,23 @@ def safe_ipc_exec(
     start_time = time.time()
     try:
         while time.time() - start_time < timeout:
+            target_res_path = None
             if os.path.exists(result_file):
+                target_res_path = result_file
+            elif os.path.exists(canonical_result_file):
+                target_res_path = canonical_result_file
+
+            if target_res_path:
                 try:
-                    with open(result_file, "r", encoding="utf-8") as f:
+                    with open(target_res_path, "r", encoding="utf-8") as f:
                         result_data = json.load(f)
+                    if target_res_path == canonical_result_file:
+                        res_tid = result_data.get("task_id")
+                        if res_tid and res_tid != tid:
+                            time.sleep(poll_interval)
+                            continue
+                        used_canonical = True
+
                     return {
                         "status": "SUCCESS" if result_data.get("returncode", 0) == 0 else "ERROR",
                         "returncode": result_data.get("returncode", 0),
@@ -193,7 +215,6 @@ def safe_ipc_exec(
                         "task_id": tid,
                     }
                 except (json.JSONDecodeError, OSError):
-                    # File might still be flushing, wait one tick
                     time.sleep(poll_interval)
                     continue
             time.sleep(poll_interval)
@@ -207,8 +228,10 @@ def safe_ipc_exec(
             "task_id": tid,
         }
     finally:
-        # Cleanup task and result files if they exist
-        for path in (task_file, result_file, tmp_file):
+        cleanup_targets = [task_file, result_file, tmp_file]
+        if used_canonical:
+            cleanup_targets.append(canonical_result_file)
+        for path in cleanup_targets:
             if os.path.exists(path):
                 try:
                     os.remove(path)
