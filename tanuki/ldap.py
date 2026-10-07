@@ -482,6 +482,15 @@ class LdapClient:
         )
         resp_data = self.send_and_recv(req)
         parsed = parse_ldap_response_stream(resp_data)
+        for m in parsed:
+            if m.get("type") == "search_done":
+                rc = m.get("result_code", 0)
+                if rc != 0:
+                    diag = (m.get("diagnostic_message") or "").replace("\x00", "").strip()
+                    err_msg = f"LDAP search rejected with code {rc}"
+                    if diag:
+                        err_msg += f" ({diag})"
+                    raise RuntimeError(err_msg)
         entries = [m for m in parsed if m.get("type") == "search_entry"]
         return entries
 
@@ -583,11 +592,13 @@ def query_active_directory_ldap(
             "entries": results,
         }
     except Exception as exc:
+        status_name = "SEARCH_FAILED" if getattr(client, "connected", False) else "CONNECTION_FAILED"
         return {
-            "status": "CONNECTION_FAILED",
+            "status": status_name,
             "host": host,
             "port": port,
             "query_type": query_type,
+            "base_dn": base_dn,
             "error": str(exc),
             "entries": [],
             "count": 0,

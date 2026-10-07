@@ -515,6 +515,41 @@ fn is_search_done_received(data: &[u8]) -> bool {
     false
 }
 
+fn get_search_done_status(data: &[u8]) -> Option<(i64, String)> {
+    let mut offset = 0;
+    while offset < data.len() {
+        if offset + 2 > data.len() || data[offset] != TAG_SEQUENCE {
+            offset += 1;
+            continue;
+        }
+        match ber_decode_tlv(data, offset) {
+            Ok((TAG_SEQUENCE, seq_val, next_off)) => {
+                let inner_off = 0;
+                if let Ok((TAG_INTEGER, _, op_off)) = ber_decode_tlv(seq_val, inner_off) {
+                    if op_off < seq_val.len() && seq_val[op_off] == LDAP_RESP_SEARCH_DONE {
+                        if let Ok((_, op_val, _)) = ber_decode_tlv(seq_val, op_off) {
+                            let mut code = 0i64;
+                            let mut diag = String::new();
+                            if let Ok((TAG_ENUMERATED, res_bytes, inner_done_off)) = ber_decode_tlv(op_val, 0) {
+                                code = ber_decode_int(res_bytes).unwrap_or(0);
+                                if let Ok((_, _, next_sub_off)) = ber_decode_tlv(op_val, inner_done_off) {
+                                    if let Ok((_, diag_bytes, _)) = ber_decode_tlv(op_val, next_sub_off) {
+                                        diag = ber_decode_string(diag_bytes).replace('\0', "").trim().to_string();
+                                    }
+                                }
+                            }
+                            return Some((code, diag));
+                        }
+                    }
+                }
+                offset = next_off;
+            }
+            _ => break,
+        }
+    }
+    None
+}
+
 pub fn query_active_directory_ldap(
     host: &str,
     query_type: &str,
@@ -660,6 +695,27 @@ pub fn query_active_directory_ldap(
                 search_buf.extend_from_slice(&temp_chunk[..read_bytes]);
                 if is_search_done_received(&search_buf) {
                     break;
+                }
+            }
+
+            if let Some((err_code, diag_msg)) = get_search_done_status(&search_buf) {
+                if err_code != 0 {
+                    let err_str = if diag_msg.is_empty() {
+                        format!("LDAP search rejected with code {}", err_code)
+                    } else {
+                        format!("LDAP search rejected with code {} ({})", err_code, diag_msg)
+                    };
+                    return LdapReport {
+                        status: "SEARCH_FAILED".to_string(),
+                        host: host.to_string(),
+                        port,
+                        query_type: query_type.to_string(),
+                        base_dn: base_dn.to_string(),
+                        count: 0,
+                        entries: Vec::new(),
+                        message: None,
+                        error: Some(err_str),
+                    };
                 }
             }
 

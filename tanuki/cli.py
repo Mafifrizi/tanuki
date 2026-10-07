@@ -1519,10 +1519,15 @@ def main(argv: Optional[List[str]] = None) -> None:
         handle_adcs(target, global_json, is_file=bool(file_opt))
     elif command == "ldap":
         target_host = host_opt or (positional_args[0] if positional_args else None)
+        effective_base_dn = base_dn_opt
+        if not effective_base_dn and realm_opt:
+            r_parts = [p.strip() for p in realm_opt.strip().split(".") if p.strip()]
+            if r_parts:
+                effective_base_dn = ",".join(f"DC={p}" for p in r_parts)
         handle_ldap(
             host=target_host,
             query_type=query_opt or "spn",
-            base_dn=base_dn_opt or "DC=corp,DC=local",
+            base_dn=effective_base_dn or "DC=corp,DC=local",
             port=port_opt,
             use_ssl=ssl_opt,
             json_output=global_json,

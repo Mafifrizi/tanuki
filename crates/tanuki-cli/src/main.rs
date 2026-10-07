@@ -673,7 +673,18 @@ fn main() {
         "ldap" => {
             let host = host_opt.or_else(|| positional_args.first().cloned());
             let query = query_opt.unwrap_or_else(|| "spn".to_string());
-            let base_dn = base_dn_opt.unwrap_or_else(|| "DC=corp,DC=local".to_string());
+            let base_dn = base_dn_opt.unwrap_or_else(|| {
+                if let Some(r) = realm_opt.as_deref() {
+                    let parts: Vec<&str> = r.trim().split('.').filter(|s| !s.is_empty()).collect();
+                    if !parts.is_empty() {
+                        parts.iter().map(|p| format!("DC={}", p)).collect::<Vec<_>>().join(",")
+                    } else {
+                        "DC=corp,DC=local".to_string()
+                    }
+                } else {
+                    "DC=corp,DC=local".to_string()
+                }
+            });
             let port = port_opt.unwrap_or(389);
             handle_ldap(host, &query, &base_dn, port, global_json);
         }
