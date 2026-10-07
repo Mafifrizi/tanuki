@@ -107,7 +107,7 @@ fn parse_dns_name(data: &[u8], mut offset: usize) -> Option<(String, usize)> {
             if offset + 1 >= data.len() {
                 return None;
             }
-            let ptr = (((len & 0x3F) << 8) | (data[offset + 1] as usize));
+            let ptr = ((len & 0x3F) << 8) | (data[offset + 1] as usize);
             offset += 2;
             if !jumped {
                 next_offset = offset;
