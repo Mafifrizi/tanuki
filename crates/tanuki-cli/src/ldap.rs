@@ -531,7 +531,7 @@ fn get_search_done_status(data: &[u8]) -> Option<(i64, String)> {
                             let mut code = 0i64;
                             let mut diag = String::new();
                             if let Ok((TAG_ENUMERATED, res_bytes, inner_done_off)) = ber_decode_tlv(op_val, 0) {
-                                code = ber_decode_int(res_bytes).unwrap_or(0);
+                                code = ber_decode_int(res_bytes);
                                 if let Ok((_, _, next_sub_off)) = ber_decode_tlv(op_val, inner_done_off) {
                                     if let Ok((_, diag_bytes, _)) = ber_decode_tlv(op_val, next_sub_off) {
                                         diag = ber_decode_string(diag_bytes).replace('\0', "").trim().to_string();
