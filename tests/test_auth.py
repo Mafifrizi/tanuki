@@ -103,21 +103,52 @@ class TestAuthEngine(unittest.TestCase):
             f.write(kt_bytes)
 
         with patch("shutil.which", return_value=None), \
+             patch("tanuki.auth.find_static_binary", return_value=None), \
              patch("tanuki.auth.find_krb5_library", return_value=None):
             res = acquire_tgt(kt_path, principal="user1@CORP.LOCAL")
             self.assertEqual(res["status"], "ERROR")
-            self.assertEqual(res["reason_code"], "NO_AUTHENTICATION_BACKEND")
+            self.assertEqual(res["reason_code"], "MISSING_GSSAPI_LIBRARY")
+            self.assertEqual(res["category"], "DEPENDENCY_ERROR")
             self.assertIn("recommendation", res)
 
     def test_acquire_tgt_via_ctypes_library_not_found(self):
-        res = acquire_tgt_via_ctypes(
-            keytab_path="/etc/krb5.keytab",
-            principal="user@CORP.LOCAL",
-            ccache_path="/tmp/cc",
-            lib_path="/nonexistent/libkrb5.so.999",
-        )
-        self.assertEqual(res["status"], "ERROR")
-        self.assertEqual(res["reason_code"], "LIBRARY_LOAD_FAILED")
+        with patch("tanuki.auth.find_static_binary", return_value=None):
+            res = acquire_tgt_via_ctypes(
+                keytab_path="/etc/krb5.keytab",
+                principal="user@CORP.LOCAL",
+                ccache_path="/tmp/cc",
+                lib_path="/nonexistent/libkrb5.so.999",
+            )
+            self.assertEqual(res["status"], "ERROR")
+            self.assertEqual(res["reason_code"], "MISSING_GSSAPI_LIBRARY")
+            self.assertEqual(res["category"], "DEPENDENCY_ERROR")
+
+    def test_distro_guidance_resolution(self):
+        from tanuki.auth import get_distro_guidance
+        with patch("os.path.isfile", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data="ID=alpine\nPRETTY_NAME=Alpine Linux")):
+            self.assertIn("apk add krb5-libs", get_distro_guidance())
+
+        with patch("os.path.isfile", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data="ID=ubuntu\nID_LIKE=debian")):
+            self.assertIn("apt install libkrb5-3", get_distro_guidance())
+
+        with patch("os.path.isfile", return_value=True), \
+             patch("builtins.open", unittest.mock.mock_open(read_data="ID=fedora\nID_LIKE=rhel")):
+            self.assertIn("dnf install krb5-libs", get_distro_guidance())
+
+    def test_static_binary_fallback_success(self):
+        with patch("tanuki.auth.find_krb5_library", return_value=None), \
+             patch("tanuki.auth.find_static_binary", return_value="/bin/tanuki-cli"), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            res = acquire_tgt_via_ctypes(
+                keytab_path="/etc/krb5.keytab",
+                principal="user@CORP.LOCAL",
+                ccache_path="/tmp/cc",
+            )
+            self.assertEqual(res["status"], "SUCCESS")
+            self.assertEqual(res["method"], "static-binary")
 
     def test_acquire_tgt_via_ctypes_mock_success(self):
         mock_lib = MagicMock()

@@ -124,8 +124,29 @@ class TestDoctorKeytabCheck(unittest.TestCase):
         res = check_keytab(missing)
         self.assertEqual(res["status"], "N_A")
         self.assertFalse(res["exists"])
+        self.assertEqual(res.get("error_code"), "ENOENT")
         self.assertIn("not found", res["details"])
         self.assertIsNotNone(res["recommendation"])
+
+    def test_permission_denied_keytab_triaged_as_eacces(self):
+        valid_kt = os.path.join(self.temp_dir.name, "denied.keytab")
+        with open(valid_kt, "wb") as f:
+            f.write(b"\x05\x02\x00\x00")
+
+        orig_open = open
+        def mock_open(path, *args, **kwargs):
+            if str(path) == valid_kt:
+                raise PermissionError(f"[Errno 13] Permission denied: '{valid_kt}'")
+            return orig_open(path, *args, **kwargs)
+
+        with patch("builtins.open", side_effect=mock_open):
+            res = check_keytab(valid_kt)
+            self.assertEqual(res["status"], "FAIL")
+            self.assertEqual(res.get("error_code"), "EACCES")
+            self.assertIn("Read access denied", res["details"])
+            self.assertIn("setfacl", res["recommendation"])
+            self.assertIn("RFC 8693", res["recommendation"])
+            self.assertIn("KRB5CCNAME", res["recommendation"])
 
     def test_empty_keytab_fails(self):
         empty_kt = os.path.join(self.temp_dir.name, "empty.keytab")
@@ -388,6 +409,36 @@ class TestDoctorSssdCheck(unittest.TestCase):
         res = check_sssd(fake_sock, fake_pid)
         self.assertFalse(res["daemon_running"])
         self.assertTrue(any("stale" in iss.lower() for iss in res["issues"]))
+
+    def test_secrets_ldb_enoent(self):
+        fake_sock = os.path.join(self.temp_dir.name, "kcm.sock")
+        fake_pid = os.path.join(self.temp_dir.name, "sssd.pid")
+        missing_secrets = os.path.join(self.temp_dir.name, "missing_secrets.ldb")
+        res = check_sssd(fake_sock, fake_pid, secrets_path=missing_secrets)
+        self.assertEqual(res["secrets_status"], "ENOENT")
+        self.assertEqual(res["secrets_error"], "ENOENT")
+
+    def test_secrets_ldb_eacces(self):
+        fake_sock = os.path.join(self.temp_dir.name, "kcm.sock")
+        fake_pid = os.path.join(self.temp_dir.name, "sssd.pid")
+        secrets_file = os.path.join(self.temp_dir.name, "secrets.ldb")
+        with open(secrets_file, "wb") as f:
+            f.write(b"TDB file header")
+
+        orig_open = open
+        def mock_open(path, *args, **kwargs):
+            if str(path) == secrets_file:
+                raise PermissionError(f"[Errno 13] Permission denied: '{secrets_file}'")
+            return orig_open(path, *args, **kwargs)
+
+        with patch("builtins.open", side_effect=mock_open):
+            res = check_sssd(fake_sock, fake_pid, secrets_path=secrets_file)
+            self.assertEqual(res["secrets_status"], "EACCES")
+            self.assertEqual(res["secrets_error"], "EACCES")
+            self.assertIn("setfacl", res["recommendation"])
+            self.assertIn("RFC 8693", res["recommendation"])
+            self.assertIn("KRB5CCNAME", res["recommendation"])
+
 
 
 class TestDoctorTicketLifetimeCheck(unittest.TestCase):

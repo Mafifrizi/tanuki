@@ -167,6 +167,18 @@ class TestLdapEngine(unittest.TestCase):
 
         self.assertTrue(is_ldap_message_done(bind_msg))
 
+    def test_probe_tcp_port_unreachable_tactical_remediation(self):
+        from tanuki.ldap import probe_tcp_port
+        ok, err = probe_tcp_port("127.0.0.1", 65534, timeout=0.2)
+        self.assertFalse(ok)
+        self.assertIsNotNone(err)
+
+        rep = query_active_directory_ldap("127.0.0.1", port=65534, timeout=0.2)
+        self.assertEqual(rep["status"], "CONNECTION_FAILED")
+        self.assertIn("Tactical remediation", rep["error"])
+        self.assertIn("ssh -L 8888:127.0.0.1:88", rep["error"])
+        self.assertIn("remediation", rep)
+
 
 if __name__ == "__main__":
     unittest.main()

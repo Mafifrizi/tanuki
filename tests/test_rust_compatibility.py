@@ -164,7 +164,7 @@ class TestRustCompatibility(unittest.TestCase):
                     file_path = os.path.join(root, file)
                     with open(file_path, "r", encoding="utf-8") as f:
                         text = f.read()
-                        self.assertNotIn("—", text, f"Em dash found in {file_path}")
+                        self.assertNotIn("\u2014", text, f"Em dash found in {file_path}")
 
     def test_rust_main_symbols_validity(self):
         main_rs = os.path.join(self.crates_dir, "src", "main.rs")

@@ -7,7 +7,32 @@ use crate::util::escape_json;
 
 pub fn audit_keytab(keytab_path: &str) -> CheckResult {
     let p = Path::new(keytab_path);
-    if !p.exists() {
+    let (p_exists, stat_err_kind) = match fs::metadata(p) {
+        Ok(_) => (true, None),
+        Err(e) => (false, Some(e.kind())),
+    };
+
+    if !p_exists {
+        if stat_err_kind == Some(std::io::ErrorKind::PermissionDenied) {
+            let rec = format!(
+                "Grant POSIX ACL (setfacl -m u:<user>:r {}), group delegation (0640), or use unprivileged NHI token exchange (tanuki token / RFC 8693) into KRB5CCNAME=FILE:/tmp/krb5cc_<uid>_tanuki or KEYRING:persistent:<uid>",
+                keytab_path
+            );
+            return CheckResult {
+                name: "keytab_permissions".to_string(),
+                status: "FAIL".to_string(),
+                details: format!("Read access denied (EACCES): {}", keytab_path),
+                recommendation: Some(rec),
+                remaining_seconds: None,
+                extra_fields: vec![
+                    ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                    ("exists".to_string(), "true".to_string()),
+                    ("readable".to_string(), "false".to_string()),
+                    ("valid_format".to_string(), "false".to_string()),
+                    ("error_code".to_string(), "\"EACCES\"".to_string()),
+                ],
+            };
+        }
         return CheckResult {
             name: "keytab_permissions".to_string(),
             status: "N_A".to_string(),
@@ -19,6 +44,7 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                 ("exists".to_string(), "false".to_string()),
                 ("readable".to_string(), "false".to_string()),
                 ("valid_format".to_string(), "false".to_string()),
+                ("error_code".to_string(), "\"ENOENT\"".to_string()),
             ],
         };
     }
@@ -83,16 +109,32 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
     let data = match fs::read(p) {
         Ok(bytes) => bytes,
         Err(e) => {
+            let error_code = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                "EACCES"
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+                "ENOENT"
+            } else {
+                "IO_ERROR"
+            };
+            let rec = if error_code == "EACCES" {
+                format!(
+                    "Grant POSIX ACL (setfacl -m u:<user>:r {}), group delegation (0640), or use unprivileged NHI token exchange (tanuki token / RFC 8693) into KRB5CCNAME=FILE:/tmp/krb5cc_<uid>_tanuki or KEYRING:persistent:<uid>",
+                    keytab_path
+                )
+            } else {
+                format!("Ensure read permissions for {}", keytab_path)
+            };
             return CheckResult {
                 name: "keytab_permissions".to_string(),
                 status: "FAIL".to_string(),
                 details: format!("Read access denied: {}", e),
-                recommendation: Some(format!("Ensure read permissions for {}", keytab_path)),
+                recommendation: Some(rec),
                 remaining_seconds: None,
                 extra_fields: vec![
                     ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
                     ("exists".to_string(), "true".to_string()),
                     ("readable".to_string(), "false".to_string()),
+                    ("error_code".to_string(), format!("\"{}\"", error_code)),
                 ],
             };
         }

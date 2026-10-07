@@ -116,6 +116,51 @@ class TestSelfHealingFix(unittest.TestCase):
         self.assertIn('"status": "SUCCESS"', json_str)
         self.assertIn('"dry_run": true', json_str)
 
+    def test_clock_drift_and_remediation_math(self):
+        from tanuki.protocol import (
+            calculate_clock_drift,
+            calculate_remediated_clockskew,
+            parse_krb_error_stime,
+        )
+        sample = b"\x30\x11\x18\x0f20261007120000Z"
+        t = parse_krb_error_stime(sample)
+        self.assertIsNotNone(t)
+        # Drift with fixed local_time: t + 350
+        drift = calculate_clock_drift(t, local_time=float(t + 350))
+        self.assertEqual(drift, 350)
+        remediated = calculate_remediated_clockskew(drift, padding=60)
+        self.assertEqual(remediated, 410)
+
+    def test_run_fix_with_krb_error_synthesizes_clockskew(self):
+        from tanuki.protocol import parse_krb_error_stime
+        import time
+
+        # Generate a KRB-ERROR stime 500 seconds in the future
+        future_time = int(time.time()) + 500
+        gm = time.gmtime(future_time)
+        time_str = f"{gm.tm_year:04d}{gm.tm_mon:02d}{gm.tm_mday:02d}{gm.tm_hour:02d}{gm.tm_min:02d}{gm.tm_sec:02d}Z"
+        asn1_bytes = b"\x30\x11\x18\x0f" + time_str.encode("ascii")
+
+        rep = run_fix(
+            keytab_path=self.kt_path,
+            realm="CORP.LOCAL",
+            kdc="192.168.56.106",
+            krb5_conf=self.conf_path,
+            dry_run=False,
+            krb_error=asn1_bytes,
+        )
+        self.assertEqual(rep.status, "SUCCESS")
+        with open(self.conf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            self.assertIn("clockskew =", content)
+            # Find the clockskew value written
+            for line in content.splitlines():
+                if "clockskew" in line:
+                    val = int(line.split("=")[1].strip())
+                    # Should be approx 500 + 60 = 560 (tolerance 540-580)
+                    self.assertTrue(540 <= val <= 580, f"Expected clockskew ~560, got {val}")
+
 
 if __name__ == "__main__":
     unittest.main()
+

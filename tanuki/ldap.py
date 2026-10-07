@@ -486,6 +486,24 @@ class LdapClient:
         return entries
 
 
+def probe_tcp_port(host: str, port: int = 389, timeout: float = 0.8) -> Tuple[bool, Optional[str]]:
+    """Fast non-blocking socket probe (<800ms) before initiating live wire operations."""
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+
 def query_active_directory_ldap(
     host: str,
     query_type: str = "spn",
@@ -495,6 +513,23 @@ def query_active_directory_ldap(
     timeout: float = 3.0,
 ) -> Dict[str, Any]:
     """Execute unprivileged AD diagnostic queries (SPN, RBCD, Shadow Credentials, Unconstrained)."""
+    # Fast non-blocking socket probe (<800ms) before initiating LDAP bind
+    probe_timeout = min(timeout, 0.8)
+    reachable, err_msg = probe_tcp_port(host, port, timeout=probe_timeout)
+    if not reachable:
+        remediation = f"ssh -L 8888:{host}:88 user@pivot -N / ssh -L {port}:{host}:{port} user@pivot -N"
+        return {
+            "status": "CONNECTION_FAILED",
+            "host": host,
+            "port": port,
+            "query_type": query_type,
+            "base_dn": base_dn,
+            "error": f"Port {port} unreachable on host '{host}' ({err_msg}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {remediation}",
+            "remediation": remediation,
+            "entries": [],
+            "count": 0,
+        }
+
     client = LdapClient(host=host, port=port, use_ssl=use_ssl, timeout=timeout)
     results: List[Dict[str, Any]] = []
 

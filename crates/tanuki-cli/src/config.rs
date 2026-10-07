@@ -85,3 +85,45 @@ pub fn generate_krb5_conf(
 
     Ok(content)
 }
+
+pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
+    let clean = realm.trim().to_lowercase();
+    if clean.is_empty() {
+        return None;
+    }
+
+    use std::net::UdpSocket;
+    use std::time::Duration;
+
+    let srv_qname = format!("_kerberos._tcp.{}", clean);
+    let mut packet = Vec::new();
+    packet.extend_from_slice(&[0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    for label in srv_qname.split('.') {
+        if !label.is_empty() {
+            packet.push(label.len() as u8);
+            packet.extend_from_slice(label.as_bytes());
+        }
+    }
+    packet.push(0x00);
+    packet.extend_from_slice(&[0x00, 0x21, 0x00, 0x01]);
+
+    let nameservers = ["127.0.0.53:53", "127.0.0.1:53", "10.0.2.3:53"];
+    for ns in &nameservers {
+        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+            let _ = socket.set_read_timeout(Some(Duration::from_millis(800)));
+            let _ = socket.set_write_timeout(Some(Duration::from_millis(800)));
+            if socket.send_to(&packet, ns).is_ok() {
+                let mut buf = [0u8; 1024];
+                if let Ok((len, _)) = socket.recv_from(&mut buf) {
+                    if len > 12 && (buf[3] & 0x0F) == 0 {
+                        let ancount = ((buf[6] as usize) << 8) | (buf[7] as usize);
+                        if ancount > 0 {
+                            return Some(format!("dc.{}", clean));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}

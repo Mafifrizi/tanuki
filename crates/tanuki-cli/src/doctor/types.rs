@@ -6,6 +6,7 @@ pub struct DoctorOptions {
     pub krb5_conf_path: Option<String>,
     pub sssd_pipe: Option<String>,
     pub sssd_pid: Option<String>,
+    pub secrets_path: Option<String>,
     pub ccache_path: Option<String>,
     pub include_opsec: bool,
 }
@@ -17,6 +18,7 @@ impl Default for DoctorOptions {
             krb5_conf_path: Some("/etc/krb5.conf".to_string()),
             sssd_pipe: Some("/var/lib/sss/pipes/kcm".to_string()),
             sssd_pid: Some("/var/run/sssd.pid".to_string()),
+            secrets_path: Some("/var/lib/sss/secrets/secrets.ldb".to_string()),
             ccache_path: None,
             include_opsec: false,
         }

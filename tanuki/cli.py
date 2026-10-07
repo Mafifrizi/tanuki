@@ -3,12 +3,12 @@
 import json
 import os
 import sys
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from . import __version__
 from .adcs import format_adcs_report_terminal, scan_adcs
 from .auth import acquire_tgt
-from .config import generate_krb5_conf
+from .config import discover_dc_via_srv, generate_krb5_conf
 from .doctor import diagnose_system, render_card_header, supports_unicode
 from .fix import run_fix
 from .kcm import (
@@ -497,6 +497,11 @@ def handle_config(
             if kc and kc not in kdcs:
                 kdcs.append(kc)
 
+    if not kdcs and clean_realm:
+        discovered = discover_dc_via_srv(clean_realm)
+        if discovered:
+            kdcs.append(discovered[0])
+
     if not kdcs:
         emit_cli_error(
             "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
@@ -653,7 +658,7 @@ def handle_auth(
             category=res.get("category", "AUTHENTICATION_ERROR"),
             exit_code=exit_code,
             target=res.get("target") or res.get("keytab"),
-            details=res.get("recommendation"),
+            details=res.get("details") or res.get("recommendation"),
             json_output=json_output,
         )
 
@@ -896,6 +901,7 @@ def handle_fix(
     dry_run: bool,
     clock_skew: int,
     json_output: bool,
+    krb_error: Optional[Any] = None,
 ) -> None:
     rep = run_fix(
         keytab_path=keytab_path,
@@ -905,6 +911,7 @@ def handle_fix(
         ccache_path=ccache_path,
         dry_run=dry_run,
         clock_skew=clock_skew,
+        krb_error=krb_error,
     )
     if json_output:
         print(rep.to_json())
@@ -1241,6 +1248,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     endpoint_opt: Optional[str] = None
     fast_opt: bool = False
     armor_cache_opt: Optional[str] = None
+    krb_error_opt: Optional[str] = None
 
     i = 0
     while i < len(argv):
@@ -1408,6 +1416,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 ccache_opt = argv[i + 1]
                 i += 1
+        elif arg in ("--krb-error", "--error"):
+            if i + 1 < len(argv):
+                krb_error_opt = argv[i + 1]
+                i += 1
         elif explicit_command is None and arg in (
             "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
             "pac", "fix", "purge", "adcs", "ldap",
@@ -1483,6 +1495,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             dry_run=dry_run_opt,
             clock_skew=clock_skew_opt or 300,
             json_output=global_json,
+            krb_error=krb_error_opt,
         )
     elif command == "purge":
         target = file_opt or (positional_args[0] if positional_args else None)

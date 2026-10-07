@@ -324,6 +324,7 @@ fn main() {
     let mut port_opt: Option<u16> = None;
     let mut fast_opt = false;
     let mut armor_cache_opt: Option<String> = None;
+    let mut krb_error_opt: Option<String> = None;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -550,6 +551,12 @@ fn main() {
                     i += 1;
                 }
             }
+            "--krb-error" | "--error" => {
+                if i + 1 < raw_args.len() {
+                    krb_error_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
             cmd if explicit_command.is_none()
                 && matches!(
                     cmd,
@@ -641,6 +648,7 @@ fn main() {
                 ccache_opt.as_deref(),
                 dry_run_opt,
                 clock_skew_opt.unwrap_or(300),
+                krb_error_opt.as_deref(),
                 global_json,
             );
         }
@@ -941,17 +949,20 @@ fn handle_config(
     };
     let kdc = match kdc_opt {
         Some(k) => k,
-        None => {
-            emit_cli_error(
-                "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
-                "MISSING_ARGUMENT",
-                "USAGE_ERROR",
-                EXIT_USAGE_ERROR,
-                None,
-                None,
-                json_output,
-            );
-        }
+        None => match tanuki::config::discover_dc_via_srv(&realm) {
+            Some(discovered) => discovered,
+            None => {
+                emit_cli_error(
+                    "Error: KDC address or hostname required. Example: tanuki config --realm CORP.LOCAL --kdc 192.168.56.106",
+                    "MISSING_ARGUMENT",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    None,
+                    None,
+                    json_output,
+                );
+            }
+        },
     };
 
     let content = match generate_krb5_conf(
@@ -1185,13 +1196,27 @@ fn handle_auth(
             }
         }
         _ => {
+            let guidance = if let Ok(os_rel) = fs::read_to_string("/etc/os-release") {
+                let low = os_rel.to_lowercase();
+                if low.contains("alpine") {
+                    "Alpine: apk add krb5-libs"
+                } else if low.contains("debian") || low.contains("ubuntu") || low.contains("kali") {
+                    "Debian/Ubuntu/Kali: apt install libkrb5-3"
+                } else if low.contains("rhel") || low.contains("centos") || low.contains("fedora") || low.contains("rocky") || low.contains("alma") {
+                    "RHEL/CentOS/Fedora: dnf install krb5-libs"
+                } else {
+                    "Standalone: Use the self-contained static musl binary."
+                }
+            } else {
+                "Standalone: Use the self-contained static musl binary."
+            };
             emit_cli_error(
-                "'kinit' utility not found on PATH or failed. Use Python engine 'tanuki auth' for zero-dependency ctypes acquisition.",
-                "NO_AUTHENTICATION_BACKEND",
-                "RESOURCE_MISSING",
+                &format!("libkrb5/libgssapi_krb5 shared library not found on host. {}", guidance),
+                "MISSING_GSSAPI_LIBRARY",
+                "DEPENDENCY_ERROR",
                 EXIT_RESOURCE_MISSING,
                 Some(&kt_path),
-                Some("Install krb5-user or run via python -m tanuki auth"),
+                Some(guidance),
                 json_output,
             );
         }
@@ -1404,6 +1429,7 @@ fn handle_doctor(
         krb5_conf_path: krb5_conf.or_else(|| Some("/etc/krb5.conf".to_string())),
         sssd_pipe: sssd_pipe.or_else(|| Some("/var/lib/sss/pipes/kcm".to_string())),
         sssd_pid: sssd_pid.or_else(|| Some("/var/run/sssd.pid".to_string())),
+        secrets_path: Some("/var/lib/sss/secrets/secrets.ldb".to_string()),
         ccache_path,
         include_opsec,
     };
@@ -1695,6 +1721,7 @@ fn handle_fix(
     ccache_path: Option<&str>,
     dry_run: bool,
     clock_skew: u32,
+    krb_error: Option<&str>,
     json_output: bool,
 ) {
     let res = run_fix(
@@ -1705,6 +1732,7 @@ fn handle_fix(
         ccache_path,
         dry_run,
         clock_skew,
+        krb_error,
     );
 
     if json_output {
