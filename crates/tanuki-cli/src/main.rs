@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    candidates_to_json, entries_to_json, errors_to_json, escape_json, find_error_resolution,
+    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution,
     format_pac_report_terminal, generate_krb5_conf, ladder_to_json, pac_report_to_json,
     parse_and_validate_jwt, parse_keytab_bytes, parse_pac_source, query_active_directory_ldap,
     run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source, scan_for_ccache_blobs,
@@ -89,6 +89,7 @@ OPTIONS:
     );
 }
 
+#[allow(dead_code)]
 const EXIT_SUCCESS: i32 = 0;
 const EXIT_USAGE_ERROR: i32 = 1;
 const EXIT_POLICY_STOP: i32 = 2;
@@ -192,10 +193,10 @@ fn run_tui_wizard() {
                 process::exit(0);
             }
             "1" => {
-                handle_doctor(false, None, None, None, None, None, false);
+                handle_doctor(false, None, None, None, None, None, false, None);
             }
             "2" => {
-                handle_fix(None, None, None, None, None, false, 300, false);
+                handle_fix(None, None, None, None, None, false, 300, None, false);
             }
             "3" => {
                 let kt = match read_line_prompt("Keytab path [/etc/krb5.keytab]: ") {

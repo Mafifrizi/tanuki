@@ -1,5 +1,5 @@
 use tanuki::{
-    candidates_to_json, entries_to_json, errors_to_json, escape_json, find_error_resolution,
+    candidates_to_json, entries_to_json, escape_json, find_error_resolution,
     generate_krb5_conf, ladder_to_json, parse_keytab_bytes, parse_rbcd_security_descriptor,
     parse_windows_sid, save_candidates, scan_for_ccache_blobs, KeytabError, DECISION_LADDER,
     ERROR_DICTIONARY,
@@ -174,7 +174,7 @@ fn test_kcm_boundary_blob_detection() {
 
 #[test]
 fn test_error_dictionary_lookups() {
-    assert_eq!(ERROR_DICTIONARY.len(), 12);
+    assert_eq!(ERROR_DICTIONARY.len(), 15);
 
     let skew = find_error_resolution("KRB_AP_ERR_SKEW").expect("Found");
     assert_eq!(skew.event_id, Some(37));
