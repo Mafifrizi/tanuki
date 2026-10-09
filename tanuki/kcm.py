@@ -3,6 +3,7 @@
 import glob
 import json
 import os
+import re
 import struct
 from typing import Any, Dict, List, Optional
 
@@ -177,6 +178,34 @@ def inject_ticket_to_kcm(
     """Inject credential cache into SSSD KCM daemon UNIX domain socket."""
     import socket
 
+    if not isinstance(ccache_name, str) or not re.match(r"^[a-zA-Z0-9_\-\.:]{1,64}$", ccache_name):
+        return {
+            "status": "INVALID_PARAMETER",
+            "message": "Invalid ccache name format.",
+        }
+
+    data: bytes = b""
+    if isinstance(ccache_bytes_or_path, str):
+        if not os.path.isfile(ccache_bytes_or_path):
+            return {
+                "status": "FILE_NOT_FOUND",
+                "target": ccache_bytes_or_path,
+                "message": f"Ccache file not found: {ccache_bytes_or_path}",
+            }
+        if os.path.islink(ccache_bytes_or_path):
+            return {
+                "status": "INVALID_PARAMETER",
+                "target": ccache_bytes_or_path,
+                "message": f"Refusing to read ccache from symbolic link: {ccache_bytes_or_path}",
+            }
+        with open(ccache_bytes_or_path, "rb") as f:
+            data = f.read()
+    elif isinstance(ccache_bytes_or_path, (bytes, bytearray)):
+        data = bytes(ccache_bytes_or_path)
+
+    if not data:
+        return {"status": "EMPTY_PAYLOAD", "message": "Cannot inject empty ticket payload."}
+
     if not hasattr(socket, "AF_UNIX") or os.name != "posix":
         return {
             "status": "UNSUPPORTED_PLATFORM",
@@ -189,22 +218,6 @@ def inject_ticket_to_kcm(
             "socket_path": socket_path,
             "message": f"SSSD KCM socket not found at {socket_path}",
         }
-
-    data: bytes = b""
-    if isinstance(ccache_bytes_or_path, str):
-        if not os.path.isfile(ccache_bytes_or_path):
-            return {
-                "status": "FILE_NOT_FOUND",
-                "target": ccache_bytes_or_path,
-                "message": f"Ccache file not found: {ccache_bytes_or_path}",
-            }
-        with open(ccache_bytes_or_path, "rb") as f:
-            data = f.read()
-    elif isinstance(ccache_bytes_or_path, (bytes, bytearray)):
-        data = bytes(ccache_bytes_or_path)
-
-    if not data:
-        return {"status": "EMPTY_PAYLOAD", "message": "Cannot inject empty ticket payload."}
 
     # KCM Protocol Message Structure:
     # Length: uint32 (big-endian)

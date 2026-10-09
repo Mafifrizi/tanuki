@@ -213,25 +213,31 @@ def evaluate_template_misconfigurations(template: Dict[str, Any]) -> List[Dict[s
     ekus = template.get("pKIExtendedKeyUsage")
     if ekus is None:
         ekus = []
-    elif isinstance(ekus, str):
-        ekus = [ekus]
+    elif isinstance(ekus, (str, int, float, bool)):
+        ekus = [str(ekus)]
+    elif not hasattr(ekus, "__iter__"):
+        ekus = [str(ekus)]
+    else:
+        ekus = [str(e) for e in ekus if e is not None]
 
     requires_manager_approval = bool(enrollment_flags & CT_FLAG_PEND_ALL_REQUESTS)
     enrollee_supplies_subject = bool(name_flags & CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT)
 
     # Check Client Auth EKUs
+    normalized_ekus = {str(e).strip() for e in ekus}
     has_client_auth = any(
-        oid in ekus or any(c in str(e).lower() for c in ("client auth", "smart card", "pkinit"))
+        oid in normalized_ekus or any(c in str(e).lower() for c in ("client auth", "smart card", "pkinit"))
         for oid in (OID_CLIENT_AUTH, OID_SMARTCARD_LOGON, OID_PKINIT_CLIENT_AUTH)
         for e in ekus
     )
     has_any_purpose = (
-        OID_ANY_PURPOSE in ekus
+        OID_ANY_PURPOSE in normalized_ekus
         or any("any purpose" in str(e).lower() for e in ekus)
         or len(ekus) == 0
+        or not any(normalized_ekus)
     )
     has_cert_request_agent = (
-        OID_CERT_REQUEST_AGENT in ekus
+        OID_CERT_REQUEST_AGENT in normalized_ekus
         or any("request agent" in str(e).lower() or "enrollment agent" in str(e).lower() for e in ekus)
     )
 

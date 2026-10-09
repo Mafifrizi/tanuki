@@ -244,7 +244,21 @@ def run_fix(
                 "details": "Configuration already optimal with udp_preference_limit=0 and clockskew tolerance",
             })
         else:
-            if dry_run:
+            if os.path.islink(resolved_config_path):
+                if existing_content is not None and not dry_run:
+                    actions.append({
+                        "action": "backup_preservation",
+                        "target": resolved_config_path,
+                        "status": "WARN",
+                        "details": f"Refusing to backup symbolic link target: {resolved_config_path}",
+                    })
+                actions.append({
+                    "action": "krb5_configuration",
+                    "target": resolved_config_path,
+                    "status": "ERROR",
+                    "details": f"Refusing to write to symbolic link: {resolved_config_path}",
+                })
+            elif dry_run:
                 actions.append({
                     "action": "krb5_configuration",
                     "target": resolved_config_path,
@@ -255,15 +269,23 @@ def run_fix(
                 backup_path = None
                 if existing_content is not None:
                     backup_path = f"{resolved_config_path}.bak"
-                    try:
-                        shutil.copy2(resolved_config_path, backup_path)
-                    except OSError as exc:
+                    if os.path.islink(backup_path):
                         actions.append({
                             "action": "backup_preservation",
                             "target": backup_path,
                             "status": "WARN",
-                            "details": f"Could not create backup: {exc}",
+                            "details": f"Refusing to overwrite symbolic link backup: {backup_path}",
                         })
+                    else:
+                        try:
+                            shutil.copy2(resolved_config_path, backup_path, follow_symlinks=False)
+                        except OSError as exc:
+                            actions.append({
+                                "action": "backup_preservation",
+                                "target": backup_path,
+                                "status": "WARN",
+                                "details": f"Could not create backup: {exc}",
+                            })
 
                 try:
                     p_dir = os.path.dirname(os.path.abspath(resolved_config_path))

@@ -213,6 +213,128 @@ class TestSelfHealingFix(unittest.TestCase):
                 except OSError:
                     pass
 
+    def test_run_fix_refuses_symlink_backup_and_write(self):
+        if not hasattr(os, "symlink"):
+            return
+        real_target = os.path.join(self.tmp_dir.name, "real_krb5.conf")
+        with open(real_target, "w", encoding="utf-8") as f:
+            f.write("# sensitive original\n")
+        sym_conf = os.path.join(self.tmp_dir.name, "sym_krb5.conf")
+        try:
+            try:
+                os.symlink(real_target, sym_conf)
+            except OSError:
+                return
+            rep = run_fix(
+                keytab_path=self.kt_path,
+                realm="CORP.LOCAL",
+                kdc="192.168.56.106",
+                krb5_conf=sym_conf,
+                dry_run=False,
+            )
+            self.assertEqual(rep.status, "ERROR")
+            backup_action = next((a for a in rep.actions if a.get("action") == "backup_preservation"), None)
+            self.assertIsNotNone(backup_action)
+            self.assertEqual(backup_action.get("status"), "WARN")
+            self.assertIn("Refusing to backup symbolic link target", backup_action.get("details", ""))
+            config_action = next((a for a in rep.actions if a.get("action") == "krb5_configuration"), None)
+            self.assertIsNotNone(config_action)
+            self.assertEqual(config_action.get("status"), "ERROR")
+            self.assertIn("Refusing to write to symbolic link", config_action.get("details", ""))
+            with open(real_target, "r", encoding="utf-8") as f:
+                self.assertEqual(f.read(), "# sensitive original\n")
+        finally:
+            if os.path.exists(sym_conf):
+                try:
+                    os.unlink(sym_conf)
+                except OSError:
+                    pass
+            if os.path.exists(real_target):
+                try:
+                    os.remove(real_target)
+                except OSError:
+                    pass
+
+    def test_run_fix_refuses_overwriting_symlink_backup(self):
+        if not hasattr(os, "symlink"):
+            return
+        real_conf = os.path.join(self.tmp_dir.name, "active_krb5.conf")
+        with open(real_conf, "w", encoding="utf-8") as f:
+            f.write("# active config to change\n")
+        sensitive_target = os.path.join(self.tmp_dir.name, "sensitive_system_file.txt")
+        with open(sensitive_target, "w", encoding="utf-8") as f:
+            f.write("DO_NOT_CLOBBER\n")
+        sym_bak = real_conf + ".bak"
+        try:
+            try:
+                os.symlink(sensitive_target, sym_bak)
+            except OSError:
+                return
+            rep = run_fix(
+                keytab_path=self.kt_path,
+                realm="CORP.LOCAL",
+                kdc="192.168.56.106",
+                krb5_conf=real_conf,
+                dry_run=False,
+            )
+            backup_action = next((a for a in rep.actions if a.get("action") == "backup_preservation"), None)
+            self.assertIsNotNone(backup_action)
+            self.assertEqual(backup_action.get("status"), "WARN")
+            self.assertIn("Refusing to overwrite symbolic link backup", backup_action.get("details", ""))
+            with open(sensitive_target, "r", encoding="utf-8") as f:
+                self.assertEqual(f.read(), "DO_NOT_CLOBBER\n")
+        finally:
+            if os.path.exists(sym_bak):
+                try:
+                    os.unlink(sym_bak)
+                except OSError:
+                    pass
+            if os.path.exists(sensitive_target):
+                try:
+                    os.remove(sensitive_target)
+                except OSError:
+                    pass
+            if os.path.exists(real_conf):
+                try:
+                    os.remove(real_conf)
+                except OSError:
+                    pass
+
+    def test_run_fix_dry_run_refuses_symlink_config(self):
+        if not hasattr(os, "symlink"):
+            return
+        real_target = os.path.join(self.tmp_dir.name, "real_dry.conf")
+        with open(real_target, "w", encoding="utf-8") as f:
+            f.write("# dry run target\n")
+        sym_conf = os.path.join(self.tmp_dir.name, "sym_dry.conf")
+        try:
+            try:
+                os.symlink(real_target, sym_conf)
+            except OSError:
+                return
+            rep = run_fix(
+                keytab_path=self.kt_path,
+                realm="CORP.LOCAL",
+                kdc="192.168.56.106",
+                krb5_conf=sym_conf,
+                dry_run=True,
+            )
+            config_action = next((a for a in rep.actions if a.get("action") == "krb5_configuration"), None)
+            self.assertIsNotNone(config_action)
+            self.assertEqual(config_action.get("status"), "ERROR")
+            self.assertIn("Refusing to write to symbolic link", config_action.get("details", ""))
+        finally:
+            if os.path.exists(sym_conf):
+                try:
+                    os.unlink(sym_conf)
+                except OSError:
+                    pass
+            if os.path.exists(real_target):
+                try:
+                    os.remove(real_target)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()

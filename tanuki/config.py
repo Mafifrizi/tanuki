@@ -133,6 +133,8 @@ def write_krb5_conf_file(
         armor_cache=armor_cache,
     )
     abs_path = os.path.abspath(filepath)
+    if os.path.islink(abs_path):
+        raise ValueError(f"Refusing to write to symbolic link: {abs_path}")
     parent_dir = os.path.dirname(abs_path)
     if parent_dir and not os.path.exists(parent_dir):
         os.makedirs(parent_dir, exist_ok=True)

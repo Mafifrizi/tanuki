@@ -139,6 +139,83 @@ class TestKCMParser(unittest.TestCase):
                 except OSError:
                     pass
 
+    def test_scripts_kcm_parser_save_recovered_ticket_symlink_rejected(self):
+        from kcm_parser import save_recovered_ticket as script_save_ticket
+        if not hasattr(os, "symlink"):
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"data")
+            real_file = f.name
+        sym_file = real_file + ".script_sym"
+        try:
+            try:
+                os.symlink(real_file, sym_file)
+            except OSError:
+                return
+            with self.assertRaises(OSError):
+                script_save_ticket(sym_file, b"test_data")
+        finally:
+            if os.path.exists(sym_file):
+                try:
+                    os.unlink(sym_file)
+                except OSError:
+                    pass
+            if os.path.exists(real_file):
+                try:
+                    os.remove(real_file)
+                except OSError:
+                    pass
+
+    def test_inject_ticket_to_kcm_ccache_name_validation(self):
+        from tanuki.kcm import inject_ticket_to_kcm
+        invalid_names = [
+            "",
+            None,
+            123,
+            "bad/path",
+            "name with spaces",
+            "../traversal",
+            "bad$char",
+            "a" * 65,
+        ]
+        for bad_name in invalid_names:
+            res = inject_ticket_to_kcm(b"fake_ticket_data", ccache_name=bad_name)
+            self.assertEqual(res.get("status"), "INVALID_PARAMETER")
+            self.assertEqual(res.get("message"), "Invalid ccache name format.")
+
+    def test_inject_ticket_to_kcm_valid_ccache_name(self):
+        from tanuki.kcm import inject_ticket_to_kcm
+        res = inject_ticket_to_kcm(b"fake_ticket_data", ccache_name="valid_ccache.1:0")
+        self.assertIn(res.get("status"), ("UNSUPPORTED_PLATFORM", "SOCKET_UNAVAILABLE", "ERROR", "SUCCESS"))
+
+    def test_inject_ticket_to_kcm_symlink_file_rejected(self):
+        from tanuki.kcm import inject_ticket_to_kcm
+        if not hasattr(os, "symlink"):
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"data")
+            real_file = f.name
+        sym_file = real_file + ".ccache_sym"
+        try:
+            try:
+                os.symlink(real_file, sym_file)
+            except OSError:
+                return
+            res = inject_ticket_to_kcm(sym_file, ccache_name="default")
+            self.assertEqual(res.get("status"), "INVALID_PARAMETER")
+            self.assertIn("symbolic link", res.get("message", ""))
+        finally:
+            if os.path.exists(sym_file):
+                try:
+                    os.unlink(sym_file)
+                except OSError:
+                    pass
+            if os.path.exists(real_file):
+                try:
+                    os.remove(real_file)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()
