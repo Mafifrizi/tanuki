@@ -115,6 +115,10 @@ Visual verification of the complete 3-act operational lifecycle across live doma
 
 Official RFC 4120 binary keytab export on the Domain Controller for service account `LAB\tanuki-nhi` with modern AES-256 (`aes256-cts-hmac-sha1-96`, KVNO 9):
 
+<p align="center">
+  <img src="assets/lab-validation-act1-dc01-setup.png" alt="Act 1: Windows Server 2022 DC01 Setup and Keytab Provisioning" width="850">
+</p>
+
 ```cmd
 C:\> ktpass -princ HTTP/tanuki-app.lab.local@LAB.LOCAL -mapuser tanuki-nhi@LAB.LOCAL -pass ********** -crypto AES256-SHA1 -ptype KRB5_NT_PRINCIPAL -out C:\ad_test.keytab
 Targeting domain controller: DC01.lab.local
@@ -130,6 +134,10 @@ keysize 86 HTTP/tanuki-app.lab.local@LAB.LOCAL ptype 1 (KRB5_NT_PRINCIPAL) vno 9
 ##### 1. Pre-Flight Health Diagnostic Baseline (`tanuki doctor`)
 
 Passive, zero-packet pre-flight health diagnostic executing in **0.96 ms**, accurately detecting unconfigured state, missing keytabs, and inactive ticket caches:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-doctor-unconfigured.png" alt="Act 2.1: Pre-Flight Doctor Unconfigured Health Baseline" width="850">
+</p>
 
 ```text
 $ tanuki doctor
@@ -155,6 +163,10 @@ Execution Time: 0.37 ms | Network Packets Emitted: 0
 
 Parses binary keytab structures, extracts AES-256 principals, displays hierarchical principal trees, verifies KVNO 9, and provides automated `kinit` guidance:
 
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-keytab-tree.png" alt="Act 2.2: RFC 4120 Keytab Tree Hierarchy" width="850">
+</p>
+
 ```text
 $ tanuki keytab /tmp/tanuki.keytab
 [TANUKI KEYTAB TRIAGE REPORT]
@@ -178,6 +190,10 @@ File: /tmp/tanuki.keytab · RFC 4120 Binary Structure
 
 Generates a local Kerberos configuration file (`/tmp/lab_krb5.conf`) enforcing RFC 4120 Section 6.1 uppercase realm conventions, zero-DNS direct KDC IP routing, and hypervisor clock-skew tolerance:
 
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-config.png" alt="Act 2.3: Zero-DNS Configuration Generator" width="850">
+</p>
+
 ```text
 $ tanuki config --realm LAB.LOCAL --kdc 192.168.56.106 -o /tmp/lab_krb5.conf
 [TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR]
@@ -197,6 +213,10 @@ Zero-DNS Direct Routing · RFC 4120 Compliant
 
 Acquires a Kerberos Ticket Granting Ticket (TGT) directly from the Domain Controller using Python standard library `ctypes` (`libkrb5.so.3`) without requiring root privileges, `kinit` binary on PATH, or external dependencies:
 
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-auth-live.png" alt="Act 2.4: Unprivileged TGT Acquisition via ctypes" width="850">
+</p>
+
 ```text
 $ tanuki auth --keytab /tmp/tanuki.keytab --principal HTTP/tanuki-app.lab.local@LAB.LOCAL --kdc 192.168.56.106 --krb5-conf /tmp/lab_krb5.conf
 [TANUKI UNPRIVILEGED TICKET ACQUISITION]
@@ -213,6 +233,10 @@ Method: ctypes · Non-Interactive Authentication
 ##### 5. Post-Authentication Health Diagnostic Pass (`tanuki doctor`)
 
 Confirms active AES-256 Kerberos ticket cache with **9h 59m 49s** remaining lifetime, executing in **1.35 ms** with zero network emission:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2.5: Post-Auth Doctor Pass with AES-256 Session" width="850">
+</p>
 
 ```text
 $ tanuki doctor --krb5-conf /tmp/lab_krb5.conf
@@ -234,6 +258,10 @@ Execution Time: 0.70 ms | Network Packets Emitted: 0
 ##### 6. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
 
 Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4768/4771, Sigma rules, and Falco signatures):
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.6: Protocol Error Triage and Telemetry" width="850">
+</p>
 
 ```text
 $ tanuki triage KRB_AP_ERR_SKEW
@@ -263,9 +291,33 @@ $ tanuki triage KRB_AP_ERR_SKEW
     - System Time Modification [WARNING]: evt.type in (clock_settime, settimeofday, adjtimex) and not (proc.name in (chronyd, ntpd, systemd-timesyncd))
 ```
 
+##### 7. Zero-Trace Cryptographic Purge (`tanuki purge`)
+
+Executes NIST SP 800-88 compliant 3-pass file shredding, memory zeroization, and environment variable purging with `O_NOFOLLOW` symlink defense:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.7: NIST SP 800-88 Zero-Trace Purge" width="850">
+</p>
+
+```text
+$ tanuki purge --target /tmp/krb5cc_live
+[TANUKI ZERO-TRACE PURGE]
+NIST SP 800-88 Compliant · Cryptographic Sanitization
+[+] Target File : /tmp/krb5cc_live
+    ├── Overwrite Pass 1: Random cryptographic bytes
+    ├── Overwrite Pass 2: Cryptographic zeroization (0x00)
+    ├── Flush & Fsync   : Synced to storage hardware
+    └── File Unlink     : Removed from filesystem
+[PASS] Purge Complete: Zero persistent residue remains.
+```
+
 #### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
 
 Native high-efficiency log query via `wevtutil` on the Domain Controller proving live Event ID 4768 Audit Success for account `tanuki-nhi` originating from `192.168.56.105` with Ticket Encryption Type `0x12` (`aes256-cts-hmac-sha1-96`):
+
+<p align="center">
+  <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 3: Windows Event ID 4768 Audit Success Verification" width="850">
+</p>
 
 ```cmd
 C:\> wevtutil qe Security "/q:*[System[(EventID=4768)]]" /c:1 /rd:true /f:text
