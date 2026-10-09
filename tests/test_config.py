@@ -46,6 +46,33 @@ class TestKrb5ConfigGenerator(unittest.TestCase):
             self.assertTrue(os.path.isfile(target))
             self.assertIn("export KRB5_CONFIG=", res["export_command"])
 
+    def test_write_krb5_conf_file_symlink_rejected(self):
+        if not hasattr(os, "symlink"):
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b"# target")
+            real_path = tf.name
+        sym_path = real_path + ".sym"
+        try:
+            try:
+                os.symlink(real_path, sym_path)
+            except OSError:
+                return
+            with self.assertRaises(ValueError) as ctx:
+                write_krb5_conf_file(sym_path, "DOMAIN.COM", "10.0.0.1")
+            self.assertIn("Refusing to write to symbolic link", str(ctx.exception))
+        finally:
+            if os.path.exists(sym_path):
+                try:
+                    os.unlink(sym_path)
+                except OSError:
+                    pass
+            if os.path.exists(real_path):
+                try:
+                    os.remove(real_path)
+                except OSError:
+                    pass
+
     def test_generate_krb5_conf_hardening_clockskew_and_multiple_kdcs(self):
         conf = generate_krb5_conf(
             "corp.local",
@@ -194,6 +221,49 @@ class TestConfigCLIIntegration(unittest.TestCase):
             self.assertEqual(data["realm"], "CORP.LOCAL")
             self.assertEqual(data["kdc"], "192.168.56.106")
             self.assertTrue(os.path.isfile(target_path))
+
+    def test_cli_config_symlink_rejected(self):
+        if not hasattr(os, "symlink"):
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b"# target")
+            real_path = tf.name
+        sym_path = real_path + ".clisym"
+        try:
+            try:
+                os.symlink(real_path, sym_path)
+            except OSError:
+                return
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--realm",
+                "CORP.LOCAL",
+                "--kdc",
+                "192.168.56.106",
+                "-o",
+                sym_path,
+                "--json",
+            ]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 4)
+            data = json.loads(proc.stdout)
+            self.assertEqual(data.get("status"), "ERROR")
+            self.assertEqual(data.get("reason_code"), "WRITE_ERROR")
+            self.assertIn("Refusing to write to symbolic link", data.get("message", ""))
+        finally:
+            if os.path.exists(sym_path):
+                try:
+                    os.unlink(sym_path)
+                except OSError:
+                    pass
+            if os.path.exists(real_path):
+                try:
+                    os.remove(real_path)
+                except OSError:
+                    pass
 
     def test_cli_config_missing_arguments(self):
         cmd_no_realm = [sys.executable, "-m", "tanuki", "config", "--kdc", "192.168.56.106"]

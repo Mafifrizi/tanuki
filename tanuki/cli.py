@@ -542,11 +542,21 @@ def handle_config(
 
     target_file = out_path or "./krb5.conf"
     abs_path = os.path.abspath(target_file)
+    if os.path.islink(abs_path):
+        emit_cli_error(
+            f"Refusing to write to symbolic link: {abs_path}",
+            reason_code="WRITE_ERROR",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=target_file,
+            json_output=json_output,
+        )
     try:
         parent_dir = os.path.dirname(abs_path)
         if parent_dir and not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
-        with open(abs_path, "w", encoding="utf-8") as f:
+        fd = os.open(abs_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
     except OSError as exc:
         emit_cli_error(

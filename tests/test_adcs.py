@@ -15,6 +15,8 @@ from tanuki.adcs import (
     OID_ANY_PURPOSE,
     OID_CERT_REQUEST_AGENT,
     OID_CLIENT_AUTH,
+    OID_PKINIT_CLIENT_AUTH,
+    OID_SMARTCARD_LOGON,
     evaluate_ca_misconfigurations,
     evaluate_template_misconfigurations,
     format_adcs_report_terminal,
@@ -145,6 +147,96 @@ class TestAdcsScanner(unittest.TestCase):
         }
         findings_int = evaluate_ca_misconfigurations(ca_config_int)
         self.assertIn("ESC10", [f["vector"] for f in findings_int])
+
+    def test_esc1_normalized_eku_whitespace_and_alternate_oids(self):
+        # 1. Whitespace padding around OID_CLIENT_AUTH
+        t1 = {
+            "name": "ESC1-Whitespace-EKU",
+            "msPKI-Certificate-Name-Flag": CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT,
+            "msPKI-Enrollment-Flag": 0,
+            "pKIExtendedKeyUsage": [f"  {OID_CLIENT_AUTH}  "],
+        }
+        f1 = evaluate_template_misconfigurations(t1)
+        self.assertIn("ESC1", [f["vector"] for f in f1])
+
+        # 2. OID_SMARTCARD_LOGON
+        t2 = {
+            "name": "ESC1-SmartcardLogon",
+            "msPKI-Certificate-Name-Flag": CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT,
+            "msPKI-Enrollment-Flag": 0,
+            "pKIExtendedKeyUsage": [OID_SMARTCARD_LOGON],
+        }
+        f2 = evaluate_template_misconfigurations(t2)
+        self.assertIn("ESC1", [f["vector"] for f in f2])
+
+        # 3. OID_PKINIT_CLIENT_AUTH
+        t3 = {
+            "name": "ESC1-PKInit",
+            "msPKI-Certificate-Name-Flag": CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT,
+            "msPKI-Enrollment-Flag": 0,
+            "pKIExtendedKeyUsage": [OID_PKINIT_CLIENT_AUTH],
+        }
+        f3 = evaluate_template_misconfigurations(t3)
+        self.assertIn("ESC1", [f["vector"] for f in f3])
+
+        # 4. Fallback description text heuristic
+        t4 = {
+            "name": "ESC1-Text-Heuristic",
+            "msPKI-Certificate-Name-Flag": CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT,
+            "msPKI-Enrollment-Flag": 0,
+            "pKIExtendedKeyUsage": ["Client Authentication for Workstation"],
+        }
+        f4 = evaluate_template_misconfigurations(t4)
+        self.assertIn("ESC1", [f["vector"] for f in f4])
+
+    def test_esc1_non_client_auth_eku_not_flagged(self):
+        t = {
+            "name": "NonClientAuth",
+            "msPKI-Certificate-Name-Flag": CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT,
+            "msPKI-Enrollment-Flag": 0,
+            "pKIExtendedKeyUsage": ["1.3.6.1.5.5.7.3.3"],
+        }
+        f = evaluate_template_misconfigurations(t)
+        self.assertNotIn("ESC1", [f["vector"] for f in f])
+
+    def test_evaluate_template_scalar_and_none_eku_tolerance(self):
+        # Scalar int EKU
+        t_int = {
+            "name": "ScalarIntEKU",
+            "pKIExtendedKeyUsage": 12345,
+        }
+        f_int = evaluate_template_misconfigurations(t_int)
+        self.assertIsInstance(f_int, list)
+
+        # None inside EKU list
+        t_none_elem = {
+            "name": "NoneElemEKU",
+            "pKIExtendedKeyUsage": [None, f"  {OID_CLIENT_AUTH}  "],
+            "msPKI-Certificate-Name-Flag": CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT,
+        }
+        f_none = evaluate_template_misconfigurations(t_none_elem)
+        self.assertIn("ESC1", [f["vector"] for f in f_none])
+
+    def test_esc2_and_esc3_normalized_eku_whitespace(self):
+        # ESC2 Any Purpose with whitespace
+        t_esc2 = {
+            "name": "ESC2-Whitespace",
+            "msPKI-Enrollment-Flag": 0,
+            "msPKI-RA-Signature": 0,
+            "pKIExtendedKeyUsage": [f"  {OID_ANY_PURPOSE}  "],
+        }
+        f_esc2 = evaluate_template_misconfigurations(t_esc2)
+        self.assertIn("ESC2", [f["vector"] for f in f_esc2])
+
+        # ESC3 Request Agent with whitespace
+        t_esc3 = {
+            "name": "ESC3-Whitespace",
+            "msPKI-Enrollment-Flag": 0,
+            "msPKI-RA-Signature": 0,
+            "pKIExtendedKeyUsage": [f"  {OID_CERT_REQUEST_AGENT}  "],
+        }
+        f_esc3 = evaluate_template_misconfigurations(t_esc3)
+        self.assertIn("ESC3", [f["vector"] for f in f_esc3])
 
 
 if __name__ == "__main__":
