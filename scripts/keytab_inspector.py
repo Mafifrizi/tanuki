@@ -84,6 +84,8 @@ ENCTYPE_MAP = {
 }
 
 MAX_COMPONENTS = 256
+MAX_ENTRY_SIZE = 1048576
+MIN_INT32 = -2147483648
 
 
 def parse_keytab_stream(stream: io.BytesIO) -> List[Dict[str, Any]]:
@@ -104,12 +106,22 @@ def parse_keytab_stream(stream: io.BytesIO) -> List[Dict[str, Any]]:
         if entry_size == 0:
             continue
 
+        if entry_size == MIN_INT32:
+            raise ValueError("Malformed keytab entry: integer overflow in entry size (MIN_INT32)")
+
         if entry_size < 0:
             skip_len = abs(entry_size)
+            if skip_len > MAX_ENTRY_SIZE:
+                raise ValueError(f"Keytab hole skip size exceeds safety limit ({skip_len} bytes)")
             skipped = stream.read(skip_len)
             if len(skipped) < skip_len:
                 raise ValueError("Unexpected end of keytab stream in deleted entry hole")
             continue
+
+        if entry_size > MAX_ENTRY_SIZE:
+            raise ValueError(
+                f"Malformed keytab entry: entry size exceeds maximum limit ({entry_size} > {MAX_ENTRY_SIZE})"
+            )
 
         raw_entry = stream.read(entry_size)
         if len(raw_entry) < entry_size:
@@ -198,8 +210,10 @@ def parse_keytab_bytes(data: bytes) -> List[Dict[str, Any]]:
 
 
 def parse_keytab_file(filepath: str) -> List[Dict[str, Any]]:
+    if os.path.islink(filepath):
+        raise ValueError(f"Refusing to read symbolic link: {filepath}")
     with open(filepath, "rb") as f:
-        return parse_keytab_stream(io.BytesIO(f.read()))
+        return parse_keytab_stream(io.BytesIO(f.read(10485760)))
 
 
 def main() -> None:

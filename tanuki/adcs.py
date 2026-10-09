@@ -142,9 +142,11 @@ def parse_x509_der(der_bytes: bytes) -> Dict[str, Any]:
 
 def load_certificate_or_templates(source: str) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
     """Load JSON template dump, LDIF, or x509 certificate from file or string."""
+    if os.path.islink(source):
+        raise AdcsScannerError(f"Refusing to read symbolic link: {source}")
     if os.path.isfile(source):
         with open(source, "rb") as f:
-            raw = f.read()
+            raw = f.read(10485760)
 
         # Check if PEM certificate
         if b"-----BEGIN CERTIFICATE-----" in raw:

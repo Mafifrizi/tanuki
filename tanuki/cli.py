@@ -241,10 +241,20 @@ def handle_kcm(file_path: Optional[str], out_dir: str, json_output: bool) -> Non
                 json_output=json_output,
             )
 
-        os.makedirs(out_dir, exist_ok=True)
+        if os.path.islink(file_path):
+            emit_cli_error(
+                f"Refusing to read symbolic link: {file_path}",
+                reason_code="INVALID_PARAMETER",
+                category="USAGE_ERROR",
+                exit_code=EXIT_USAGE_ERROR,
+                target=file_path,
+                json_output=json_output,
+            )
+
+        os.makedirs(out_dir, mode=0o700, exist_ok=True)
         try:
             with open(file_path, "rb") as f:
-                data = f.read()
+                data = f.read(104857600)  # 100MB bound
         except Exception as exc:
             emit_cli_error(
                 f"Error reading database '{file_path}': {exc}",
