@@ -384,11 +384,13 @@ class LdapClient:
         port: int = 389,
         use_ssl: bool = False,
         timeout: float = 5.0,
+        verify_ssl: bool = False,
     ) -> None:
         self.host = host
         self.port = port
         self.use_ssl = use_ssl
         self.timeout = timeout
+        self.verify_ssl = verify_ssl
         self.sock: Optional[socket.socket] = None
         self.msg_counter = 1
 
@@ -399,8 +401,12 @@ class LdapClient:
         try:
             if self.use_ssl:
                 context = ssl.create_default_context()
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
+                if self.verify_ssl:
+                    context.check_hostname = True
+                    context.verify_mode = ssl.CERT_REQUIRED
+                else:
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
                 self.sock = context.wrap_socket(raw_sock, server_hostname=self.host)
             else:
                 self.sock = raw_sock

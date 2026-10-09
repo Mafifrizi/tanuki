@@ -460,6 +460,19 @@ class TestConfigCLIIntegration(unittest.TestCase):
             dc = discover_dc_via_srv("CORP.LOCAL")
             self.assertEqual(dc, ("dc01.corp.local", 88))
 
+    def test_build_dns_srv_query_random_txid(self):
+        from tanuki.config import build_dns_srv_query
+        q1 = build_dns_srv_query("_kerberos._tcp.corp.local")
+        self.assertTrue(len(q1) > 12)
+        q2 = build_dns_srv_query("_kerberos._tcp.corp.local")
+        self.assertTrue(len(q2) > 12)
+        tx1 = int.from_bytes(q1[:2], "big")
+        tx2 = int.from_bytes(q2[:2], "big")
+        self.assertGreaterEqual(tx1, 0)
+        self.assertLessEqual(tx1, 65535)
+        self.assertGreaterEqual(tx2, 0)
+        self.assertLessEqual(tx2, 65535)
+
 
 if __name__ == "__main__":
     unittest.main()

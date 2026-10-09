@@ -88,7 +88,11 @@ def scan_for_ccache_blobs(data: bytes) -> List[Dict[str, Any]]:
 
 def save_recovered_ticket(out_path: str, data: bytes) -> None:
     """Save ticket bytes with restricted file permissions (0600) when supported."""
-    with open(out_path, "wb") as f:
+    if os.path.islink(out_path):
+        raise OSError(f"Refusing to write to symlink target: {out_path}")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(out_path, flags, 0o600)
+    with os.fdopen(fd, "wb") as f:
         f.write(data)
     if hasattr(os, "chmod"):
         try:

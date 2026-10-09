@@ -680,9 +680,11 @@ def parse_pac(source: str) -> Dict[str, Any]:
     """Parse PAC from file path, hex string, base64 string, or raw bytes."""
     data: Optional[bytes] = None
 
+    if os.path.islink(source):
+        raise PacDecodeError(f"Refusing to read symbolic link: {source}")
     if os.path.isfile(source):
         with open(source, "rb") as f:
-            data = f.read()
+            data = f.read(1048576)
     else:
         # Try hex decode
         clean_src = source.strip()
