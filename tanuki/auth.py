@@ -217,6 +217,16 @@ def acquire_tgt_via_ctypes(
                     ctypes.POINTER(ctypes.c_void_p),
                 ]
                 cc_spec = f"FILE:{os.path.abspath(ccache_path)}".encode("utf-8")
+                if os.name != "nt" and not (ccache_path.startswith("KEYRING:") or ccache_path.startswith("KCM:")):
+                    flags = os.O_CREAT | os.O_WRONLY
+                    if hasattr(os, "O_NOFOLLOW"):
+                        flags |= os.O_NOFOLLOW
+                    try:
+                        fd = os.open(os.path.abspath(ccache_path), flags, 0o600)
+                        os.close(fd)
+                    except OSError:
+                        pass
+
                 ret = krb5.krb5_cc_resolve(ctx, cc_spec, ctypes.byref(cc))
                 if ret != 0:
                     return {
@@ -532,6 +542,15 @@ def acquire_tgt(
         if krb5_conf:
             env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
         env["KRB5CCNAME"] = f"FILE:{abs_ccache}"
+        if os.name != "nt":
+            flags = os.O_CREAT | os.O_WRONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            try:
+                fd = os.open(abs_ccache, flags, 0o600)
+                os.close(fd)
+            except OSError:
+                pass
         try:
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
             if proc.returncode == 0:

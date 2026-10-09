@@ -68,7 +68,7 @@ impl PurgeReport {
             }
         }
 
-        out.push_str("[+] Memory Hygiene: In-process credential buffers cryptographically zeroized.\n\n");
+        out.push_str("[+] Memory Hygiene: Target credential buffers sanitized and ephemeral chunk memory zeroized.\n\n");
         out.push_str(&format!("OVERALL PURGE STATUS: {} (Zero operational forensic trace remaining)\n", self.status));
         out
     }
@@ -122,7 +122,12 @@ pub fn shred_file(path: &str) -> ShredResult {
     if len > 0 {
         if let Ok(mut file) = OpenOptions::new().read(true).write(true).open(p) {
             // Pass 1: Overwrite with pseudorandom stream
-            let mut seed: u64 = 0x8543_2911_DEAD_BEEF;
+            let mut seed_bytes = [0u8; 8];
+            crate::util::fill_dynamic_entropy(&mut seed_bytes);
+            let mut seed = u64::from_le_bytes(seed_bytes);
+            if seed == 0 {
+                seed = 0x8543_2911_DEAD_BEEF;
+            }
             let chunk_size = 4096;
             let mut remaining = len;
             while remaining > 0 {
@@ -133,6 +138,7 @@ pub fn shred_file(path: &str) -> ShredResult {
                     *b = (seed >> 32) as u8;
                 }
                 let _ = file.write_all(&buf);
+                buf.fill(0);
                 remaining -= this_chunk as u64;
             }
             let _ = file.sync_all();

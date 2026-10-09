@@ -109,7 +109,7 @@ pub fn ber_decode_tlv(data: &[u8], offset: usize) -> Result<(u8, &[u8], usize), 
         len_byte as usize
     } else {
         let num_len_bytes = (len_byte & 0x7F) as usize;
-        if num_len_bytes == 0 || curr + num_len_bytes > data.len() {
+        if num_len_bytes == 0 || num_len_bytes > std::mem::size_of::<usize>() || curr + num_len_bytes > data.len() {
             return Err(format!("Invalid BER multi-byte length at offset {}", curr));
         }
         let mut l: usize = 0;
@@ -120,15 +120,19 @@ pub fn ber_decode_tlv(data: &[u8], offset: usize) -> Result<(u8, &[u8], usize), 
         l
     };
 
-    if curr + length > data.len() {
+    let end_offset = match curr.checked_add(length) {
+        Some(end) => end,
+        None => return Err(format!("BER length arithmetic overflow at offset {}", curr)),
+    };
+    if end_offset > data.len() {
         return Err(format!(
             "BER value out of bounds: length {} > remaining {}",
             length,
-            data.len() - curr
+            data.len().saturating_sub(curr)
         ));
     }
-    let val = &data[curr..curr + length];
-    Ok((tag, val, curr + length))
+    let val = &data[curr..end_offset];
+    Ok((tag, val, end_offset))
 }
 
 pub fn ber_decode_int(data: &[u8]) -> i64 {
@@ -136,6 +140,9 @@ pub fn ber_decode_int(data: &[u8]) -> i64 {
         return 0;
     }
     let is_neg = (data[0] & 0x80) != 0;
+    if data.len() > 8 {
+        return if is_neg { i64::MIN } else { i64::MAX };
+    }
     let mut val: i64 = if is_neg { -1 } else { 0 };
     for &b in data {
         val = (val << 8) | (b as i64);

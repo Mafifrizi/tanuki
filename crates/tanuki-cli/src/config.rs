@@ -150,8 +150,10 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
     let nameservers = ["127.0.0.53:53", "127.0.0.1:53", "10.0.2.3:53", "192.168.56.1:53"];
 
     for srv_qname in &srv_qnames {
+        let mut txid = [0u8; 2];
+        crate::util::fill_dynamic_entropy(&mut txid);
         let mut packet = Vec::new();
-        packet.extend_from_slice(&[0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        packet.extend_from_slice(&[txid[0], txid[1], 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         for label in srv_qname.split('.') {
             if !label.is_empty() {
                 packet.push(label.len() as u8);
@@ -168,7 +170,7 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
                 if socket.send_to(&packet, ns).is_ok() {
                     let mut buf = [0u8; 2048];
                     if let Ok((len, _)) = socket.recv_from(&mut buf) {
-                        if len > 12 && (buf[3] & 0x0F) == 0 {
+                        if len > 12 && buf[0] == txid[0] && buf[1] == txid[1] && (buf[2] & 0x80) != 0 && (buf[3] & 0x0F) == 0 {
                             let qdcount = ((buf[4] as usize) << 8) | (buf[5] as usize);
                             let ancount = ((buf[6] as usize) << 8) | (buf[7] as usize);
                             if ancount > 0 {
@@ -194,8 +196,10 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
                                                     }
                                                 }
                                             }
-                                            offset = rdata_start + rdlength;
-                                            continue;
+                                            if rdata_start + rdlength <= len {
+                                                offset = rdata_start + rdlength;
+                                                continue;
+                                            }
                                         }
                                     }
                                     break;

@@ -37,4 +37,4 @@ pub use protocol::{
     ERROR_DICTIONARY, FalcoRuleRef, SigmaRuleRef, TelemetryData,
 };
 pub use purge::{run_purge, shred_file, PurgeReport, ShredResult};
-pub use util::escape_json;
+pub use util::{escape_json, fill_dynamic_entropy, resolve_current_uid};

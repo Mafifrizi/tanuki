@@ -1245,9 +1245,16 @@ fn handle_auth(
         }
     }
 
+    let fallback_cc = format!("/tmp/krb5cc_{}", crate::util::resolve_current_uid());
     let ccache = ccache_path_opt
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
-        .unwrap_or_else(|| "/tmp/krb5cc_1000".to_string());
+        .unwrap_or(fallback_cc);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let _ = fs::OpenOptions::new().create(true).write(true).mode(0o600).open(&ccache);
+    }
 
     let mut cmd = process::Command::new("kinit");
     cmd.args(["-k", "-t", &kt_path, &princ])

@@ -213,11 +213,17 @@ def parse_dns_name(data: bytes, offset: int) -> Tuple[str, int]:
     return ".".join(labels), next_offset
 
 
-def parse_srv_response(data: bytes) -> List[Tuple[int, int, int, str]]:
+def parse_srv_response(
+    data: bytes, expected_tx_id: Optional[int] = None
+) -> List[Tuple[int, int, int, str]]:
     """Parse SRV records from DNS response packet. Returns list of (priority, weight, port, target)."""
     if len(data) < 12:
         return []
     _tid, flags, qdcount, ancount, _nscount, _arcount = struct.unpack(">HHHHHH", data[:12])
+    if expected_tx_id is not None and _tid != expected_tx_id:
+        return []
+    if (flags & 0x8000) == 0:
+        return []
     if (flags & 0x000F) != 0:
         return []
     offset = 12
@@ -272,13 +278,14 @@ def query_dns_srv(
     timeout: float = 0.8,
 ) -> List[Tuple[int, int, int, str]]:
     """Query DNS SRV record via UDP socket with pure standard library."""
-    query_bytes = build_dns_srv_query(srv_record)
+    tx_id = int.from_bytes(os.urandom(2), byteorder="big")
+    query_bytes = build_dns_srv_query(srv_record, tx_id=tx_id)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(timeout)
     try:
         sock.sendto(query_bytes, (nameserver, port))
         resp, _ = sock.recvfrom(4096)
-        return parse_srv_response(resp)
+        return parse_srv_response(resp, expected_tx_id=tx_id)
     except Exception:
         return []
     finally:
