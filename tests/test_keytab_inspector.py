@@ -229,6 +229,41 @@ class TestKeytabInspector(unittest.TestCase):
             if os.path.exists(valid_path):
                 os.unlink(valid_path)
 
+    def test_min_int32_entry_size_rejected(self):
+        stream = io.BytesIO()
+        stream.write(b"\x05\x02")
+        stream.write(struct.pack(">i", -2147483648))
+        stream.seek(0)
+        with self.assertRaises(ValueError):
+            parse_keytab_stream(stream)
+
+    def test_symlink_keytab_rejected(self):
+        from tanuki.keytab import parse_keytab_file
+        if not hasattr(os, "symlink"):
+            return
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
+            tf.write(b"\x05\x02")
+            real_path = tf.name
+        sym_path = real_path + ".sym"
+        try:
+            try:
+                os.symlink(real_path, sym_path)
+            except OSError:
+                return
+            with self.assertRaises(ValueError):
+                parse_keytab_file(sym_path)
+        finally:
+            if os.path.exists(sym_path):
+                try:
+                    os.unlink(sym_path)
+                except OSError:
+                    pass
+            if os.path.exists(real_path):
+                try:
+                    os.unlink(real_path)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()
