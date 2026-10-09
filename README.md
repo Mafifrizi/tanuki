@@ -108,7 +108,7 @@ Visual verification of the complete 3-act operational lifecycle across live doma
 | Act | Environment | Objectives & Validated Primitives |
 | :--- | :--- | :--- |
 | **Act 1: Domain Controller Setup** | Windows Server 2022 (`DC01`) | Domain discovery (`nltest`), SPN audit (`setspn`), and RFC 4120 AES-256 binary keytab export (`ktpass`, KVNO 9). |
-| **Act 2: Unprivileged Linux Operator** | Kali Linux 2024 (Linux Workstation) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), ticket health pass (`tanuki doctor`), and protocol triage (`tanuki triage`). |
+| **Act 2: Unprivileged Linux Operator** | Kali Linux 2024 (Linux Workstation) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), ticket health pass (`tanuki doctor`), protocol triage (`tanuki triage`), and zero-trace purge (`tanuki purge`). |
 | **Act 3: Closed-Loop Verification** | Windows Server 2022 (`DC01`) | Domain Controller Security Event ID 4768 Audit Success for `tanuki-nhi` originating from client IP `192.168.56.105`. |
 
 #### Act 1: Domain Controller Service Setup & Keytab Provisioning (`DC01`)
@@ -497,18 +497,18 @@ tanuki/
 │   ├── kcm.py                 # SSSD KCM ticket stream parser
 │   └── protocol.py            # Error dictionary & decision ladder
 ├── assets/
-│   ├── logo.png               # Project logo (transparent background, light mode)
-│   ├── logo-dark.png          # Project logo (transparent background, dark mode)
-│   ├── social-preview.png     # Repository social preview banner
-│   ├── dc01-ktpass-export-real.png
-│   ├── lab-validation-config.png
-│   ├── lab-validation-doctor.png
-│   ├── lab-validation-doctor-env.png
-│   ├── lab-validation-keytab.png
-│   ├── lab-validation-keytab-json.png
-│   ├── lab-validation-ladder.png
-│   ├── lab-validation-skill.png
-│   └── lab-validation-triage.png
+│   ├── lab-validation-act1-dc01-setup.png          # Act 1: DC01 setup and RFC 4120 ktpass export
+│   ├── lab-validation-act2-naga-doctor-unconfigured.png # Act 2.1: Pre-flight doctor unconfigured baseline
+│   ├── lab-validation-act2-naga-keytab-tree.png    # Act 2.2: RFC 4120 keytab hierarchical tree audit
+│   ├── lab-validation-act2-naga-config.png         # Act 2.3: Zero-DNS krb5.conf generator
+│   ├── lab-validation-act2-naga-auth-live.png      # Act 2.4: Unprivileged ctypes TGT acquisition
+│   ├── lab-validation-act2-naga-doctor-pass.png    # Act 2.5: Post-auth doctor pass (AES-256 session)
+│   ├── lab-validation-act2-naga-triage.png         # Act 2.6: Protocol error triage and telemetry
+│   ├── lab-validation-act2-naga-purge.png          # Act 2.7: NIST SP 800-88 zero-trace purge
+│   ├── lab-validation-act3-dc01-event4768.png      # Act 3: Closed-loop Event ID 4768 audit verification
+│   ├── logo.png                                    # Project logo (transparent background, light mode)
+│   ├── logo-dark.png                               # Project logo (transparent background, dark mode)
+│   └── social-preview.png                          # Repository social preview banner
 ├── scripts/
 │   ├── keytab_inspector.py    # Python Living-off-the-Land keytab parser
 │   └── kcm_parser.py          # Python SSSD KCM credential cache parser
