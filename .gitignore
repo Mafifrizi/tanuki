@@ -21,6 +21,17 @@ extracted_tickets/
 # Environment & secrets
 .env
 .env.*
+*.key
+*.pem
+*.pfx
+*.lic
+license*.json
+*.token
+
+# Documentation & coverage
+docs/
+.coverage
+htmlcov/
 
 # Logs & temporary files
 *.log
