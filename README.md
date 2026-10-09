@@ -119,16 +119,6 @@ Official RFC 4120 binary keytab export on the Domain Controller for service acco
   <img src="assets/lab-validation-act1-dc01-setup.png" alt="Act 1: Windows Server 2022 DC01 Setup and Keytab Provisioning" width="850">
 </p>
 
-```cmd
-C:\> ktpass -princ HTTP/tanuki-app.lab.local@LAB.LOCAL -mapuser tanuki-nhi@LAB.LOCAL -pass ********** -crypto AES256-SHA1 -ptype KRB5_NT_PRINCIPAL -out C:\ad_test.keytab
-Targeting domain controller: DC01.lab.local
-Successfully mapped HTTP/tanuki-app.lab.local to tanuki-nhi.
-Key created.
-Output keytab to C:\ad_test.keytab:
-Keytab version: 0x502
-keysize 86 HTTP/tanuki-app.lab.local@LAB.LOCAL ptype 1 (KRB5_NT_PRINCIPAL) vno 9 etype 0x12 (AES256-SHA1) keylength 32
-```
-
 #### Act 2: Unprivileged Linux Operator Session & Health Validation (Linux Workstation)
 
 ##### 1. Pre-Flight Health Diagnostic Baseline (`tanuki doctor`)
@@ -139,26 +129,6 @@ Passive, zero-packet pre-flight health diagnostic executing in **0.96 ms**, accu
   <img src="assets/lab-validation-act2-naga-doctor-unconfigured.png" alt="Act 2.1: Pre-Flight Doctor Unconfigured Health Baseline" width="850">
 </p>
 
-```text
-$ tanuki doctor
-[TANUKI PRE-FLIGHT DOCTOR (v1.2.1)]
-Host: localhost · Mode: Passive Diagnostic (0 network packets)
-
-[N_A] Keytab Integrity       : Keytab file not found: /etc/krb5.keytab
-      Action Required        : Join domain or generate keytab at /etc/krb5.keytab
-[N_A] Kerberos Configuration : Configuration file not found: /etc/krb5.conf
-      Action Required        : Install krb5-user or configure /etc/krb5.conf (unprivileged: generate local config via 'tanuki config' and export KRB5_CONFIG)
-[WARN] SSSD Subsystem        : SSSD daemon inactive and KCM socket not present
-      Action Required        : Start SSSD if host is configured for domain authentication
-[N_A] Active Ticket Cache    : No active Kerberos tickets found in file caches or kernel keyring
-      Action Required        : Run kinit to acquire Kerberos credentials
-[WARN] Kerberos Host Tooling : Kerberos client utility ('kinit') not found on PATH
-      Action Required        : Install client tools: sudo apt install krb5-user (unprivileged: use portable client via 'tanuki auth' or export KRB5_CONFIG)
-
-OVERALL HEALTH: WARN (0 passed, 2 warnings, 0 failures)
-Execution Time: 0.37 ms | Network Packets Emitted: 0
-```
-
 ##### 2. RFC 4120 Keytab Ingestion & Tree Audit (`tanuki keytab`)
 
 Parses binary keytab structures, extracts AES-256 principals, displays hierarchical principal trees, verifies KVNO 9, and provides automated `kinit` guidance:
@@ -166,25 +136,6 @@ Parses binary keytab structures, extracts AES-256 principals, displays hierarchi
 <p align="center">
   <img src="assets/lab-validation-act2-naga-keytab-tree.png" alt="Act 2.2: RFC 4120 Keytab Tree Hierarchy" width="850">
 </p>
-
-```text
-$ tanuki keytab /tmp/tanuki.keytab
-[TANUKI KEYTAB TRIAGE REPORT]
-File: /tmp/tanuki.keytab · RFC 4120 Binary Structure
-[1] Principal : HTTP/tanuki-app.lab.local@LAB.LOCAL
-    ├── KVNO   : 9
-    ├── Enctype: aes256-cts-hmac-sha1-96 (18)
-    └── Key    : 4d8bd672cce8ca27... (length: 32 bytes)
-
-[+] Recommended Non-Interactive TGT Acquisition (Modern AES):
-    $ KRB5_CONFIG=/tmp/lab_krb5.conf kinit -k -t /tmp/tanuki.keytab HTTP/tanuki-app.lab.local@LAB.LOCAL
-    $ export KRB5CCNAME=/tmp/krb5cc_$(id -u)
-
-[!] Host Tooling Advisory:
-    'kinit' utility not found on PATH.
-    Install: sudo apt install krb5-user (Debian/Kali) or sudo dnf install krb5-workstation (RHEL)
-    Unprivileged: Generate local config via 'tanuki config' and use portable client.
-```
 
 ##### 3. Zero-DNS Kerberos Configuration Generator (`tanuki config`)
 
@@ -194,21 +145,6 @@ Generates a local Kerberos configuration file (`/tmp/lab_krb5.conf`) enforcing R
   <img src="assets/lab-validation-act2-naga-config.png" alt="Act 2.3: Zero-DNS Configuration Generator" width="850">
 </p>
 
-```text
-$ tanuki config --realm LAB.LOCAL --kdc 192.168.56.106 -o /tmp/lab_krb5.conf
-[TANUKI UNPRIVILEGED KERBEROS CONFIG GENERATOR]
-Zero-DNS Direct Routing · RFC 4120 Compliant
-[+] Output File   : /tmp/lab_krb5.conf
-    ├── Target Realm : LAB.LOCAL (RFC 4120 uppercase convention)
-    ├── Target KDC   : 192.168.56.106 (zero-DNS direct routing)
-    ├── Admin Server : 192.168.56.106
-    └── Status       : Active configuration ready
-
-[+] To activate in your current session (unprivileged / no root required):
-    $ export KRB5_CONFIG=/tmp/lab_krb5.conf
-    $ kinit -k -t <keytab> <principal>
-```
-
 ##### 4. Unprivileged Native TGT Acquisition (`tanuki auth`)
 
 Acquires a Kerberos Ticket Granting Ticket (TGT) directly from the Domain Controller using Python standard library `ctypes` (`libkrb5.so.3`) without requiring root privileges, `kinit` binary on PATH, or external dependencies:
@@ -216,19 +152,6 @@ Acquires a Kerberos Ticket Granting Ticket (TGT) directly from the Domain Contro
 <p align="center">
   <img src="assets/lab-validation-act2-naga-auth-live.png" alt="Act 2.4: Unprivileged TGT Acquisition via ctypes" width="850">
 </p>
-
-```text
-$ tanuki auth --keytab /tmp/tanuki.keytab --principal HTTP/tanuki-app.lab.local@LAB.LOCAL --kdc 192.168.56.106 --krb5-conf /tmp/lab_krb5.conf
-[TANUKI UNPRIVILEGED TICKET ACQUISITION]
-Method: ctypes · Non-Interactive Authentication
-[+] Principal       : HTTP/tanuki-app.lab.local@LAB.LOCAL
-    ├── Keytab File : /tmp/tanuki.keytab
-    ├── Credential CC: /tmp/krb5cc_live
-    └── Auth Method : ctypes
-
-[+] Active Credential Cache Export:
-    $ export KRB5CCNAME=/tmp/krb5cc_live
-```
 
 ##### 5. Post-Authentication Health Diagnostic Pass (`tanuki doctor`)
 
@@ -238,23 +161,6 @@ Confirms active AES-256 Kerberos ticket cache with **9h 59m 49s** remaining life
   <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2.5: Post-Auth Doctor Pass with AES-256 Session" width="850">
 </p>
 
-```text
-$ tanuki doctor --krb5-conf /tmp/lab_krb5.conf
-[TANUKI PRE-FLIGHT DOCTOR (v1.2.1)]
-Host: localhost · Mode: Passive Diagnostic (0 network packets)
-
-[PASS] Keytab Integrity       : 0600 (secure), Keytab v2 (1 entries, enctypes: aes256-cts-hmac-sha1-96)
-[PASS] Kerberos Configuration : Default realm: LAB.LOCAL (uppercase)
-[WARN] SSSD Subsystem        : SSSD daemon inactive and KCM socket not present
-      Action Required        : Start SSSD if host is configured for domain authentication
-[PASS] Active Ticket Cache    : 7h 33m 26s remaining for HTTP/tanuki-app.lab.local@LAB.LOCAL (expires 10h)
-[WARN] Kerberos Host Tooling : Kerberos client utility ('kinit') not found on PATH
-      Action Required        : Install client tools: sudo apt install krb5-user (unprivileged: use portable client via 'tanuki auth' or export KRB5_CONFIG)
-
-OVERALL HEALTH: WARN (3 passed, 2 warnings, 0 failures)
-Execution Time: 0.70 ms | Network Packets Emitted: 0
-```
-
 ##### 6. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
 
 Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4768/4771, Sigma rules, and Falco signatures):
@@ -262,34 +168,6 @@ Couples tactical remediation commands with Blue Team detection telemetry (Auditd
 <p align="center">
   <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.6: Protocol Error Triage and Telemetry" width="850">
 </p>
-
-```text
-$ tanuki triage KRB_AP_ERR_SKEW
-[TANUKI PROTOCOL TRIAGE: KRB_AP_ERR_SKEW]
-  Event ID: 37 · Root Cause Diagnostic
-  Found matching error: KRB_AP_ERR_SKEW
-  Event ID: 37
-  Root Cause: Clock skew between Linux host and KDC exceeds threshold (default 300s).
-  Resolution:
-  Synchronize clock against Domain Controller:
-  $ ntpdate <DC_IP> or $ chronyc -q 'server <DC_IP> iburst'
-
-[TACTICAL CMD]
-    $ chronyc -q 'server <DC_IP> iburst' || ntpdate <DC_IP>
-
-[BLUE TELEMETRY]
-  Auditd Rules:
-    -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k system_time_change
-    -w /etc/chrony.conf -p wa -k time_config_modify
-    -w /etc/ntp.conf -p wa -k time_config_modify
-  Windows Event IDs:
-    - 4768 (Kerberos TGT Request)
-    - 4771 (Kerberos Pre-authentication Failed)
-  Sigma Rules:
-    - System Time Modification Detected [linux:auditd] (attack.defense_evasion, attack.t1070.006)
-  Falco Signatures:
-    - System Time Modification [WARNING]: evt.type in (clock_settime, settimeofday, adjtimex) and not (proc.name in (chronyd, ntpd, systemd-timesyncd))
-```
 
 ##### 7. Zero-Trace Cryptographic Purge (`tanuki purge`)
 
@@ -299,18 +177,6 @@ Executes NIST SP 800-88 compliant 3-pass file shredding, memory zeroization, and
   <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.7: NIST SP 800-88 Zero-Trace Purge" width="850">
 </p>
 
-```text
-$ tanuki purge --target /tmp/krb5cc_live
-[TANUKI ZERO-TRACE PURGE]
-NIST SP 800-88 Compliant · Cryptographic Sanitization
-[+] Target File : /tmp/krb5cc_live
-    ├── Overwrite Pass 1: Random cryptographic bytes
-    ├── Overwrite Pass 2: Cryptographic zeroization (0x00)
-    ├── Flush & Fsync   : Synced to storage hardware
-    └── File Unlink     : Removed from filesystem
-[PASS] Purge Complete: Zero persistent residue remains.
-```
-
 #### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
 
 Native high-efficiency log query via `wevtutil` on the Domain Controller proving live Event ID 4768 Audit Success for account `tanuki-nhi` originating from `192.168.56.105` with Ticket Encryption Type `0x12` (`aes256-cts-hmac-sha1-96`):
@@ -318,36 +184,6 @@ Native high-efficiency log query via `wevtutil` on the Domain Controller proving
 <p align="center">
   <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 3: Windows Event ID 4768 Audit Success Verification" width="850">
 </p>
-
-```cmd
-C:\> wevtutil qe Security "/q:*[System[(EventID=4768)]]" /c:1 /rd:true /f:text
-Event[0]
-  Log Name: Security
-  Source: Microsoft-Windows-Security-Auditing
-  Date: 2026-10-04T19:47:40.4020000Z
-  Event ID: 4768
-  Task: Kerberos Authentication Service
-  Level: Information
-  Keyword: Audit Success
-  User: N/A
-  Computer: DC01.lab.local
-  Description:
-  A Kerberos authentication ticket (TGT) was requested.
-
-Account Information:
-  Account Name:         tanuki-nhi
-  Supplied Realm Name:  LAB.LOCAL
-
-Network Information:
-  Client Address:       ::ffff:192.168.56.105
-  Client Port:          35378
-
-Additional Information:
-  Ticket Options:       0x40800000
-  Result Code:          0x0
-  Ticket Encryption Type: 0x12
-  Pre-Authentication Type: 2
-```
 
 ---
 
