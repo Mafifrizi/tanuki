@@ -347,6 +347,33 @@ impl LdapReport {
                             | "objectguid"
                             | "usercertificate"
                     );
+                    if a_name.eq_ignore_ascii_case("msds-allowedtoactonbehalfofotheridentity") {
+                        out.push_str(&format!("    ├─ {} (RBCD):\n", a_name));
+                        for hex_val in a_vals {
+                            let mut raw_bytes = Vec::new();
+                            let mut chars = hex_val.chars();
+                            while let (Some(c1), Some(c2)) = (chars.next(), chars.next()) {
+                                if let Ok(b) = u8::from_str_radix(&format!("{}{}", c1, c2), 16) {
+                                    raw_bytes.push(b);
+                                }
+                            }
+                            if let Ok(rbcd) = crate::pac::parse_rbcd_security_descriptor(&raw_bytes) {
+                                out.push_str(&format!("    │  ├─ ACE Count: {}\n", rbcd.ace_count));
+                                if rbcd.allowed_trustee_sids.is_empty() {
+                                    out.push_str("    │  ╰─ Allowed Trustee: None\n");
+                                } else {
+                                    for (s_idx, s) in rbcd.allowed_trustee_sids.iter().enumerate() {
+                                        let branch = if s_idx == rbcd.allowed_trustee_sids.len() - 1 { "╰─" } else { "├─" };
+                                        out.push_str(&format!("    │  {} Allowed Trustee: {}\n", branch, s));
+                                    }
+                                }
+                            } else {
+                                out.push_str(&format!("    │  ╰─ Parse Error (raw bytes: {})\n", raw_bytes.len()));
+                            }
+                        }
+                        continue;
+                    }
+
                     let preview = if is_binary_attr {
                         let formatted: Vec<String> = a_vals
                             .iter()
