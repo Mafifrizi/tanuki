@@ -344,7 +344,7 @@ fn main() {
             "--json" => {
                 global_json = true;
             }
-            "-f" | "--file" => {
+            "-f" | "--file" | "--target" | "--template-dump" => {
                 if i + 1 < raw_args.len() {
                     file_opt = Some(raw_args[i + 1].clone());
                     i += 1;

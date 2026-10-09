@@ -242,6 +242,9 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
         }
     }
 
+    targets.sort();
+    targets.dedup();
+
     let mut shredded = Vec::new();
     for t in &targets {
         let res = shred_file(t);
