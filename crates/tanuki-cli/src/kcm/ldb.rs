@@ -1,5 +1,4 @@
 use crate::util::escape_json;
-use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
