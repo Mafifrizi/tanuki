@@ -51,9 +51,12 @@ curl -sSL https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.sh | b
 irm https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.ps1 | iex
 ```
 
-### Via Pipx / Pip / Cargo
+### Via Pip / Pipx / Cargo
 
 ```bash
+# PyPI (Official Package)
+pip install tanuki-ad
+
 # Pipx (Isolated CLI environment)
 pipx install git+https://github.com/Mafifrizi/tanuki.git
 
