@@ -269,7 +269,9 @@ def run_fix(
                     p_dir = os.path.dirname(os.path.abspath(resolved_config_path))
                     if p_dir and not os.path.exists(p_dir):
                         os.makedirs(p_dir, exist_ok=True)
-                    with open(resolved_config_path, "w", encoding="utf-8") as f:
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                    fd = os.open(resolved_config_path, flags, 0o644)
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
                         f.write(optimal_conf)
 
                     actions.append({

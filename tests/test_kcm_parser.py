@@ -112,6 +112,33 @@ class TestKCMParser(unittest.TestCase):
         self.assertEqual(data.get("category"), "RESOURCE_MISSING")
         self.assertEqual(data.get("exit_code"), 3)
 
+    def test_save_recovered_ticket_symlink_rejected(self):
+        from tanuki.kcm import save_recovered_ticket
+        if not hasattr(os, "symlink"):
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"data")
+            real_file = f.name
+        sym_file = real_file + ".sym"
+        try:
+            try:
+                os.symlink(real_file, sym_file)
+            except OSError:
+                return
+            with self.assertRaises(OSError):
+                save_recovered_ticket(sym_file, b"test_data")
+        finally:
+            if os.path.exists(sym_file):
+                try:
+                    os.unlink(sym_file)
+                except OSError:
+                    pass
+            if os.path.exists(real_file):
+                try:
+                    os.remove(real_file)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()

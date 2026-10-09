@@ -179,6 +179,13 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("ssh -L 8888:127.0.0.1:88", rep["error"])
         self.assertIn("remediation", rep)
 
+    def test_ldap_client_verify_ssl_option(self):
+        from tanuki.ldap import LdapClient
+        client_default = LdapClient("127.0.0.1", port=636, use_ssl=True)
+        self.assertFalse(client_default.verify_ssl)
+        client_verified = LdapClient("127.0.0.1", port=636, use_ssl=True, verify_ssl=True)
+        self.assertTrue(client_verified.verify_ssl)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -187,6 +187,33 @@ class TestPacDecoder(unittest.TestCase):
         self.assertIn("CRITICAL / DOMAIN ADMIN", term_out)
         self.assertIn("OPSEC RISK DETECTED", term_out)
 
+    def test_parse_pac_symlink_rejected(self):
+        if not hasattr(os, "symlink"):
+            return
+        pac_data = build_synthetic_pac_bytes(user_name="sym_user")
+        with tempfile.NamedTemporaryFile(suffix=".pac", delete=False) as f:
+            f.write(pac_data)
+            tmp_path = f.name
+        symlink_path = tmp_path + ".sym"
+        try:
+            try:
+                os.symlink(tmp_path, symlink_path)
+            except OSError:
+                return
+            with self.assertRaises(PacDecodeError):
+                parse_pac(symlink_path)
+        finally:
+            if os.path.exists(symlink_path):
+                try:
+                    os.unlink(symlink_path)
+                except OSError:
+                    pass
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()

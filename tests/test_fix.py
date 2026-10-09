@@ -191,6 +191,28 @@ class TestSelfHealingFix(unittest.TestCase):
             content = f.read()
             self.assertIn("clockskew =", content)
 
+    def test_parse_krb_error_stime_symlink_ignored(self):
+        from tanuki.protocol import parse_krb_error_stime
+        if not hasattr(os, "symlink"):
+            return
+        err_file = os.path.join(self.tmp_dir.name, "valid_krb_err.bin")
+        with open(err_file, "wb") as f:
+            f.write(b"\x30\x11\x18\x0f20261007120000Z")
+        sym_file = os.path.join(self.tmp_dir.name, "sym_krb_err.bin")
+        try:
+            os.symlink(err_file, sym_file)
+        except OSError:
+            return
+        try:
+            res = parse_krb_error_stime(sym_file)
+            self.assertIsNone(res)
+        finally:
+            if os.path.exists(sym_file):
+                try:
+                    os.unlink(sym_file)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()

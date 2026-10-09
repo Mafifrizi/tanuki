@@ -243,8 +243,8 @@ def acquire_tgt_via_ctypes(
                         ]
                         krb5.krb5_get_init_creds_opt_alloc(ctx, ctypes.byref(opt))
 
-                    # Buffer for krb5_creds structure
-                    creds_buf = ctypes.create_string_buffer(1024)
+                    # Buffer for krb5_creds structure (expanded to 4096 bytes for safe struct alignment)
+                    creds_buf = ctypes.create_string_buffer(4096)
 
                     krb5.krb5_get_init_creds_keytab.restype = ctypes.c_int32
                     krb5.krb5_get_init_creds_keytab.argtypes = [

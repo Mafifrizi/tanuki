@@ -59,7 +59,11 @@ def shred_file(file_path: str, passes: int = 2) -> Dict[str, Any]:
 
     if file_size > 0:
         try:
-            with open(file_path, "r+b") as f:
+            open_flags = os.O_RDWR
+            if hasattr(os, "O_NOFOLLOW"):
+                open_flags |= os.O_NOFOLLOW
+            fd = os.open(file_path, open_flags)
+            with os.fdopen(fd, "r+b") as f:
                 # Pass 1: Pseudorandom bytes
                 f.seek(0)
                 f.write(os.urandom(file_size))

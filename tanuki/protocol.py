@@ -214,10 +214,10 @@ def find_error_resolution(query: Union[str, int]) -> Optional[Dict[str, Any]]:
 def parse_krb_error_stime(payload: Union[bytes, bytearray, str]) -> Optional[int]:
     """Parse stime (KDC KerberosTime) from RFC 4120 KRB-ERROR ASN.1 payload or error text."""
     if isinstance(payload, str):
-        if os.path.isfile(payload):
+        if os.path.isfile(payload) and not os.path.islink(payload):
             try:
                 with open(payload, "rb") as f:
-                    data = f.read()
+                    data = f.read(65536)
             except OSError:
                 data = payload.encode("utf-8")
         else:

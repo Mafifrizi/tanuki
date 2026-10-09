@@ -137,7 +137,9 @@ def write_krb5_conf_file(
     if parent_dir and not os.path.exists(parent_dir):
         os.makedirs(parent_dir, exist_ok=True)
 
-    with open(abs_path, "w", encoding="utf-8") as f:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(abs_path, flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
 
     kdc_str = kdc if isinstance(kdc, str) else ",".join(kdc)
@@ -160,7 +162,7 @@ def write_krb5_conf_file(
 
 def build_dns_srv_query(qname: str, tx_id: Optional[int] = None) -> bytes:
     """Build RFC 1035 / RFC 2782 DNS query packet for SRV record (QTYPE 33)."""
-    tid = tx_id if tx_id is not None else (os.urandom(2)[0] << 8 | os.urandom(2)[1])
+    tid = tx_id if tx_id is not None else int.from_bytes(os.urandom(2), "big")
     # Header: ID, Flags (0x0100 standard query, recursion desired), QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
     header = struct.pack(">HHHHHH", tid, 0x0100, 1, 0, 0, 0)
     labels = [lbl.encode("utf-8") for lbl in qname.strip(".").split(".") if lbl]
