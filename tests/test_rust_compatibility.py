@@ -172,6 +172,8 @@ class TestRustCompatibility(unittest.TestCase):
             content = f.read()
         self.assertIn("escape_json", content)
         self.assertNotIn("escape_json(armor)", content.replace("tanuki::escape_json(armor)", ""))
+        self.assertNotIn("crate::util", content)
+        self.assertIn("resolve_current_uid", content)
 
 
 if __name__ == "__main__":

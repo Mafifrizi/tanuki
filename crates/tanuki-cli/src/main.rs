@@ -7,8 +7,9 @@ use tanuki::{
     candidates_to_json, entries_to_json, errors_to_json, find_error_resolution,
     format_pac_report_terminal, generate_krb5_conf, ladder_to_json, pac_report_to_json,
     parse_and_validate_jwt, parse_keytab_bytes, parse_pac_source, query_active_directory_ldap,
-    run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source, scan_for_ccache_blobs,
-    validate_token_exchange, DoctorOptions, TokenExchangeParams, DECISION_LADDER, ERROR_DICTIONARY,
+    resolve_current_uid, run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source,
+    scan_for_ccache_blobs, validate_token_exchange, DoctorOptions, TokenExchangeParams,
+    DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 const TANUKI_BANNER: &str = r#" _____     _     _   _   _   _   _  __   _____ 
@@ -1245,7 +1246,7 @@ fn handle_auth(
         }
     }
 
-    let fallback_cc = format!("/tmp/krb5cc_{}", crate::util::resolve_current_uid());
+    let fallback_cc = format!("/tmp/krb5cc_{}", resolve_current_uid());
     let ccache = ccache_path_opt
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
         .unwrap_or(fallback_cc);
