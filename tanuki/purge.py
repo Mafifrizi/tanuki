@@ -156,7 +156,7 @@ class PurgeReport:
                 lines.append(f"    {branch} Unset variable: {var}")
             lines.append("    [*] Shell Guidance: Run 'unset KRB5_CONFIG KRB5CCNAME' to synchronize shell.")
 
-        lines.append(f"[+] Memory Hygiene: In-process credential buffers cryptographically zeroized.")
+        lines.append(f"[+] Memory Hygiene: Target credential buffers sanitized and ephemeral chunk memory zeroized.")
         lines.append("")
         lines.append(f"OVERALL PURGE STATUS: {self.status} (Zero operational forensic trace remaining)")
         return "\n".join(lines)

@@ -211,6 +211,16 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("ACE Count: 1", rendered)
         self.assertIn("Allowed Trustee: S-1-5-21-999-888-777-1108", rendered)
 
+    def test_ber_decode_tlv_boundaries_and_malformed_lengths(self):
+        with self.assertRaises(LdapError):
+            ber_decode_tlv(b"\x04\x82\x01", 0)
+
+        with self.assertRaises(LdapError):
+            ber_decode_tlv(b"\x04\x05abc", 0)
+
+        with self.assertRaises(LdapError):
+            ber_decode_tlv(b"\x04\x80\x00\x00", 0)
+
 
 if __name__ == "__main__":
     unittest.main()

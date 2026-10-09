@@ -543,6 +543,24 @@ class TestConfigCLIIntegration(unittest.TestCase):
         self.assertGreaterEqual(tx2, 0)
         self.assertLessEqual(tx2, 65535)
 
+    def test_parse_srv_response_txid_and_qr_validation(self):
+        import struct
+        from tanuki.config import parse_srv_response
+        header = struct.pack(">HHHHHH", 0x4321, 0x8180, 1, 1, 0, 0)
+        q_echo = b"\x09_kerberos\x04_tcp\x04corp\x05local\x00\x00\x21\x00\x01"
+        target_name = b"\x04dc01\x04corp\x05local\x00"
+        srv_rdata = struct.pack(">HHH", 0, 100, 88) + target_name
+        ans_rr = struct.pack(">HHIH", 0xC00C, 33, 1, 300) + struct.pack(">H", len(srv_rdata)) + srv_rdata
+        resp = header + q_echo + ans_rr
+
+        # Matching expected TID
+        self.assertEqual(len(parse_srv_response(resp, expected_tx_id=0x4321)), 1)
+        # Mismatched expected TID
+        self.assertEqual(len(parse_srv_response(resp, expected_tx_id=0x1111)), 0)
+        # Query packet with QR=0 (not a response)
+        query_header = struct.pack(">HHHHHH", 0x4321, 0x0100, 1, 1, 0, 0)
+        self.assertEqual(len(parse_srv_response(query_header + q_echo + ans_rr)), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

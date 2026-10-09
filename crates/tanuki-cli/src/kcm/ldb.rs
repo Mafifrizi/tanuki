@@ -141,7 +141,14 @@ pub fn save_candidates(
             format!("{}_recovered_{}.ccache", prefix, idx + 1)
         };
         let path = out_dir.join(file_name);
-        let mut file = File::create(&path)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(&path)?;
         file.write_all(&candidate.data)?;
         written.push(path);
     }

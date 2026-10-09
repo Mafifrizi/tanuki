@@ -387,7 +387,10 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
     }
 
     if cache_path.is_none() && cache_type == "NONE" {
-        let candidates = ["/tmp/krb5cc_0", "/tmp/krb5cc_1000"];
+        let current_uid = crate::util::resolve_current_uid();
+        let user_cc = format!("/tmp/krb5cc_{}", current_uid);
+        let mut candidates = vec![user_cc.as_str(), "/tmp/krb5cc_0", "/tmp/krb5cc_1000"];
+        candidates.dedup();
         for c in &candidates {
             if Path::new(c).is_file() {
                 cache_path = Some(c.to_string());
