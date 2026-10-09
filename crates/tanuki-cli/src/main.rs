@@ -211,7 +211,7 @@ fn run_tui_wizard() {
                     _ => "/etc/krb5.keytab".to_string(),
                 };
                 let princ = read_line_prompt("Principal (optional): ").filter(|s| !s.is_empty());
-                handle_auth(Some(kt), princ, None, false, None, None);
+                handle_auth(Some(kt), princ, None, false, None, None, false, None);
             }
             "5" => {
                 let pac_src = read_line_prompt("Target PAC file path or hex: ").unwrap_or_default();
@@ -692,7 +692,7 @@ fn main() {
             let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
             let target_princ = principal_opt.or_else(|| positional_args.get(1).cloned());
             let target_ccache = ccache_opt.or(out_opt);
-            handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt, kdc_opt);
+            handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt, kdc_opt, fast_opt, armor_cache_opt);
         }
         "config" => {
             let out_target = out_opt.or(file_opt).or_else(|| positional_args.first().cloned());
@@ -1107,6 +1107,8 @@ fn handle_auth(
     json_output: bool,
     krb5_conf_opt: Option<String>,
     kdc_opt: Option<String>,
+    fast: bool,
+    armor_cache_opt: Option<String>,
 ) {
     let kt_path = match keytab_path_opt {
         Some(p) => p,
@@ -1250,6 +1252,9 @@ fn handle_auth(
     let mut cmd = process::Command::new("kinit");
     cmd.args(["-k", "-t", &kt_path, &princ])
         .env("KRB5CCNAME", format!("FILE:{}", ccache));
+    if let Some(ref armor) = armor_cache_opt {
+        cmd.args(["-T", armor]);
+    }
     if let Some(ref conf) = krb5_conf_opt {
         cmd.env("KRB5_CONFIG", conf);
     }
@@ -1258,10 +1263,18 @@ fn handle_auth(
     match kinit_status {
         Ok(status) if status.success() => {
             if json_output {
-                println!(
-                    "{{\n  \"status\": \"SUCCESS\",\n  \"method\": \"kinit\",\n  \"principal\": \"{}\",\n  \"keytab\": \"{}\",\n  \"ccache\": \"{}\",\n  \"export_command\": \"export KRB5CCNAME={}\"\n}}",
+                let mut json_str = format!(
+                    "{{\n  \"status\": \"SUCCESS\",\n  \"method\": \"kinit\",\n  \"principal\": \"{}\",\n  \"keytab\": \"{}\",\n  \"ccache\": \"{}\",\n  \"export_command\": \"export KRB5CCNAME={}\"",
                     princ, kt_path, ccache, ccache
                 );
+                if fast {
+                    json_str.push_str(",\n  \"fast\": true");
+                }
+                if let Some(ref armor) = armor_cache_opt {
+                    json_str.push_str(&format!(",\n  \"armor_cache\": \"{}\"", armor));
+                }
+                json_str.push_str("\n}");
+                println!("{}", json_str);
             } else {
                 print_card_header(
                     "TANUKI UNPRIVILEGED TICKET ACQUISITION",
@@ -1271,6 +1284,12 @@ fn handle_auth(
                 println!("[+] Principal      : {}", princ);
                 println!("    ├─ Keytab File    : {}", kt_path);
                 println!("    ├─ Credential CC  : {}", ccache);
+                if fast {
+                    println!("    ├─ FAST Armoring  : Enabled (RFC 6113)");
+                }
+                if let Some(ref armor) = armor_cache_opt {
+                    println!("    ├─ Armor Cache    : {}", armor);
+                }
                 println!("    ╰─ Auth Method    : kinit");
                 println!("\n[+] Active Credential Cache Export:\n    $ export KRB5CCNAME={}", ccache);
             }

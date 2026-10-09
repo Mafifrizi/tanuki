@@ -629,6 +629,8 @@ def handle_auth(
     force_ctypes: bool = False,
     krb5_conf: Optional[str] = None,
     kdc: Optional[str] = None,
+    fast: bool = False,
+    armor_cache: Optional[str] = None,
 ) -> None:
     if not keytab_path:
         emit_cli_error(
@@ -646,6 +648,8 @@ def handle_auth(
         force_ctypes=force_ctypes,
         krb5_conf=krb5_conf,
         kdc=kdc,
+        fast=fast,
+        armor_cache=armor_cache,
     )
 
     if res.get("status") == "SUCCESS":
@@ -665,6 +669,10 @@ def handle_auth(
         print(f"[+] Principal      : {res['principal']}")
         print(f"    {t_branch} Keytab File    : {res['keytab']}")
         print(f"    {t_branch} Credential CC  : {res['ccache']}")
+        if res.get("fast"):
+            print(f"    {t_branch} FAST Armoring  : Enabled (RFC 6113)")
+        if res.get("armor_cache"):
+            print(f"    {t_branch} Armor Cache    : {res['armor_cache']}")
         print(f"    {l_branch} Auth Method    : {res.get('method', 'unknown')}")
         print("\n[+] Active Credential Cache Export:")
         print(f"    $ {res['export_command']}")
@@ -1493,6 +1501,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             force_ctypes=force_ctypes_opt,
             krb5_conf=krb5_conf_opt,
             kdc=kdc_opt,
+            fast=fast_opt,
+            armor_cache=armor_cache_opt,
         )
     elif command == "kcm":
         target = file_opt or (positional_args[0] if positional_args else None)

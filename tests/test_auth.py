@@ -219,6 +219,32 @@ class TestAuthEngine(unittest.TestCase):
             self.assertEqual(res["exit_code"], 3)
             self.assertIn("ssh -L 8888:192.168.56.106:88 user@pivot -N", res["details"])
 
+    def test_acquire_tgt_with_fast_and_armor_cache(self):
+        kt_bytes = build_synthetic_keytab(realm="CORP.LOCAL", principal_comps=["svc_fast"])
+        kt_path = os.path.join(self.temp_dir.name, "fast.keytab")
+        with open(kt_path, "wb") as f:
+            f.write(kt_bytes)
+
+        armor_path = os.path.join(self.temp_dir.name, "armor.ccache")
+        with open(armor_path, "wb") as f:
+            f.write(b"armor_data")
+
+        with patch("shutil.which", return_value="/usr/bin/kinit"), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            res = acquire_tgt(
+                kt_path,
+                principal="svc_fast@CORP.LOCAL",
+                fast=True,
+                armor_cache=armor_path,
+            )
+            self.assertEqual(res["status"], "SUCCESS")
+            self.assertTrue(res.get("fast"))
+            self.assertEqual(res.get("armor_cache"), os.path.abspath(armor_path))
+            cmd_args = mock_run.call_args[0][0]
+            self.assertIn("-T", cmd_args)
+            self.assertIn(os.path.abspath(armor_path), cmd_args)
+
 
 class TestAuthCLI(unittest.TestCase):
     """CLI and subprocess integration tests for tanuki auth."""

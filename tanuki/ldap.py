@@ -586,6 +586,14 @@ def query_active_directory_ldap(
             entries = client.search(base_dn=base_dn, filter_bytes=f_bytes, attributes=attrs)
             for e in entries:
                 e["query_category"] = q
+                if q == "rbcd":
+                    rbcd_raw_list = e.get("attributes", {}).get("msDS-AllowedToActOnBehalfOfOtherIdentity", [])
+                    if rbcd_raw_list and isinstance(rbcd_raw_list[0], (bytes, bytearray)):
+                        try:
+                            from .pac import parse_rbcd_security_descriptor
+                            e["rbcd_parsed"] = parse_rbcd_security_descriptor(bytes(rbcd_raw_list[0]))
+                        except Exception as parse_exc:
+                            e["rbcd_parse_error"] = str(parse_exc)
                 results.append(e)
 
         return {
@@ -651,6 +659,27 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
         lines.append(f"    {t_branch} DN: {dn}")
         for a_name, a_vals in attrs.items():
             if a_name != "sAMAccountName":
+                if a_name.lower() == "msds-allowedtoactonbehalfofotheridentity":
+                    for v in a_vals:
+                        if isinstance(v, (bytes, bytearray)):
+                            try:
+                                from .pac import parse_rbcd_security_descriptor
+                                r_desc = parse_rbcd_security_descriptor(bytes(v))
+                                t_sids = r_desc.get("allowed_trustee_sids", [])
+                                lines.append(f"    {t_branch} {a_name} (RBCD):")
+                                lines.append(f"    {v_line}  {t_branch} ACE Count: {r_desc.get('ace_count', 0)}")
+                                if t_sids:
+                                    for s_idx, s in enumerate(t_sids):
+                                        sub_b = l_branch if s_idx == len(t_sids) - 1 else t_branch
+                                        lines.append(f"    {v_line}  {sub_b} Allowed Trustee: {s}")
+                                else:
+                                    lines.append(f"    {v_line}  {l_branch} Allowed Trustee: None")
+                            except Exception as pe:
+                                lines.append(f"    {t_branch} {a_name}: <binary: {len(v)} bytes, parse error: {pe}>")
+                        else:
+                            lines.append(f"    {t_branch} {a_name}: {v}")
+                    continue
+
                 val_strs: List[str] = []
                 for v in a_vals[:3]:
                     if isinstance(v, bytes):

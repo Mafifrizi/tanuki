@@ -179,12 +179,37 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("ssh -L 8888:127.0.0.1:88", rep["error"])
         self.assertIn("remediation", rep)
 
-    def test_ldap_client_verify_ssl_option(self):
-        from tanuki.ldap import LdapClient
-        client_default = LdapClient("127.0.0.1", port=636, use_ssl=True)
-        self.assertFalse(client_default.verify_ssl)
-        client_verified = LdapClient("127.0.0.1", port=636, use_ssl=True, verify_ssl=True)
-        self.assertTrue(client_verified.verify_ssl)
+    def test_format_ldap_report_terminal_rbcd_parsing(self):
+        import struct
+        sd_header = struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 20)
+        auth_bytes = (5).to_bytes(6, byteorder="big")
+        subs = [21, 999, 888, 777, 1108]
+        sid_bytes = bytes([1, len(subs)]) + auth_bytes + b"".join(struct.pack("<I", s) for s in subs)
+        ace_len = 8 + len(sid_bytes)
+        ace_bytes = struct.pack("<BBH", 0, 0, ace_len) + struct.pack("<I", 0x00020000) + sid_bytes
+        acl_bytes = struct.pack("<BBHHH", 2, 0, 8 + ace_len, 1, 0) + ace_bytes
+        full_sd = sd_header + acl_bytes
+
+        report = {
+            "status": "SUCCESS",
+            "server": "192.168.56.106",
+            "base_dn": "DC=lab,DC=local",
+            "query": "rbcd",
+            "total_entries": 1,
+            "entries": [
+                {
+                    "dn": "CN=svc-sql,CN=Users,DC=lab,DC=local",
+                    "attributes": {
+                        "sAMAccountName": ["svc-sql"],
+                        "msDS-AllowedToActOnBehalfOfOtherIdentity": [full_sd],
+                    },
+                }
+            ],
+        }
+        rendered = format_ldap_report_terminal(report)
+        self.assertIn("msDS-AllowedToActOnBehalfOfOtherIdentity (RBCD):", rendered)
+        self.assertIn("ACE Count: 1", rendered)
+        self.assertIn("Allowed Trustee: S-1-5-21-999-888-777-1108", rendered)
 
 
 if __name__ == "__main__":

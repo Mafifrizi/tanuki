@@ -99,6 +99,8 @@ def acquire_tgt_via_ctypes(
     ccache_path: str,
     lib_path: Optional[str] = None,
     krb5_conf: Optional[str] = None,
+    fast: bool = False,
+    armor_cache: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire TGT using standard library ctypes bound to libkrb5 C runtime."""
     if krb5_conf:
@@ -118,13 +120,17 @@ def acquire_tgt_via_ctypes(
             cmd = [static_bin, "auth", "--keytab", os.path.abspath(keytab_path), "--principal", principal]
             if ccache_path:
                 cmd.extend(["--ccache", os.path.abspath(ccache_path)])
+            if fast:
+                cmd.append("--fast")
+            if armor_cache:
+                cmd.extend(["--armor-cache", os.path.abspath(armor_cache)])
             env = dict(os.environ)
             if krb5_conf:
                 env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
             try:
                 proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
                 if proc.returncode == 0:
-                    return {
+                    res_dict = {
                         "status": "SUCCESS",
                         "method": "static-binary",
                         "principal": principal,
@@ -132,6 +138,11 @@ def acquire_tgt_via_ctypes(
                         "ccache": os.path.abspath(ccache_path),
                         "export_command": f"export KRB5CCNAME={os.path.abspath(ccache_path)}",
                     }
+                    if fast:
+                        res_dict["fast"] = True
+                    if armor_cache:
+                        res_dict["armor_cache"] = os.path.abspath(armor_cache)
+                    return res_dict
             except (subprocess.SubprocessError, OSError):
                 pass
 
@@ -242,6 +253,29 @@ def acquire_tgt_via_ctypes(
                             ctypes.POINTER(ctypes.c_void_p),
                         ]
                         krb5.krb5_get_init_creds_opt_alloc(ctx, ctypes.byref(opt))
+                        if opt:
+                            if armor_cache and hasattr(krb5, "krb5_get_init_creds_opt_set_fast_ccache_name"):
+                                try:
+                                    krb5.krb5_get_init_creds_opt_set_fast_ccache_name.restype = ctypes.c_int32
+                                    krb5.krb5_get_init_creds_opt_set_fast_ccache_name.argtypes = [
+                                        ctypes.c_void_p,
+                                        ctypes.c_void_p,
+                                        ctypes.c_char_p,
+                                    ]
+                                    krb5.krb5_get_init_creds_opt_set_fast_ccache_name(ctx, opt, os.path.abspath(armor_cache).encode("utf-8"))
+                                except Exception:
+                                    pass
+                            if fast and hasattr(krb5, "krb5_get_init_creds_opt_set_fast_flags"):
+                                try:
+                                    krb5.krb5_get_init_creds_opt_set_fast_flags.restype = ctypes.c_int32
+                                    krb5.krb5_get_init_creds_opt_set_fast_flags.argtypes = [
+                                        ctypes.c_void_p,
+                                        ctypes.c_void_p,
+                                        ctypes.c_uint32,
+                                    ]
+                                    krb5.krb5_get_init_creds_opt_set_fast_flags(ctx, opt, 1)
+                                except Exception:
+                                    pass
 
                     # Buffer for krb5_creds structure (expanded to 4096 bytes for safe struct alignment)
                     creds_buf = ctypes.create_string_buffer(4096)
@@ -340,7 +374,7 @@ def acquire_tgt_via_ctypes(
                         except OSError:
                             pass
 
-                    return {
+                    res_dict = {
                         "status": "SUCCESS",
                         "method": "ctypes",
                         "principal": principal,
@@ -348,6 +382,11 @@ def acquire_tgt_via_ctypes(
                         "ccache": os.path.abspath(ccache_path),
                         "export_command": f"export KRB5CCNAME={os.path.abspath(ccache_path)}",
                     }
+                    if fast:
+                        res_dict["fast"] = True
+                    if armor_cache:
+                        res_dict["armor_cache"] = os.path.abspath(armor_cache)
+                    return res_dict
                 finally:
                     if hasattr(krb5, "krb5_cc_close"):
                         krb5.krb5_cc_close.restype = ctypes.c_int32
@@ -377,6 +416,8 @@ def acquire_tgt(
     force_ctypes: bool = False,
     krb5_conf: Optional[str] = None,
     kdc: Optional[str] = None,
+    fast: bool = False,
+    armor_cache: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire TGT using keytab via host kinit or fallback ctypes C library bridge."""
     if not os.path.exists(keytab_path):
@@ -485,6 +526,8 @@ def acquire_tgt(
     kinit_err: Optional[str] = None
     if kinit_bin and not force_ctypes:
         cmd = [kinit_bin, "-k", "-t", abs_keytab, target_princ]
+        if armor_cache:
+            cmd.extend(["-T", os.path.abspath(armor_cache)])
         env = dict(os.environ)
         if krb5_conf:
             env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
@@ -497,7 +540,7 @@ def acquire_tgt(
                         os.chmod(abs_ccache, 0o600)
                     except OSError:
                         pass
-                return {
+                success_dict = {
                     "status": "SUCCESS",
                     "method": "kinit",
                     "principal": target_princ,
@@ -505,6 +548,11 @@ def acquire_tgt(
                     "ccache": abs_ccache,
                     "export_command": f"export KRB5CCNAME={abs_ccache}",
                 }
+                if fast:
+                    success_dict["fast"] = True
+                if armor_cache:
+                    success_dict["armor_cache"] = os.path.abspath(armor_cache)
+                return success_dict
             else:
                 kinit_err = (proc.stderr or proc.stdout or "").strip()
         except (subprocess.SubprocessError, OSError) as exc:
@@ -516,6 +564,8 @@ def acquire_tgt(
         principal=target_princ,
         ccache_path=abs_ccache,
         krb5_conf=krb5_conf,
+        fast=fast,
+        armor_cache=armor_cache,
     )
     if ctypes_res.get("status") == "SUCCESS":
         return ctypes_res
