@@ -281,6 +281,42 @@ tanuki kcm
 tanuki kcm -f /var/lib/sss/secrets/secrets.ldb -o ./extracted_ccache
 ```
 
+Decode MS-PAC binary privileges and modern buffer layouts ([MS-PAC]):
+
+```bash
+# Decode raw MS-PAC binary stream or hex payload
+tanuki pac ./extracted_pac.bin
+
+# Decode with structured JSON output
+tanuki pac ./extracted_pac.bin --json
+```
+
+Dissect Active Directory Shadow Credentials ([MS-ADTS] 2.2.20):
+
+```bash
+# Dissect raw msDS-KeyCredentialLink binary blob
+tanuki shadow ./shadow_credential.bin
+
+# Dissect live LDAP DN-Binary string value
+tanuki shadow "B:736:00020000...:CN=svc-app,CN=Users,DC=corp,DC=local"
+
+# Output structured JSON for automation pipelines
+tanuki shadow ./shadow_credential.bin --json
+```
+
+Query Active Directory via unprivileged LDAP (zero superuser, fast socket probe):
+
+```bash
+# Audit Kerberos Service Principal Names (SPN)
+tanuki ldap --host 192.168.56.106 --query spn
+
+# Detect Resource-Based Constrained Delegation (RBCD) with in-line DACL parsing
+tanuki ldap --host 192.168.56.106 --query rbcd --base-dn "DC=corp,DC=local"
+
+# Detect Shadow Credentials with in-line key link decoding
+tanuki ldap --host 192.168.56.106 --query shadow --base-dn "DC=corp,DC=local"
+```
+
 Query the Kerberos error triage dictionary with dual-use SOC detection telemetry:
 
 Tanuki couples every tactical remediation (Rung 5) and all 10 Kerberos error codes with defender detection telemetry:
