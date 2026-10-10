@@ -16,5 +16,5 @@
 - [ ] **Rust Memory Safety**: Any Rust code adheres strictly to `#![forbid(unsafe_code)]` with zero `unsafe` blocks.
 - [ ] **Dual-Engine Parity**: CLI flags and features have been reviewed for parity between Python and Rust engines.
 - [ ] **Unprivileged Safety**: All operations run unprivileged without requiring root permissions wherever possible.
-- [ ] **Zero Em Dashes**: Verified that no em dashes exist in source code, docstrings, comments, or documentation.
+- [ ] **Code Hygiene**: Verified that changes adhere to project formatting standards with no residual debug code.
 - [ ] **Tests Added and Passing**: New tests are included, and the full test suite passes (`python -m unittest discover -s tests -v` and `cargo test`).

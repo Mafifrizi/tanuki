@@ -22,9 +22,6 @@ Before writing code, please review these core technical invariants. Every pull r
 4. **Unprivileged Execution by Default**:
    Tanuki commands must operate safely without `root` privileges wherever possible. Commands must degrade gracefully with actionable remediation when unprivileged permissions are insufficient.
 
-5. **Strict Zero Em Dash Policy**:
-   Em dash characters are forbidden across all source code, docstrings, comments, test assertions, and documentation. Use colons, commas, periods, or parentheses instead.
-
 ---
 
 ## Where to Start: Good First Issues
@@ -114,30 +111,9 @@ Run the Rust unit and integration tests:
 cargo test
 ```
 
-### Em Dash and Linter Check
+### Code Quality and Hygiene
 
-Verify that no forbidden em dashes exist in your changes:
-
-```bash
-python -c "
-import glob, sys
-bad = []
-for ext in ('*.py', '*.rs', '*.md', '*.yml', '*.toml'):
-    for p in glob.glob('**/' + ext, recursive=True):
-        if '.venv' in p or 'target' in p or '.git' in p:
-            continue
-        try:
-            with open(p, 'r', encoding='utf-8') as f:
-                if chr(8212) in f.read():
-                    bad.append(p)
-        except Exception:
-            pass
-if bad:
-    print('Forbidden em dashes found in:', bad)
-    sys.exit(1)
-print('Zero em dashes verified.')
-"
-```
+Verify that all changes adhere to clean formatting standards and contain no residual debugging statements or temporary files before opening a pull request.
 
 ---
 
