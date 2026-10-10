@@ -156,6 +156,31 @@ class TestRustCompatibility(unittest.TestCase):
         self.assertIn("parse_windows_sid", lib_content)
         self.assertIn("parse_rbcd_security_descriptor", lib_content)
 
+    def test_rust_shadow_and_pac_parity(self):
+        shadow_rs = os.path.join(self.crates_dir, "src", "shadow.rs")
+        self.assertTrue(os.path.isfile(shadow_rs))
+        with open(shadow_rs, "r", encoding="utf-8") as f:
+            shadow_content = f.read()
+        self.assertIn("pub fn parse_key_credential_link", shadow_content)
+        self.assertIn("pub fn parse_key_credential_bytes", shadow_content)
+        self.assertIn("pub fn parse_cng_public_key", shadow_content)
+        self.assertIn("pub fn parse_guid_bytes", shadow_content)
+        self.assertIn("pub struct ShadowCredentialReport", shadow_content)
+
+        pac_rs = os.path.join(self.crates_dir, "src", "pac.rs")
+        with open(pac_rs, "r", encoding="utf-8") as f:
+            pac_content = f.read()
+        self.assertIn("PAC_ATTRIBUTES_INFO: u32 = 17", pac_content)
+        self.assertIn("PAC_REQUESTOR_SID: u32 = 18", pac_content)
+        self.assertIn("PAC_REQUESTOR_GUID: u32 = 20", pac_content)
+        self.assertIn("pub fn parse_pac_attributes_info", pac_content)
+
+        lib_rs = os.path.join(self.crates_dir, "src", "lib.rs")
+        with open(lib_rs, "r", encoding="utf-8") as f:
+            lib_content = f.read()
+        self.assertIn("parse_key_credential_link", lib_content)
+        self.assertIn("ShadowCredentialReport", lib_content)
+
     def test_no_em_dashes_in_rust_source(self):
         src_dir = os.path.join(self.crates_dir)
         for root, _, files in os.walk(src_dir):

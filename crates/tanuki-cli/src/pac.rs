@@ -3,12 +3,20 @@ use std::fs;
 use std::path::Path;
 
 pub const PAC_LOGON_INFO: u32 = 1;
+pub const PAC_CREDENTIAL_INFO: u32 = 2;
 pub const PAC_SERVER_CHECKSUM: u32 = 6;
 pub const PAC_PRIVSVR_CHECKSUM: u32 = 7;
 pub const PAC_CLIENT_INFO: u32 = 10;
+pub const PAC_CONSTRAINED_DELEGATION: u32 = 11;
 pub const PAC_UPN_DNS_INFO: u32 = 12;
-pub const PAC_ATTRIBUTES_INFO: u32 = 16;
-pub const PAC_REQUESTOR_SID: u32 = 17;
+pub const PAC_CLIENT_CLAIMS: u32 = 13;
+pub const PAC_DEVICE_INFO: u32 = 14;
+pub const PAC_DEVICE_CLAIMS: u32 = 15;
+pub const PAC_TICKET_CHECKSUM: u32 = 16;
+pub const PAC_ATTRIBUTES_INFO: u32 = 17;
+pub const PAC_REQUESTOR_SID: u32 = 18;
+pub const PAC_FULL_CHECKSUM: u32 = 19;
+pub const PAC_REQUESTOR_GUID: u32 = 20;
 
 pub const DOMAIN_ADMINS_RID: u32 = 512;
 pub const DOMAIN_USERS_RID: u32 = 513;
@@ -88,24 +96,42 @@ pub struct PacClientInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PacAttributesInfo {
+    pub flags_length: u32,
+    pub flags_raw: u32,
+    pub pac_was_requested: bool,
+    pub pac_was_given_implicitly: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacReport {
     pub buffer_count: u32,
     pub version: u32,
     pub buffers: Vec<PacBufferInfo>,
     pub logon_info: Option<PacLogonInfo>,
     pub client_info: Option<PacClientInfo>,
+    pub attributes_info: Option<PacAttributesInfo>,
     pub requestor_sid: Option<String>,
+    pub requestor_guid: Option<String>,
 }
 
 fn get_buffer_type_name(ul_type: u32) -> &'static str {
     match ul_type {
         PAC_LOGON_INFO => "PAC_LOGON_INFO",
+        PAC_CREDENTIAL_INFO => "PAC_CREDENTIAL_INFO",
         PAC_SERVER_CHECKSUM => "PAC_SERVER_CHECKSUM",
         PAC_PRIVSVR_CHECKSUM => "PAC_PRIVSVR_CHECKSUM",
         PAC_CLIENT_INFO => "PAC_CLIENT_INFO",
+        PAC_CONSTRAINED_DELEGATION => "PAC_CONSTRAINED_DELEGATION",
         PAC_UPN_DNS_INFO => "PAC_UPN_DNS_INFO",
+        PAC_CLIENT_CLAIMS => "PAC_CLIENT_CLAIMS",
+        PAC_DEVICE_INFO => "PAC_DEVICE_INFO",
+        PAC_DEVICE_CLAIMS => "PAC_DEVICE_CLAIMS",
+        PAC_TICKET_CHECKSUM => "PAC_TICKET_CHECKSUM",
         PAC_ATTRIBUTES_INFO => "PAC_ATTRIBUTES_INFO",
         PAC_REQUESTOR_SID => "PAC_REQUESTOR_SID",
+        PAC_FULL_CHECKSUM => "PAC_FULL_CHECKSUM",
+        PAC_REQUESTOR_GUID => "PAC_REQUESTOR_GUID",
         _ => "PAC_UNKNOWN_TYPE",
     }
 }
@@ -436,6 +462,22 @@ pub fn parse_pac_client_info(data: &[u8]) -> Result<PacClientInfo, String> {
     })
 }
 
+pub fn parse_pac_attributes_info(data: &[u8]) -> Result<PacAttributesInfo, String> {
+    if data.len() < 8 {
+        return Err(format!("PAC_ATTRIBUTES_INFO underflow: got {} bytes, expected at least 8", data.len()));
+    }
+    let flags_length = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let flags_raw = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let pac_was_requested = (flags_raw & 0x00000001) != 0;
+    let pac_was_given_implicitly = (flags_raw & 0x00000002) != 0;
+    Ok(PacAttributesInfo {
+        flags_length,
+        flags_raw,
+        pac_was_requested,
+        pac_was_given_implicitly,
+    })
+}
+
 pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
     if data.len() < 32 {
         return Err("PAC_LOGON_INFO buffer underflow".to_string());
@@ -612,7 +654,9 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
     let mut buffers = Vec::new();
     let mut logon_info = None;
     let mut client_info = None;
+    let mut attributes_info = None;
     let mut requestor_sid = None;
+    let mut requestor_guid = None;
 
     for i in 0..c_buffers as usize {
         let pos = 8 + (i * 16);
@@ -649,9 +693,19 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
                     client_info = Some(info);
                 }
             }
+            PAC_ATTRIBUTES_INFO => {
+                if let Ok(info) = parse_pac_attributes_info(buf_slice) {
+                    attributes_info = Some(info);
+                }
+            }
             PAC_REQUESTOR_SID => {
                 if let Ok((sid, _)) = parse_rpc_sid(buf_slice, 0) {
                     requestor_sid = Some(sid);
+                }
+            }
+            PAC_REQUESTOR_GUID => {
+                if let Ok(guid) = crate::shadow::parse_guid_bytes(buf_slice) {
+                    requestor_guid = Some(guid);
                 }
             }
             _ => {}
@@ -664,7 +718,9 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
         buffers,
         logon_info,
         client_info,
+        attributes_info,
         requestor_sid,
+        requestor_guid,
     })
 }
 
@@ -737,10 +793,34 @@ pub fn pac_report_to_json(report: &PacReport) -> String {
         out.push_str(&format!("    \"unconstrained_delegation\": {},\n", l.unconstrained_delegation));
         out.push_str(&format!("    \"group_rids\": {:?},\n", l.group_rids));
         out.push_str(&format!("    \"uac_flags\": {:?}\n", l.uac_flags));
-        out.push_str("  }\n");
+        out.push_str("  },\n");
     } else {
-        out.push_str("  \"logon_info\": null\n");
+        out.push_str("  \"logon_info\": null,\n");
     }
+
+    if let Some(ref a) = report.attributes_info {
+        out.push_str("  \"attributes_info\": {\n");
+        out.push_str(&format!("    \"flags_length\": {},\n", a.flags_length));
+        out.push_str(&format!("    \"flags_raw\": {},\n", a.flags_raw));
+        out.push_str(&format!("    \"pac_was_requested\": {},\n", a.pac_was_requested));
+        out.push_str(&format!("    \"pac_was_given_implicitly\": {}\n", a.pac_was_given_implicitly));
+        out.push_str("  },\n");
+    } else {
+        out.push_str("  \"attributes_info\": null,\n");
+    }
+
+    if let Some(ref s) = report.requestor_sid {
+        out.push_str(&format!("  \"requestor_sid\": \"{}\",\n", escape_json(s)));
+    } else {
+        out.push_str("  \"requestor_sid\": null,\n");
+    }
+
+    if let Some(ref g) = report.requestor_guid {
+        out.push_str(&format!("  \"requestor_guid\": \"{}\"\n", escape_json(g)));
+    } else {
+        out.push_str("  \"requestor_guid\": null\n");
+    }
+
     out.push('}');
     out
 }
@@ -776,6 +856,18 @@ pub fn format_pac_report_terminal(report: &PacReport) -> String {
         }
     } else {
         out.push_str("[*] No PAC_LOGON_INFO buffer parsed.\n");
+    }
+
+    if let Some(ref a) = report.attributes_info {
+        out.push_str("\n[+] PAC Attributes Info (Buffer 17):\n");
+        out.push_str(&format!("    ├─ PAC Was Requested        : {}\n", a.pac_was_requested));
+        out.push_str(&format!("    ╰─ PAC Was Given Implicitly : {}\n", a.pac_was_given_implicitly));
+    }
+    if let Some(ref s) = report.requestor_sid {
+        out.push_str(&format!("[+] Requestor SID (Buffer 18)   : {}\n", s));
+    }
+    if let Some(ref g) = report.requestor_guid {
+        out.push_str(&format!("[+] Requestor GUID (Buffer 20)  : {}\n", g));
     }
 
     out

@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
     candidates_to_json, entries_to_json, errors_to_json, find_error_resolution,
-    format_pac_report_terminal, generate_krb5_conf, ladder_to_json, pac_report_to_json,
-    parse_and_validate_jwt, parse_keytab_bytes, parse_pac_source, query_active_directory_ldap,
-    resolve_current_uid, run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source,
-    scan_for_ccache_blobs, validate_token_exchange, DoctorOptions, TokenExchangeParams,
+    format_pac_report_terminal, format_shadow_report_terminal, generate_krb5_conf,
+    ladder_to_json, pac_report_to_json, parse_and_validate_jwt, parse_key_credential_link,
+    parse_keytab_bytes, parse_pac_source, query_active_directory_ldap, resolve_current_uid,
+    run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source, scan_for_ccache_blobs,
+    shadow_report_to_json, validate_token_exchange, DoctorOptions, TokenExchangeParams,
     DECISION_LADDER, ERROR_DICTIONARY,
 };
 
@@ -44,6 +45,7 @@ COMMANDS:
     fix [OPTIONS]       Idempotent closed-loop self-healing remediation
     purge [OPTIONS]     Cryptographic zero-trace forensic purge (NIST SP 800-88)
     pac <FILE|HEX>      Decode and audit MS-PAC authorization data
+    shadow <INPUT>      Dissect Active Directory Shadow Credentials (MS-ADTS 2.2.20)
     adcs <FILE|SOURCE>  Scan Active Directory Certificate Templates (ESC1-ESC11)
     ldap [OPTIONS]      Unprivileged Active Directory LDAP query engine
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
@@ -585,6 +587,7 @@ fn main() {
                         | "purge"
                         | "adcs"
                         | "ldap"
+                        | "shadow"
                 ) =>
             {
                 explicit_command = Some(cmd.to_string());
@@ -670,6 +673,10 @@ fn main() {
         "adcs" => {
             let target_source = file_opt.or_else(|| positional_args.first().cloned());
             handle_adcs(target_source, global_json);
+        }
+        "shadow" => {
+            let target_source = positional_args.first().or(file_opt.as_ref()).cloned();
+            handle_shadow(target_source, global_json);
         }
         "ldap" => {
             let host = host_opt.or_else(|| positional_args.first().cloned());
@@ -1986,6 +1993,44 @@ fn handle_ldap(
 
     if rep.status == "BIND_FAILED" || rep.status == "CONNECTION_FAILED" {
         process::exit(EXIT_RESOURCE_MISSING);
+    }
+}
+
+fn handle_shadow(source_opt: Option<String>, json_output: bool) {
+    let source = match source_opt {
+        Some(s) => s,
+        None => {
+            emit_cli_error(
+                "Error: Shadow Credential input required (file path, raw hex, or DN-Binary string). Example: tanuki shadow ./blob.bin",
+                "MISSING_ARGUMENT",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                None,
+                None,
+                json_output,
+            );
+        }
+    };
+
+    match parse_key_credential_link(&source) {
+        Ok(rep) => {
+            if json_output {
+                println!("{}", shadow_report_to_json(&rep));
+            } else {
+                println!("{}", format_shadow_report_terminal(&rep));
+            }
+        }
+        Err(err) => {
+            emit_cli_error(
+                &format!("Error parsing Shadow Credential: {}", err),
+                "SHADOW_PARSE_ERROR",
+                "PARSE_FAILURE",
+                EXIT_PARSE_FAILURE,
+                Some(&source),
+                Some(&err),
+                json_output,
+            );
+        }
     }
 }
 

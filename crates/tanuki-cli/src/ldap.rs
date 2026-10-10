@@ -349,7 +349,6 @@ impl LdapReport {
                     let is_binary_attr = matches!(
                         a_name.to_ascii_lowercase().as_str(),
                         "msds-allowedtoactonbehalfofotheridentity"
-                            | "msds-keycredentiallink"
                             | "objectsid"
                             | "objectguid"
                             | "usercertificate"
@@ -376,6 +375,36 @@ impl LdapReport {
                                 }
                             } else {
                                 out.push_str(&format!("    │  ╰─ Parse Error (raw bytes: {})\n", raw_bytes.len()));
+                            }
+                        }
+                        continue;
+                    }
+
+                    if a_name.eq_ignore_ascii_case("msds-keycredentiallink") {
+                        for val in a_vals {
+                            if let Ok(s_rep) = crate::shadow::parse_key_credential_link(val) {
+                                out.push_str(&format!("    ├─ {} (Shadow Credential v{}):\n", a_name, s_rep.version_str));
+                                if let Some(ref kid) = s_rep.key_id {
+                                    out.push_str(&format!("    │  ├─ Key ID   : {}\n", kid));
+                                }
+                                if let Some(ref usage) = s_rep.key_usage {
+                                    let src = s_rep.key_source.as_deref().unwrap_or("N/A");
+                                    out.push_str(&format!("    │  ├─ Usage    : {} (Source: {})\n", usage, src));
+                                }
+                                if let Some(ref km) = s_rep.key_material {
+                                    if km.key_type == "RSA" {
+                                        out.push_str(&format!("    │  ├─ Key Type : RSA {} bits\n", km.bit_length.unwrap_or(0)));
+                                    } else if km.key_type == "ECC" {
+                                        out.push_str(&format!("    │  ├─ Key Type : ECC {}\n", km.curve.as_deref().unwrap_or("P-256")));
+                                    }
+                                }
+                                if let Some(ref dev) = s_rep.device_id {
+                                    out.push_str(&format!("    │  ╰─ Device ID: {}\n", dev));
+                                } else {
+                                    out.push_str("    │  ╰─ Device ID: None\n");
+                                }
+                            } else {
+                                out.push_str(&format!("    ├─ {}: {}\n", a_name, val));
                             }
                         }
                         continue;
@@ -481,7 +510,6 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
                 let is_binary = matches!(
                     attr_name.to_ascii_lowercase().as_str(),
                     "msds-allowedtoactonbehalfofotheridentity"
-                        | "msds-keycredentiallink"
                         | "objectsid"
                         | "objectguid"
                         | "usercertificate"
