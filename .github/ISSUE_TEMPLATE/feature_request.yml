@@ -1,0 +1,57 @@
+name: Feature Proposal
+description: Suggest an idea, new protocol feature, or diagnostic improvement for Tanuki
+title: "feat: [short summary of feature]"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We welcome proposals for new features, protocol capabilities, and operational improvements.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What specific operational challenge or protocol limitation does this address?
+      placeholder: "When auditing unprivileged Linux hosts in Active Directory environments..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the CLI interface, behavior, and output structure.
+      placeholder: "Add `tanuki ...` flag to parse..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: engine_scope
+    attributes:
+      label: Engine Implementation Scope
+      description: Invariants require dual-engine parity between Python and Rust whenever practical.
+      options:
+        - Python Core only (prototype)
+        - Rust Core only (performance critical)
+        - Dual-Engine (Both Python and Rust)
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Considered Alternatives
+      description: Are there existing workarounds, tools, or approaches you considered?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: compliance
+    attributes:
+      label: Architectural Alignment
+      options:
+        - label: This proposal does not require external third-party dependencies for the Python package (pure standard library invariant).
+          required: true
+        - label: This proposal supports unprivileged execution without requiring root privileges wherever possible.
+          required: true

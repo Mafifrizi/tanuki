@@ -1,0 +1,87 @@
+name: Bug Report
+description: Report an issue, crash, or unexpected behavior in Tanuki
+title: "fix: [short description of the issue]"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue. Please provide reproduction details below so maintainers can reproduce and resolve it quickly.
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Affected Engine
+      description: Which engine did you experience this issue with?
+      options:
+        - Python CLI (tanuki / pip)
+        - Rust Binary (tanuki-cli / musl)
+        - Both Engines
+        - Unsure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Tanuki Version
+      description: Run `tanuki --version` and paste the output.
+      placeholder: "tanuki 1.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Operating System and Environment
+      description: e.g., Kali Linux 2024.2 x86_64, Ubuntu 22.04 LTS, Alpine 3.19 musl, Windows Server 2022
+      placeholder: "Kali Linux 2024.2 x86_64, Python 3.11.8"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command Executed
+      description: The exact command line string you ran.
+      placeholder: "tanuki doctor --krb5-conf /etc/krb5.conf"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual Behavior and Error Output
+      description: Include exact terminal output, stack traces, or exit codes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to trigger this behavior.
+      placeholder: |
+        1. Export keytab with AES-256 keys
+        2. Run `tanuki auth --keytab ...`
+        3. See error output
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation Checklist
+      options:
+        - label: I verified that no sensitive credentials, passwords, or production keytabs are included in this report.
+          required: true
+        - label: I checked existing issues to make sure this is not a duplicate.
+          required: true

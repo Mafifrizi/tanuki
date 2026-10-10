@@ -531,6 +531,7 @@ tanuki/
 ├── AGENTS.md                  # Multi-agent prompt file
 ├── CLAUDE.md                  # Claude Code project guide
 ├── .cursor/rules/tanuki.mdc   # Cursor rule definition
+├── CONTRIBUTING.md            # Developer guide and contribution invariants
 ├── LICENSE                    # Dual license declaration
 ├── LICENSE-APACHE             # Apache License 2.0
 ├── LICENSE-MIT                # MIT License
@@ -557,6 +558,16 @@ Tanuki draws inspiration and tradecraft from two projects:
 
 - **Tim Brown ([@timb-machine](https://github.com/timb-machine))**: Created [Linikatz](https://github.com/CiscoCXSecurity/linikatz) and pioneered Linux Active Directory assessment techniques, keytab analysis, and credential cache harvesting.
 - **Dietrich Gebert ([@dietrichayala](https://github.com/dietrichayala))**: Created [Ponytail](https://github.com/DietrichGebert/ponytail) and demonstrated how a disciplined decision ladder prevents AI agent hallucination and conversational bloat.
+
+---
+
+## Contributing
+
+We welcome community contributions from protocol researchers, systems engineers, and toolmakers. Tanuki enforces two core invariants: zero external dependencies in the Python core, and `#![forbid(unsafe_code)]` in the Rust core.
+
+- **Developer Guide**: See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local environment setup, testing commands, and PR guidelines.
+- **Good First Issues**: We curate starter ideas including shell autocompletion (`bash`/`zsh`/`fish`), error dictionary expansion in `tanuki triage`, and SARIF/Markdown export formatters.
+- **Reporting Issues**: Use our structured [Issue Templates](https://github.com/Mafifrizi/tanuki/issues/new/choose) for bug reports and feature proposals.
 
 ---
 

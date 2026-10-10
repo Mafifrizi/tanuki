@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Community Discussions and Architecture Questions
+    url: https://github.com/Mafifrizi/tanuki/discussions
+    about: Ask questions, share workflows, or discuss Non-Human Identity architectures.
+  - name: Security Vulnerability Reporting
+    url: https://github.com/Mafifrizi/tanuki/security/advisories/new
+    about: Privately disclose sensitive security vulnerabilities.
