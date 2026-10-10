@@ -393,6 +393,7 @@ class LdapClient:
         self.verify_ssl = verify_ssl
         self.sock: Optional[socket.socket] = None
         self.msg_counter = 1
+        self.connected = False
 
     def connect(self) -> None:
         """Establish TCP or LDAPS connection."""
@@ -412,7 +413,9 @@ class LdapClient:
                 self.sock = raw_sock
 
             self.sock.connect((self.host, self.port))
+            self.connected = True
         except Exception as exc:
+            self.connected = False
             raise LdapError(f"Connection to LDAP server {self.host}:{self.port} failed: {exc}")
 
     def close(self) -> None:
@@ -423,6 +426,7 @@ class LdapClient:
             except Exception:
                 pass
             self.sock = None
+        self.connected = False
 
     def send_and_recv(self, req_bytes: bytes) -> bytes:
         """Send LDAP request bytes and receive response."""
@@ -594,6 +598,16 @@ def query_active_directory_ldap(
                             e["rbcd_parsed"] = parse_rbcd_security_descriptor(bytes(rbcd_raw_list[0]))
                         except Exception as parse_exc:
                             e["rbcd_parse_error"] = str(parse_exc)
+                elif q == "shadow":
+                    shadow_raw_list = e.get("attributes", {}).get("msDS-KeyCredentialLink", []) or e.get("attributes", {}).get("msds-keycredentiallink", [])
+                    if shadow_raw_list:
+                        e["shadow_credentials"] = []
+                        for s_item in shadow_raw_list:
+                            try:
+                                from .shadow import parse_key_credential_link
+                                e["shadow_credentials"].append(parse_key_credential_link(s_item))
+                            except Exception as parse_exc:
+                                e["shadow_credentials"].append({"error": str(parse_exc)})
                 results.append(e)
 
         return {
@@ -678,6 +692,23 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
                                 lines.append(f"    {t_branch} {a_name}: <binary: {len(v)} bytes, parse error: {pe}>")
                         else:
                             lines.append(f"    {t_branch} {a_name}: {v}")
+                    continue
+                elif a_name.lower() == "msds-keycredentiallink":
+                    for v in a_vals:
+                        try:
+                            from .shadow import parse_key_credential_link
+                            s_rep = parse_key_credential_link(v)
+                            lines.append(f"    {t_branch} {a_name} (Shadow Credential v{s_rep.get('version_str', '2.0')}):")
+                            lines.append(f"    {v_line}  {t_branch} Key ID   : {s_rep.get('key_id', 'N/A')}")
+                            lines.append(f"    {v_line}  {t_branch} Usage    : {s_rep.get('key_usage', 'N/A')} (Source: {s_rep.get('key_source', 'N/A')})")
+                            km = s_rep.get("key_material") or {}
+                            if km.get("key_type") == "RSA":
+                                lines.append(f"    {v_line}  {t_branch} Key Type : RSA {km.get('bit_length')} bits")
+                            elif km.get("key_type") == "ECC":
+                                lines.append(f"    {v_line}  {t_branch} Key Type : ECC {km.get('curve')}")
+                            lines.append(f"    {v_line}  {l_branch} Device ID: {s_rep.get('device_id', 'N/A')}")
+                        except Exception as pe:
+                            lines.append(f"    {t_branch} {a_name}: <parse error: {pe}>")
                     continue
 
                 val_strs: List[str] = []

@@ -19,21 +19,37 @@ from .doctor import render_card_header, supports_unicode
 
 # PAC Buffer Types (MS-PAC 2.2.1)
 PAC_LOGON_INFO = 1
+PAC_CREDENTIAL_INFO = 2
 PAC_SERVER_CHECKSUM = 6
 PAC_PRIVSVR_CHECKSUM = 7
 PAC_CLIENT_INFO = 10
+PAC_CONSTRAINED_DELEGATION = 11
 PAC_UPN_DNS_INFO = 12
-PAC_ATTRIBUTES_INFO = 16
-PAC_REQUESTOR_SID = 17
+PAC_CLIENT_CLAIMS = 13
+PAC_DEVICE_INFO = 14
+PAC_DEVICE_CLAIMS = 15
+PAC_TICKET_CHECKSUM = 16
+PAC_ATTRIBUTES_INFO = 17
+PAC_REQUESTOR_SID = 18
+PAC_FULL_CHECKSUM = 19
+PAC_REQUESTOR_GUID = 20
 
 BUFFER_TYPE_NAMES = {
     PAC_LOGON_INFO: "PAC_LOGON_INFO",
+    PAC_CREDENTIAL_INFO: "PAC_CREDENTIAL_INFO",
     PAC_SERVER_CHECKSUM: "PAC_SERVER_CHECKSUM",
     PAC_PRIVSVR_CHECKSUM: "PAC_PRIVSVR_CHECKSUM",
     PAC_CLIENT_INFO: "PAC_CLIENT_INFO",
+    PAC_CONSTRAINED_DELEGATION: "PAC_CONSTRAINED_DELEGATION",
     PAC_UPN_DNS_INFO: "PAC_UPN_DNS_INFO",
+    PAC_CLIENT_CLAIMS: "PAC_CLIENT_CLAIMS",
+    PAC_DEVICE_INFO: "PAC_DEVICE_INFO",
+    PAC_DEVICE_CLAIMS: "PAC_DEVICE_CLAIMS",
+    PAC_TICKET_CHECKSUM: "PAC_TICKET_CHECKSUM",
     PAC_ATTRIBUTES_INFO: "PAC_ATTRIBUTES_INFO",
     PAC_REQUESTOR_SID: "PAC_REQUESTOR_SID",
+    PAC_FULL_CHECKSUM: "PAC_FULL_CHECKSUM",
+    PAC_REQUESTOR_GUID: "PAC_REQUESTOR_GUID",
 }
 
 # Well-Known Active Directory RIDs
@@ -384,18 +400,59 @@ def parse_pac_client_info(data: bytes) -> Dict[str, Any]:
     }
 
 
+SIGNATURE_TYPE_NAMES = {
+    15: "KERB_CHECKSUM_HMAC_MD5",
+    16: "KERB_CHECKSUM_HMAC_SHA1_96_AES256",
+    -138: "KERB_CHECKSUM_HMAC_SHA1_96_AES256",
+    4294967158: "KERB_CHECKSUM_HMAC_SHA1_96_AES256",
+    -133: "KERB_CHECKSUM_HMAC_SHA1_96_AES128",
+    4294967163: "KERB_CHECKSUM_HMAC_SHA1_96_AES128",
+}
+
+
 def parse_pac_signature(data: bytes, sig_type_name: str) -> Dict[str, Any]:
-    """Parse PAC signature buffer (Type 6 or 7)."""
+    """Parse PAC signature buffer (Type 6, 7, 16, or 19)."""
     if len(data) < 4:
         raise PacDecodeError(f"{sig_type_name} underflow (requires at least 4 bytes)")
 
-    (sig_type,) = struct.unpack_from("<I", data, 0)
+    (sig_type_raw,) = struct.unpack_from("<I", data, 0)
+    sig_type_signed = sig_type_raw if sig_type_raw < 0x80000000 else sig_type_raw - 0x100000000
+    algo_name = SIGNATURE_TYPE_NAMES.get(
+        sig_type_signed, SIGNATURE_TYPE_NAMES.get(sig_type_raw, f"TYPE_{sig_type_raw}")
+    )
     sig_data = data[4:]
     return {
-        "signature_type": sig_type,
+        "signature_type": sig_type_raw,
+        "signature_type_signed": sig_type_signed,
+        "algorithm": algo_name,
         "signature_hex": sig_data.hex(),
         "signature_len": len(sig_data),
     }
+
+
+def parse_pac_attributes_info(data: bytes) -> Dict[str, Any]:
+    """Parse PAC_ATTRIBUTES_INFO buffer ([MS-PAC] 2.14)."""
+    if len(data) < 8:
+        raise PacDecodeError(f"PAC_ATTRIBUTES_INFO underflow: got {len(data)} bytes, expected at least 8")
+
+    flags_length, flags = struct.unpack_from("<II", data, 0)
+    pac_was_requested = bool(flags & 0x00000001)
+    pac_was_given_implicitly = bool(flags & 0x00000002)
+    return {
+        "flags_length": flags_length,
+        "flags_raw": flags,
+        "pac_was_requested": pac_was_requested,
+        "pac_was_given_implicitly": pac_was_given_implicitly,
+    }
+
+
+def parse_pac_guid(data: bytes) -> str:
+    """Parse 16-byte Windows GUID into standard UUID string format."""
+    if len(data) < 16:
+        raise PacDecodeError("PAC buffer underflow reading GUID")
+    d1, d2, d3 = struct.unpack_from("<IHH", data, 0)
+    d4 = data[8:16]
+    return f"{d1:08x}-{d2:04x}-{d3:04x}-{d4[:2].hex()}-{d4[2:].hex()}".lower()
 
 
 def parse_pac_logon_info(data: bytes) -> Dict[str, Any]:
@@ -598,7 +655,11 @@ def parse_pac_bytes(raw_bytes: bytes) -> Dict[str, Any]:
     client_info: Optional[Dict[str, Any]] = None
     server_checksum: Optional[Dict[str, Any]] = None
     privsvr_checksum: Optional[Dict[str, Any]] = None
+    ticket_checksum: Optional[Dict[str, Any]] = None
+    attributes_info: Optional[Dict[str, Any]] = None
     requestor_sid: Optional[str] = None
+    full_checksum: Optional[Dict[str, Any]] = None
+    requestor_guid: Optional[str] = None
 
     for i in range(c_buffers):
         pos = 8 + (i * 16)
@@ -639,11 +700,31 @@ def parse_pac_bytes(raw_bytes: bytes) -> Dict[str, Any]:
                 privsvr_checksum = parse_pac_signature(buf_data, "PRIVSVR_CHECKSUM")
             except Exception as exc:
                 privsvr_checksum = {"error": str(exc)}
+        elif ul_type == PAC_TICKET_CHECKSUM:
+            try:
+                ticket_checksum = parse_pac_signature(buf_data, "TICKET_CHECKSUM")
+            except Exception as exc:
+                ticket_checksum = {"error": str(exc)}
+        elif ul_type == PAC_ATTRIBUTES_INFO:
+            try:
+                attributes_info = parse_pac_attributes_info(buf_data)
+            except Exception as exc:
+                attributes_info = {"error": str(exc)}
         elif ul_type == PAC_REQUESTOR_SID:
             try:
                 requestor_sid, _ = parse_rpc_sid(buf_data, 0)
             except Exception as exc:
                 requestor_sid = f"Error: {exc}"
+        elif ul_type == PAC_FULL_CHECKSUM:
+            try:
+                full_checksum = parse_pac_signature(buf_data, "FULL_CHECKSUM")
+            except Exception as exc:
+                full_checksum = {"error": str(exc)}
+        elif ul_type == PAC_REQUESTOR_GUID:
+            try:
+                requestor_guid = parse_pac_guid(buf_data)
+            except Exception as exc:
+                requestor_guid = f"Error: {exc}"
 
     return {
         "status": "SUCCESS",
@@ -654,7 +735,11 @@ def parse_pac_bytes(raw_bytes: bytes) -> Dict[str, Any]:
         "client_info": client_info,
         "server_checksum": server_checksum,
         "privsvr_checksum": privsvr_checksum,
+        "ticket_checksum": ticket_checksum,
+        "attributes_info": attributes_info,
         "requestor_sid": requestor_sid,
+        "full_checksum": full_checksum,
+        "requestor_guid": requestor_guid,
     }
 
 

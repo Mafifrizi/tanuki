@@ -214,6 +214,35 @@ class TestPacDecoder(unittest.TestCase):
                 except OSError:
                     pass
 
+    def test_parse_pac_attributes_info(self):
+        from tanuki.pac import parse_pac_attributes_info
+        # PAC_WAS_REQUESTED (0x01) and PAC_WAS_GIVEN_IMPLICITLY (0x02)
+        raw_attr = struct.pack("<II", 2, 0x00000003)
+        res = parse_pac_attributes_info(raw_attr)
+        self.assertEqual(res["flags_length"], 2)
+        self.assertTrue(res["pac_was_requested"])
+        self.assertTrue(res["pac_was_given_implicitly"])
+
+        raw_attr_req_only = struct.pack("<II", 2, 0x00000001)
+        res_req = parse_pac_attributes_info(raw_attr_req_only)
+        self.assertTrue(res_req["pac_was_requested"])
+        self.assertFalse(res_req["pac_was_given_implicitly"])
+
+        with self.assertRaises(PacDecodeError):
+            parse_pac_attributes_info(b"\x00\x00")
+
+    def test_parse_pac_signatures_and_guid(self):
+        from tanuki.pac import parse_pac_signature, parse_pac_guid
+        # Type -138 / 4294967158 (HMAC-SHA1-96-AES256)
+        sig_bytes = struct.pack("<I", 4294967158) + b"\x01" * 12
+        sig_info = parse_pac_signature(sig_bytes, "SERVER_CHECKSUM")
+        self.assertEqual(sig_info["signature_type_signed"], -138)
+        self.assertEqual(sig_info["algorithm"], "KERB_CHECKSUM_HMAC_SHA1_96_AES256")
+
+        guid_bytes = bytes.fromhex("11223344556677889900aabbccddeeff")
+        guid_str = parse_pac_guid(guid_bytes)
+        self.assertEqual(guid_str, "44332211-6655-8877-9900-aabbccddeeff")
+
 
 if __name__ == "__main__":
     unittest.main()

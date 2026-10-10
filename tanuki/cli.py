@@ -59,6 +59,7 @@ COMMANDS:
     fix [OPTIONS]       Idempotent closed-loop self-healing remediation
     purge [OPTIONS]     Cryptographic zero-trace artifact sanitization (NIST SP 800-88)
     pac [PATH_OR_HEX]   Decode MS-PAC binary structures and privileges
+    shadow [INPUT]      Decode msDS-KeyCredentialLink binary structures ([MS-ADTS] 2.2.20)
     adcs [OPTIONS]      Passive AD CS certificate and template scanner (ESC1-ESC11)
     ldap [OPTIONS]      Query Active Directory via unprivileged SASL GSSAPI LDAP
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
@@ -927,6 +928,35 @@ def handle_pac(source: Optional[str], json_output: bool, is_file: bool = False) 
         print(format_pac_report_terminal(res))
 
 
+def handle_shadow(source: Optional[str], json_output: bool = False) -> None:
+    """Handle tanuki shadow command."""
+    if not source:
+        emit_cli_error(
+            "Error: missing target binary, hex string, file path, or DN-Binary for shadow credential decode",
+            reason_code="MISSING_INPUT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    try:
+        from .shadow import parse_key_credential_link, format_shadow_report_terminal
+        res = parse_key_credential_link(source)
+    except Exception as exc:
+        emit_cli_error(
+            f"Error decoding Shadow Credential: {exc}",
+            reason_code="CORRUPT_SHADOW_CREDENTIAL",
+            category="PARSE_FAILURE",
+            exit_code=EXIT_PARSE_FAILURE,
+            target=source,
+            details=str(exc),
+            json_output=json_output,
+        )
+    if json_output:
+        print(json.dumps(res, indent=2))
+    else:
+        print(format_shadow_report_terminal(res))
+
+
 def handle_fix(
     keytab_path: Optional[str],
     realm: Optional[str],
@@ -1462,7 +1492,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 i += 1
         elif explicit_command is None and arg in (
             "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
-            "pac", "fix", "purge", "adcs", "ldap",
+            "pac", "shadow", "fix", "purge", "adcs", "ldap",
         ):
             explicit_command = arg
         elif not arg.startswith("-"):
@@ -1528,6 +1558,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     elif command == "pac":
         target = file_opt or (positional_args[0] if positional_args else None)
         handle_pac(target, global_json, is_file=bool(file_opt))
+    elif command == "shadow":
+        target = file_opt or (positional_args[0] if positional_args else None)
+        handle_shadow(target, global_json)
     elif command == "fix":
         target_kt = keytab_opt or file_opt or (positional_args[0] if positional_args else None)
         handle_fix(
@@ -1608,3 +1641,4 @@ def main(argv: Optional[List[str]] = None) -> None:
             target=command,
             json_output=global_json,
         )
+    return 0

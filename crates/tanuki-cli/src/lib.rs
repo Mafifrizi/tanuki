@@ -11,6 +11,7 @@ pub mod nhi;
 pub mod pac;
 pub mod protocol;
 pub mod purge;
+pub mod shadow;
 pub mod util;
 
 pub use adcs::{scan_adcs_source, AdcsFinding, AdcsReport};
@@ -37,4 +38,8 @@ pub use protocol::{
     ERROR_DICTIONARY, FalcoRuleRef, SigmaRuleRef, TelemetryData,
 };
 pub use purge::{run_purge, shred_file, PurgeReport, ShredResult};
+pub use shadow::{
+    format_shadow_report_terminal, parse_cng_public_key, parse_key_credential_bytes,
+    parse_key_credential_link, shadow_report_to_json, KeyMaterialInfo, ShadowCredentialReport,
+};
 pub use util::{escape_json, fill_dynamic_entropy, resolve_current_uid};
