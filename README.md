@@ -155,26 +155,42 @@ Acquires a Kerberos Ticket Granting Ticket (TGT) directly from the Domain Contro
 
 ##### 5. Post-Authentication Health Diagnostic Pass (`tanuki doctor`)
 
-Confirms active AES-256 Kerberos ticket cache with **9h 59m 49s** remaining lifetime, executing in **1.35 ms** with zero network emission:
+Confirms active AES-256 Kerberos ticket cache with **11h 22m 27s** remaining lifetime, executing in **0.90 ms** with zero network emission:
 
 <p align="center">
   <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2.5: Post-Auth Doctor Pass with AES-256 Session" width="850">
 </p>
 
-##### 6. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
+##### 6. Bounded MS-PAC Privilege Validation (`tanuki pac`)
+
+Decodes MS-PAC privilege attributes and logon information buffers with NDR structure boundary validation:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-pac.png" alt="Act 2.6: Bounded MS-PAC Privilege Validation" width="850">
+</p>
+
+##### 7. Active Directory Shadow Credential Triage (`tanuki shadow`)
+
+Parses `msDS-KeyCredentialLink` binary structures ([MS-ADTS] 2.2.20) to audit Next Generation Credential (NGC) key material and device GUIDs:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-shadow.png" alt="Act 2.7: Shadow Credential Binary Inspection" width="850">
+</p>
+
+##### 8. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
 
 Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4768/4771, Sigma rules, and Falco signatures):
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.6: Protocol Error Triage and Telemetry" width="850">
+  <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.8: Protocol Error Triage and Telemetry" width="850">
 </p>
 
-##### 7. Zero-Trace Cryptographic Purge (`tanuki purge`)
+##### 9. Zero-Trace Cryptographic Purge (`tanuki purge`)
 
 Executes NIST SP 800-88 compliant 3-pass file shredding, memory zeroization, and environment variable purging with `O_NOFOLLOW` symlink defense:
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.7: NIST SP 800-88 Zero-Trace Purge" width="850">
+  <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.9: NIST SP 800-88 Zero-Trace Purge" width="850">
 </p>
 
 #### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
