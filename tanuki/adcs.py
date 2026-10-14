@@ -94,10 +94,35 @@ def parse_der_tlv(data: bytes, offset: int = 0) -> Tuple[int, bytes, int]:
     return tag, val, offset + length
 
 
+def encode_oid_to_der_bytes(oid_str: str) -> bytes:
+    """Convert dot-notation OID string to raw DER-encoded ASN.1 bytes."""
+    parts = [int(p) for p in oid_str.strip().split(".") if p]
+    if len(parts) < 2:
+        return b""
+    first_byte = parts[0] * 40 + parts[1]
+    body = [first_byte]
+    for val in parts[2:]:
+        if val == 0:
+            body.append(0)
+        else:
+            vlq = []
+            v = val
+            while v > 0:
+                vlq.append(v & 0x7F)
+                v >>= 7
+            vlq.reverse()
+            for idx in range(len(vlq) - 1):
+                vlq[idx] |= 0x80
+            body.extend(vlq)
+    return bytes([0x06, len(body)]) + bytes(body)
+
+
 def parse_oid_bytes(oid_bytes: bytes) -> str:
     """Decode DER-encoded OID bytes into standard dot-notation string."""
     if not oid_bytes:
         return ""
+    if (oid_bytes[-1] & 0x80) != 0:
+        raise AdcsScannerError("Truncated variable-length quantity in ASN.1 OID bytes")
     first_byte = oid_bytes[0]
     first_num = first_byte // 40
     second_num = first_byte % 40
@@ -109,6 +134,9 @@ def parse_oid_bytes(oid_bytes: bytes) -> str:
         if (b & 0x80) == 0:
             parts.append(str(val))
             val = 0
+
+    if val != 0:
+        raise AdcsScannerError("Incomplete subidentifier in ASN.1 OID bytes")
 
     return ".".join(parts)
 
@@ -124,10 +152,16 @@ def parse_x509_der(der_bytes: bytes) -> Dict[str, Any]:
         if tbs_tag != 0x30:
             raise AdcsScannerError("Expected TBSCertificate SEQUENCE")
 
-        # Scan TBSCertificate for OIDs
+        # Scan TBSCertificate for OIDs (both binary DER encoding and ASCII text fallback)
         ekus_found: List[str] = []
         for oid, name in EKU_CLIENT_AUTH_OIDS.items():
-            if oid.encode("ascii") in tbs_data or oid in str(tbs_data):
+            der_pattern = encode_oid_to_der_bytes(oid)
+            if (
+                (der_pattern and der_pattern in tbs_data)
+                or (len(der_pattern) > 2 and der_pattern[2:] in tbs_data)
+                or oid.encode("ascii") in tbs_data
+                or oid in str(tbs_data)
+            ):
                 ekus_found.append(oid)
 
         return {

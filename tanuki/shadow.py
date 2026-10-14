@@ -154,9 +154,12 @@ def parse_key_credential_link(raw_input: Union[bytes, bytearray, str]) -> Dict[s
         elif clean.startswith(("B:", "b:")):
             parts = clean.split(":", 3)
             if len(parts) >= 4:
-                char_count = int(parts[1])
-                target_dn = parts[3]
-                raw_bytes = bytes.fromhex(parts[2][:char_count])
+                try:
+                    char_count = int(parts[1])
+                    target_dn = parts[3]
+                    raw_bytes = bytes.fromhex(parts[2][:char_count])
+                except (ValueError, TypeError) as exc:
+                    raise ShadowCredentialDecodeError(f"Malformed DN-Binary components: {exc}")
             else:
                 raise ShadowCredentialDecodeError(f"Malformed DN-Binary string: {clean[:40]}")
         else:

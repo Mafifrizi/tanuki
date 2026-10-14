@@ -133,6 +133,9 @@ pub fn parse_cng_public_key(data: &[u8]) -> Result<KeyMaterialInfo, String> {
         if offset + cb_pub_exp + cb_mod > data.len() {
             return Err("Buffer underflow reading RSA public exponent or modulus".to_string());
         }
+        if cb_pub_exp > 8 {
+            return Err("RSA public exponent too large to fit in u64".to_string());
+        }
 
         let mut pub_exp = 0u64;
         for &b in &data[offset..offset + cb_pub_exp] {

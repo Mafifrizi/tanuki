@@ -723,13 +723,13 @@ def format_telemetry_terminal(telemetry: Dict[str, Any]) -> str:
         for sig in sigma_rules:
             tags = ", ".join(sig.get("tags", []))
             tag_str = f" ({tags})" if tags else ""
-            lines.append(f"      - {sig['title']} [{sig['logsource']}]{tag_str}")
+            lines.append(f"      - {sig.get('title', 'Unknown Title')} [{sig.get('logsource', 'unknown')}]{tag_str}")
 
     falco_rules = telemetry.get("falco", [])
     if falco_rules:
         lines.append("    Falco Signatures:")
         for fal in falco_rules:
-            lines.append(f"      - {fal['rule']} [{fal['priority']}]: {fal['condition']}")
+            lines.append(f"      - {fal.get('rule', 'Unknown Rule')} [{fal.get('priority', 'INFO')}]: {fal.get('condition', '')}")
 
     return "\n".join(lines)
 
@@ -745,11 +745,11 @@ def format_telemetry_inline(telemetry: Dict[str, Any]) -> str:
         parts.append(f"Event IDs: {', '.join(str(e) for e in event_ids)}")
 
     sigma_rules = telemetry.get("sigma", [])
-    if sigma_rules:
-        parts.append(f"Sigma: {sigma_rules[0]['title']}")
+    if sigma_rules and isinstance(sigma_rules[0], dict):
+        parts.append(f"Sigma: {sigma_rules[0].get('title', 'Unknown')}")
 
     falco_rules = telemetry.get("falco", [])
-    if falco_rules:
-        parts.append(f"Falco: {falco_rules[0]['rule']}")
+    if falco_rules and isinstance(falco_rules[0], dict):
+        parts.append(f"Falco: {falco_rules[0].get('rule', 'Unknown')}")
 
     return " | ".join(parts)

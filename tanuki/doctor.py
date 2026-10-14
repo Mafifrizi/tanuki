@@ -711,6 +711,8 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         if len(addr_count_b) < 4:
             break
         (addr_count,) = struct.unpack(">I", addr_count_b)
+        if addr_count > 1024:
+            return _finalize_ticket(best_ticket)
         for _ in range(addr_count):
             ahead = stream.read(6)
             if len(ahead) < 6:
@@ -724,6 +726,8 @@ def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
         if len(ad_count_b) < 4:
             break
         (ad_count,) = struct.unpack(">I", ad_count_b)
+        if ad_count > 1024:
+            return _finalize_ticket(best_ticket)
         for _ in range(ad_count):
             ahead = stream.read(6)
             if len(ahead) < 6:

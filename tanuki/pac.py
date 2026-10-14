@@ -665,9 +665,9 @@ def parse_pac_bytes(raw_bytes: bytes) -> Dict[str, Any]:
         pos = 8 + (i * 16)
         ul_type, cb_size, offset = struct.unpack_from("<IIQ", raw_bytes, pos)
 
-        if offset + cb_size > len(raw_bytes):
+        if offset < header_size or offset + cb_size > len(raw_bytes):
             raise PacDecodeError(
-                f"PAC buffer {i} (type {ul_type}) out of bounds: offset {offset} + size {cb_size} > {len(raw_bytes)}"
+                f"PAC buffer {i} (type {ul_type}) out of bounds or overlaps header: offset {offset} + size {cb_size} > {len(raw_bytes)}"
             )
 
         buf_data = raw_bytes[offset : offset + cb_size]

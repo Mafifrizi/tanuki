@@ -667,11 +667,14 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
             raw_bytes[pos + 12], raw_bytes[pos + 13], raw_bytes[pos + 14], raw_bytes[pos + 15],
         ]);
 
-        let start = offset as usize;
-        let end = start + (cb_size as usize);
-        if end > raw_bytes.len() {
-            return Err(format!("PAC buffer {} out of bounds", i));
-        }
+        let start = match usize::try_from(offset) {
+            Ok(s) => s,
+            Err(_) => return Err(format!("PAC buffer {} offset overflow", i)),
+        };
+        let end = match start.checked_add(cb_size as usize) {
+            Some(e) if e <= raw_bytes.len() && start >= header_size => e,
+            _ => return Err(format!("PAC buffer {} out of bounds or overlaps header", i)),
+        };
 
         buffers.push(PacBufferInfo {
             index: i,
