@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.1-blue.svg" alt="Version 1.2.1">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue.svg" alt="Version 1.3.0">
   <img src="https://img.shields.io/badge/rust-1.75+-dea584.svg" alt="Rust 1.75+">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
@@ -522,7 +522,7 @@ tanuki/
 │       └── release.yml        # CI/CD test, release asset, and GHCR container packaging
 ├── Dockerfile                 # Distroless/slim container specification
 ├── Cargo.toml                 # Root workspace manifest
-├── pyproject.toml             # Python PEP 621 package specification (v1.2.1)
+├── pyproject.toml             # Python PEP 621 package specification (v1.3.0)
 ├── install.sh                 # 1-line POSIX installer (Linux & macOS)
 ├── install.ps1                # 1-line PowerShell installer (Windows)
 ├── crates/
@@ -539,7 +539,7 @@ tanuki/
 │       └── tests/
 │           └── integration_tests.rs
 ├── tanuki/                    # Unified Python package
-│   ├── __init__.py            # Library exports (v1.2.1)
+│   ├── __init__.py            # Library exports (v1.3.0)
 │   ├── __main__.py            # python -m tanuki execution
 │   ├── cli.py                 # Unified CLI matching Rust commands
 │   ├── doctor.py              # Pre-flight health check engine (<5ms, zero packets)

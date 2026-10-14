@@ -26,7 +26,7 @@ body:
     attributes:
       label: Tanuki Version
       description: Run `tanuki --version` and paste the output.
-      placeholder: "tanuki 1.2.1"
+      placeholder: "tanuki 1.3.0"
     validations:
       required: true
 
