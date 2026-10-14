@@ -216,13 +216,22 @@ def acquire_tgt_via_ctypes(
                     ctypes.c_char_p,
                     ctypes.POINTER(ctypes.c_void_p),
                 ]
-                cc_spec = f"FILE:{os.path.abspath(ccache_path)}".encode("utf-8")
+                abs_cc = os.path.abspath(ccache_path)
+                if os.path.islink(abs_cc):
+                    return {
+                        "status": "ERROR",
+                        "reason_code": "SYMLINK_REJECTED",
+                        "category": "SECURITY_VIOLATION",
+                        "message": f"Refusing to write credential cache to symbolic link: {abs_cc}",
+                        "target": abs_cc,
+                    }
+                cc_spec = f"FILE:{abs_cc}".encode("utf-8")
                 if os.name != "nt" and not (ccache_path.startswith("KEYRING:") or ccache_path.startswith("KCM:")):
                     flags = os.O_CREAT | os.O_WRONLY
                     if hasattr(os, "O_NOFOLLOW"):
                         flags |= os.O_NOFOLLOW
                     try:
-                        fd = os.open(os.path.abspath(ccache_path), flags, 0o600)
+                        fd = os.open(abs_cc, flags, 0o600)
                         os.close(fd)
                     except OSError:
                         pass
@@ -530,6 +539,15 @@ def acquire_tgt(
                 "details": remediation,
                 "target": abs_keytab,
             }
+
+    if os.path.islink(abs_ccache):
+        return {
+            "status": "ERROR",
+            "reason_code": "SYMLINK_REJECTED",
+            "category": "SECURITY_VIOLATION",
+            "message": f"Refusing to write credential cache to symbolic link: {abs_ccache}",
+            "target": abs_ccache,
+        }
 
     # 1. Try host kinit if available and not explicitly forcing ctypes
     kinit_bin = shutil.which("kinit")

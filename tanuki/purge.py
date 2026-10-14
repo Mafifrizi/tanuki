@@ -87,7 +87,7 @@ def shred_file(file_path: str, passes: int = 2) -> Dict[str, Any]:
             "path": file_path,
             "status": "SHREDDED",
             "bytes_shredded": file_size,
-            "passes": passes,
+            "passes": passes if file_size > 0 else 0,
         }
     except OSError as exc:
         return {"path": file_path, "status": "UNLINK_FAILED", "error": str(exc), "bytes_shredded": file_size}
