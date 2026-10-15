@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    candidates_to_json, entries_to_json, errors_to_json, find_error_resolution,
+    candidates_to_json, entries_to_json, errors_to_json, escape_json, find_error_resolution,
     format_pac_report_terminal, format_shadow_report_terminal, generate_krb5_conf,
     ladder_to_json, pac_report_to_json, parse_and_validate_jwt, parse_key_credential_link,
     parse_keytab_bytes, parse_pac_source, query_active_directory_ldap, resolve_current_uid,
@@ -228,7 +228,7 @@ fn run_tui_wizard() {
                     Some(s) if !s.is_empty() => s,
                     _ => "all".to_string(),
                 };
-                handle_ldap(Some(host), &q, "DC=corp,DC=local", 389, false);
+                handle_ldap(Some(host), &q, "DC=corp,DC=local", 389, false, false);
             }
             "7" => {
                 let src = read_line_prompt("Templates JSON or Certificate path: ").unwrap_or_default();
