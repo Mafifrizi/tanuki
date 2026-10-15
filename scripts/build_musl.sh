@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tanuki 2.0 Static Musl Binary Build Script
+# Tanuki Static Musl Binary Build Script
 # Compiles zero-dependency statically linked Linux binaries via Musl libc.
 
 set -euo pipefail
@@ -10,7 +10,7 @@ OUTPUT_DIR="${REPO_ROOT}/dist/bin"
 
 TARGET="${1:-x86_64-unknown-linux-musl}"
 
-echo "[*] Tanuki 2.0 Static Musl Build Pipeline"
+echo "[*] Tanuki Static Musl Build Pipeline"
 echo "    Target Architecture: ${TARGET}"
 echo "    Repository Root:     ${REPO_ROOT}"
 echo "    Output Directory:    ${OUTPUT_DIR}"

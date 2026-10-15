@@ -135,7 +135,7 @@ pub fn validate_token_exchange(params: &TokenExchangeParams) -> TokenValidationR
 
     let mut subject_report = None;
     if subject_token_type == "urn:ietf:params:oauth:token-type:jwt" {
-        match parse_and_validate_jwt(subject_token, None) {
+        match parse_and_validate_jwt(subject_token, None, None) {
             Ok(rep) => {
                 for w in &rep.security_warnings {
                     if !security_warnings.contains(w) {

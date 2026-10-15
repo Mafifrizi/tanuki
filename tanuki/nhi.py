@@ -103,6 +103,7 @@ def validate_jwt_workload(
     token: str,
     expected_aud: Optional[str] = None,
     now: Optional[int] = None,
+    expected_iss: Optional[str] = None,
 ) -> JwtValidationReport:
     """Validate a workload identity JWT with zero external dependencies."""
     if now is None:
@@ -178,6 +179,17 @@ def validate_jwt_workload(
             msg = f"Token audience does not match expected audience '{expected_aud}'"
             findings.append({"severity": "HIGH", "code": "AUDIENCE_MISMATCH", "message": msg})
             security_warnings.append(f"AUDIENCE_MISMATCH: {msg}")
+
+    if expected_iss is not None:
+        iss_val = claims.get("iss")
+        if iss_val is None or iss_val == "":
+            msg = f"Token is missing 'iss' claim, expected '{expected_iss}'"
+            findings.append({"severity": "CRITICAL", "code": "MISSING_ISSUER", "message": msg})
+            security_warnings.append(f"MISSING_ISSUER: {msg}")
+        elif str(iss_val) != str(expected_iss):
+            msg = f"Token issuer '{iss_val}' does not match expected issuer '{expected_iss}'"
+            findings.append({"severity": "CRITICAL", "code": "ISSUER_MISMATCH", "message": msg})
+            security_warnings.append(f"ISSUER_MISMATCH: {msg}")
 
     has_broad_subject_scope = False
     sub_val = claims.get("sub")
@@ -277,6 +289,8 @@ def validate_jwt_workload(
     if has_broad_subject_scope:
         is_valid = False
     if expected_aud is not None and any(f["code"] == "AUDIENCE_MISMATCH" for f in findings):
+        is_valid = False
+    if expected_iss is not None and any(f["code"] in ("ISSUER_MISMATCH", "MISSING_ISSUER") for f in findings):
         is_valid = False
     if nbf_val is not None:
         try:

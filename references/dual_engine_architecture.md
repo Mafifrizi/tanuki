@@ -64,16 +64,19 @@ tanuki/
         └── src/
             ├── lib.rs         # Safe library exports (#![forbid(unsafe_code)])
             ├── main.rs        # CLI interface and deterministic output formatter
-            ├── keytab/
-            │   ├── mod.rs
-            │   ├── parser.rs  # Zero-copy RFC 4120 binary keytab parser
-            │   └── types.rs   # Principal, KVNO, EncType representations
-            ├── kcm/
-            │   ├── mod.rs
-            │   └── ldb.rs     # Direct SSSD KCM CCACHE stream extractor
-            └── protocol/
-                ├── mod.rs
-                └── kerberos.rs # Protocol constants and error triage dictionary
+            ├── adcs.rs        # Passive ADCS certificate template scanner
+            ├── config.rs      # Zero-DNS krb5.conf generator
+            ├── fix.rs         # Closed-loop self-healing remediation
+            ├── ldap.rs        # Pure unprivileged LDAP and RBCD parser
+            ├── pac.rs         # MS-PAC and RBCD security descriptor decoder
+            ├── purge.rs       # NIST SP 800-88 cryptographic file shredder
+            ├── shadow.rs      # msDS-KeyCredentialLink shadow credentials
+            ├── util.rs        # Dynamic entropy and JSON utilities
+            ├── doctor/        # Sub-5ms pre-flight health diagnostic probe
+            ├── keytab/        # Zero-copy RFC 4120 binary keytab parser
+            ├── kcm/           # Direct SSSD KCM CCACHE stream extractor
+            ├── nhi/           # RFC 8693 workload identity token validator
+            └── protocol/      # Protocol constants and error triage dictionary
 ```
 
 ### Key Technical Specifications of Rust Engine:

@@ -16,11 +16,15 @@ from typing import Any, Dict, List, Optional
 from .doctor import render_card_header, supports_unicode
 
 
-def shred_file(file_path: str, passes: int = 2) -> Dict[str, Any]:
+CHUNK_SIZE = 65536
+
+
+def shred_file(file_path: str, passes: int = 3) -> Dict[str, Any]:
     """Execute NIST SP 800-88 multi-pass cryptographic file shredding.
 
     Pass 1: Overwrite with cryptographic pseudorandom bytes.
-    Pass 2: Overwrite with null bytes (0x00).
+    Pass 2: Overwrite with fixed bytes (0xFF).
+    Pass 3: Overwrite with null bytes (0x00).
     Flushes buffers and invokes os.fsync after each pass before unlinking.
     """
     if os.path.islink(file_path):
@@ -64,16 +68,37 @@ def shred_file(file_path: str, passes: int = 2) -> Dict[str, Any]:
                 open_flags |= os.O_NOFOLLOW
             fd = os.open(file_path, open_flags)
             with os.fdopen(fd, "r+b") as f:
-                # Pass 1: Pseudorandom bytes
+                # Pass 1: Pseudorandom bytes in 64KB chunks
                 f.seek(0)
-                f.write(os.urandom(file_size))
+                rem = file_size
+                while rem > 0:
+                    chunk = min(rem, CHUNK_SIZE)
+                    f.write(os.urandom(chunk))
+                    rem -= chunk
                 f.flush()
                 os.fsync(f.fileno())
 
-                # Pass 2: Zero bytes
+                # Pass 2: Overwrite with 0xFF in 64KB chunks
                 if passes >= 2:
                     f.seek(0)
-                    f.write(b"\x00" * file_size)
+                    rem = file_size
+                    ff_block = b"\xff" * CHUNK_SIZE
+                    while rem > 0:
+                        chunk = min(rem, CHUNK_SIZE)
+                        f.write(ff_block[:chunk])
+                        rem -= chunk
+                    f.flush()
+                    os.fsync(f.fileno())
+
+                # Pass 3: Overwrite with 0x00 in 64KB chunks
+                if passes >= 3:
+                    f.seek(0)
+                    rem = file_size
+                    zero_block = b"\x00" * CHUNK_SIZE
+                    while rem > 0:
+                        chunk = min(rem, CHUNK_SIZE)
+                        f.write(zero_block[:chunk])
+                        rem -= chunk
                     f.flush()
                     os.fsync(f.fileno())
 

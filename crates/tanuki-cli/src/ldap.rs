@@ -617,17 +617,19 @@ pub fn query_active_directory_ldap(
     query_type: &str,
     base_dn: &str,
     port: u16,
+    use_ssl: bool,
     timeout_secs: u64,
 ) -> LdapReport {
+    let effective_port = if use_ssl && port == 389 { 636 } else { port };
     let timeout = Duration::from_secs(timeout_secs);
-    let socket_addr = match format!("{}:{}", host, port).to_socket_addrs() {
+    let socket_addr = match format!("{}:{}", host, effective_port).to_socket_addrs() {
         Ok(mut addrs) => match addrs.next() {
             Some(a) => a,
             None => {
                 return LdapReport {
                     status: "CONNECTION_FAILED".to_string(),
                     host: host.to_string(),
-                    port,
+                    port: effective_port,
                     query_type: query_type.to_string(),
                     base_dn: base_dn.to_string(),
                     count: 0,

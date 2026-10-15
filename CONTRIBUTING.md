@@ -32,7 +32,7 @@ Looking for a place to get involved? Here are curated areas that deliver immedia
 Add tab-completion scripts for `bash`, `zsh`, and `fish` to auto-complete subcommands (`doctor`, `config`, `keytab`, `auth`, `triage`, `token`, `purge`, `ladder`, `ldap`) and flags.
 
 ### 2. Protocol Error Dictionary Expansion
-Expand `tanuki/triage.py` and `crates/tanuki-cli/src/telemetry.rs` with additional RFC 4120 error codes (such as `KRB_AP_ERR_BAD_INTEGRITY` [Code 31], `KDC_ERR_CANNOT_POSTDATE` [Code 13]) or Windows Security Event IDs (e.g., Event ID 4776 for NTLM credential validation).
+Expand `tanuki/protocol.py` (and `tanuki/telemetry.py`) and `crates/tanuki-cli/src/protocol/` with additional RFC 4120 error codes (such as `KRB_AP_ERR_BAD_INTEGRITY` [Code 31], `KDC_ERR_CANNOT_POSTDATE` [Code 13]) or Windows Security Event IDs (e.g., Event ID 4776 for NTLM credential validation).
 
 ### 3. Alternative Output Formatters
 Add output formats such as `--format sarif` or `--format markdown` to `tanuki triage` or `tanuki doctor` so security teams can feed results directly into GitHub Code Scanning or pull request summaries.
@@ -80,7 +80,7 @@ Requirements: Rust 1.70 or newer (`rustup`).
 cargo build --release
 
 # Run the compiled binary
-./target/release/tanuki-cli doctor
+./target/release/tanuki doctor
 ```
 
 ---

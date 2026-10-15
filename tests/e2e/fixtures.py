@@ -1,4 +1,4 @@
-"""E2E Test Fixtures and Synthetic Artifact Generators for Tanuki v1.2.0."""
+"""E2E Test Fixtures and Synthetic Artifact Generators for Tanuki v1.3.0."""
 
 import base64
 import io

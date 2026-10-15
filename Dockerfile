@@ -17,6 +17,10 @@ FROM python:3.10-slim AS runner
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libkrb5-3 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd -u 10001 -U -M -s /usr/sbin/nologin tanuki
 
 COPY --from=builder /app/dist/*.whl /tmp/

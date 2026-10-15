@@ -59,7 +59,7 @@ Before proposing or executing any identity or directory operation, you MUST walk
    - Prioritize minimal-hop directory vectors: Shadow Credentials (`msDS-KeyCredentialLink`), AD CS Templates (ESC1/ESC8), and RBCD.
 5. **Rung 5: Deterministic Dual-Use One-Liner Output**
    - Provide direct, concise outputs formatted strictly as:
-     `[TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE] -> [BLUE TELEMETRY]`
+     `[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]`
 
 ---
 
