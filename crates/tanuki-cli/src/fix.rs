@@ -359,8 +359,9 @@ pub fn run_fix(
 
     if let Some(ref cc) = resolved_ccache {
         if Path::new(cc).exists() {
-            let (lifetime, _is_valid) = crate::doctor::ticket::check_ticket_lifetime(Some(cc));
-            if lifetime > 0 {
+            let ticket_check = crate::doctor::ticket::audit_ticket_lifetime(Some(cc));
+            let lifetime = ticket_check.remaining_seconds.unwrap_or(0);
+            if lifetime > 0 && ticket_check.status != "EXPIRED" {
                 actions.push(FixAction {
                     action: "ticket_cache".to_string(),
                     target: Some(cc.clone()),
