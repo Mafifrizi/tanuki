@@ -769,7 +769,7 @@ def handle_token(
         )
 
     try:
-        report = validate_jwt_workload(raw_token, expected_aud=audience)
+        report = validate_jwt_workload(raw_token, expected_aud=audience, expected_iss=issuer)
     except Exception as exc:
         emit_cli_error(
             f"Error parsing token: {exc}",
@@ -1133,11 +1133,13 @@ def run_tui_wizard() -> None:
         print("  [11] Ladder   : Display 5-rung Tactical Decision Ladder")
         print("  [12] Purge    : Cryptographic zero-trace artifact sanitization")
         print("  [13] Skill    : Display AI agent skill manifest")
+        print("  [14] Config   : Generate deterministic zero-dependency krb5.conf")
+        print("  [15] Shadow   : Dissect msDS-KeyCredentialLink shadow credentials")
         print("  [0]  Exit")
         print()
 
         try:
-            choice = input("Select an option [0-13]: ").strip()
+            choice = input("Select an option [0-15]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting Tanuki.")
             sys.exit(0)
@@ -1185,6 +1187,14 @@ def run_tui_wizard() -> None:
                 print("Purge aborted.")
         elif choice == "13":
             handle_skill(False)
+        elif choice == "14":
+            realm = input("Active Directory Realm (e.g. CORP.LOCAL): ").strip()
+            kdc = input("KDC IP or Hostname (optional): ").strip() or None
+            out_file = input("Output path (optional): ").strip() or None
+            handle_config(realm=realm, kdc=kdc, domain=None, clock_skew=300, forwardable=True, proxiable=False, rdns=False, out_file=out_file, json_output=False)
+        elif choice == "15":
+            target = input("Target KeyCredentialLink hex or file path: ").strip()
+            handle_shadow(source=target, json_output=False)
         else:
             print("Invalid option.")
 
@@ -1213,6 +1223,19 @@ def handle_skill(json_output: bool) -> None:
             "rbcd",
             "workload identity",
             "tanuki doctor",
+            "tanuki fix",
+            "tanuki keytab",
+            "tanuki auth",
+            "tanuki pac",
+            "tanuki ldap",
+            "tanuki adcs",
+            "tanuki nhi",
+            "tanuki kcm",
+            "tanuki triage",
+            "tanuki ladder",
+            "tanuki purge",
+            "tanuki config",
+            "tanuki shadow",
             "pre-flight",
             "telemetry",
             "auditd",

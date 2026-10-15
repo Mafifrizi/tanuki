@@ -1,4 +1,4 @@
-"""Tier 5 Adversarial Coverage Hardening Test Suite for Tanuki v1.2.0.
+"""Tier 5 Adversarial Coverage Hardening Test Suite for Tanuki v1.3.0.
 
 White-box adversarial tests probing:
 1. Doctor: edge-case krb5.conf parsing, CCACHE non-standard principal types,

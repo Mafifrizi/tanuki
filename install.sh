@@ -72,9 +72,10 @@ elif command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
     "${PYTHON_BIN}" -m pip install "${SRC_DIR}" 2>/dev/null || true
 fi
 
-# Fallback standalone shim to ensure ~/.local/bin/tanuki always works
+# Fallback standalone shim to ensure ~/.local/bin/tanuki exists if not already installed
 SHIM_PATH="${BIN_DIR}/tanuki"
-cat <<EOF > "${SHIM_PATH}"
+if [ ! -x "${SHIM_PATH}" ]; then
+    cat <<EOF > "${SHIM_PATH}"
 #!/usr/bin/env bash
 if command -v python3 >/dev/null 2>&1; then
     exec python3 -m tanuki "\$@"
@@ -85,8 +86,11 @@ else
     exit 1
 fi
 EOF
-chmod +x "${SHIM_PATH}"
-echo -e "  [+] Configured CLI launcher at ${SHIM_PATH}"
+    chmod +x "${SHIM_PATH}"
+    echo -e "  [+] Configured CLI launcher at ${SHIM_PATH}"
+else
+    echo -e "  [+] Existing executable detected at ${SHIM_PATH}, preserving launcher."
+fi
 
 # Check and configure shell PATH
 if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
@@ -128,7 +132,10 @@ done
 # Cursor
 CURSOR_RULES_DIR="${HOME}/.cursor/rules"
 mkdir -p "${CURSOR_RULES_DIR}"
-cat <<'EOF' > "${CURSOR_RULES_DIR}/tanuki.mdc"
+if [ -f "${SRC_DIR}/.cursor/rules/tanuki.mdc" ]; then
+    cp "${SRC_DIR}/.cursor/rules/tanuki.mdc" "${CURSOR_RULES_DIR}/tanuki.mdc"
+else
+    cat <<'EOF' > "${CURSOR_RULES_DIR}/tanuki.mdc"
 ---
 description: Tanuki Protocol-First Linux AD & Kerberos Triage Skill
 globs: ["**/*"]
@@ -138,8 +145,9 @@ Always consult the 5-Rung Tactical Decision Ladder before issuing AD/Kerberos co
 2. Zero-Noise OPSEC (Ban RC4-HMAC, enforce AES-256)
 3. Machine Identity Reuse (HOST$)
 4. Surgical Pathfinding (Shadow Credentials, AD CS ESC1/ESC8, RBCD)
-5. Deterministic One-Liners: [TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
+5. Deterministic One-Liners: [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
 EOF
+fi
 echo -e "  [+] Cursor rule linked -> ${CURSOR_RULES_DIR}/tanuki.mdc"
 
 echo -e "\n${BOLD}${GREEN}[+] Tanuki successfully installed & integrated!${NC}"

@@ -317,6 +317,7 @@ fn detect_identity_type(claims: &JsonValue) -> String {
 pub fn parse_and_validate_jwt(
     token: &str,
     expected_aud: Option<&str>,
+    expected_iss: Option<&str>,
 ) -> Result<JwtValidationReport, String> {
     let clean = token.trim();
     if clean.is_empty() {
@@ -453,6 +454,34 @@ pub fn parse_and_validate_jwt(
                 message: msg.clone(),
             });
             security_warnings.push(format!("AUDIENCE_MISMATCH: {}", msg));
+        }
+    }
+
+    if let Some(expected_issuer) = expected_iss {
+        match &iss {
+            Some(token_iss) => {
+                if token_iss != expected_issuer {
+                    let msg = format!(
+                        "Token issuer '{}' does not match expected issuer '{}'",
+                        token_iss, expected_issuer
+                    );
+                    findings.push(Finding {
+                        severity: "CRITICAL".to_string(),
+                        code: "ISSUER_MISMATCH".to_string(),
+                        message: msg.clone(),
+                    });
+                    security_warnings.push(format!("ISSUER_MISMATCH: {}", msg));
+                }
+            }
+            None => {
+                let msg = format!("Token is missing 'iss' claim, expected '{}'", expected_issuer);
+                findings.push(Finding {
+                    severity: "CRITICAL".to_string(),
+                    code: "MISSING_ISSUER".to_string(),
+                    message: msg.clone(),
+                });
+                security_warnings.push(format!("MISSING_ISSUER: {}", msg));
+            }
         }
     }
 
@@ -613,6 +642,13 @@ pub fn parse_and_validate_jwt(
         valid = false;
     }
     if expected_aud.is_some() && findings.iter().any(|f| f.code == "AUDIENCE_MISMATCH") {
+        valid = false;
+    }
+    if expected_iss.is_some()
+        && findings
+            .iter()
+            .any(|f| f.code == "ISSUER_MISMATCH" || f.code == "MISSING_ISSUER")
+    {
         valid = false;
     }
     if let Some(nbf_val) = nbf {

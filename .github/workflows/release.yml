@@ -34,6 +34,12 @@ jobs:
       - name: Execute Automated Tests
         run: python -m unittest discover -s tests -v
 
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Execute Rust Tests
+        run: cargo test --workspace
+
   build-artifacts:
     name: Build Distribution Artifacts
     needs: test
@@ -63,9 +69,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag_name="${{ github.ref_name }}"
-          if gh release view "$tag_name" >/dev/null 2>&1; then
-            gh release upload "$tag_name" dist/* --clobber
+          if ! gh release view "$tag_name" >/dev/null 2>&1; then
+            gh release create "$tag_name" --title "$tag_name" --generate-notes
           fi
+          gh release upload "$tag_name" dist/* --clobber
 
   publish-container:
     name: Build and Publish Container to GitHub Packages (GHCR)
@@ -143,7 +150,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag_name="${{ github.ref_name }}"
-          if gh release view "$tag_name" >/dev/null 2>&1; then
-            gh release upload "$tag_name" release_assets/* --clobber
+          if ! gh release view "$tag_name" >/dev/null 2>&1; then
+            gh release create "$tag_name" --title "$tag_name" --generate-notes
           fi
+          gh release upload "$tag_name" release_assets/* --clobber
 

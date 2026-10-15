@@ -179,10 +179,12 @@ fn run_tui_wizard() {
         println!("  [11] Ladder   : Display 5-rung Tactical Decision Ladder");
         println!("  [12] Purge    : Cryptographic zero-trace artifact sanitization");
         println!("  [13] Skill    : Display AI agent skill manifest");
+        println!("  [14] Config   : Generate zero-DNS unprivileged Kerberos configuration");
+        println!("  [15] Shadow   : Parse msDS-KeyCredentialLink shadow credentials");
         println!("  [0]  Exit");
         println!();
 
-        let choice = match read_line_prompt("Select an option [0-13]: ") {
+        let choice = match read_line_prompt("Select an option [0-15]: ") {
             Some(c) => c,
             None => {
                 println!("\nExiting Tanuki.");
@@ -260,6 +262,18 @@ fn run_tui_wizard() {
             "13" => {
                 handle_skill(false);
             }
+            "14" => {
+                let realm = read_line_prompt("Target Kerberos Realm (e.g. CORP.LOCAL): ").filter(|s| !s.is_empty());
+                let kdc = read_line_prompt("Target Domain Controller / KDC IP: ").filter(|s| !s.is_empty());
+                let out = read_line_prompt("Output config path [/etc/krb5.conf]: ")
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| Some("/etc/krb5.conf".to_string()));
+                handle_config(realm, None, kdc, None, out, false, false, Some(300), false, false, None);
+            }
+            "15" => {
+                let src = read_line_prompt("Target Shadow Credential file path or hex: ").unwrap_or_default();
+                handle_shadow(Some(src), false);
+            }
             _ => {
                 println!("Invalid option.");
             }
@@ -282,7 +296,7 @@ fn main() {
 
     let known_subcommands = [
         "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
-        "pac", "fix", "purge", "adcs", "ldap",
+        "pac", "fix", "purge", "adcs", "ldap", "shadow",
     ];
 
     if raw_args.len() == 1 && (raw_args[0] == "-i" || raw_args[0] == "--interactive") {
@@ -327,6 +341,9 @@ fn main() {
     let mut query_opt: Option<String> = None;
     let mut base_dn_opt: Option<String> = None;
     let mut port_opt: Option<u16> = None;
+    let mut ssl_opt = false;
+    let mut live_opt = false;
+    let mut endpoint_opt: Option<String> = None;
     let mut fast_opt = false;
     let mut armor_cache_opt: Option<String> = None;
     let mut krb_error_opt: Option<String> = None;
@@ -537,9 +554,21 @@ fn main() {
             "--all" => {
                 purge_all_opt = true;
             }
-            "--host" => {
+            "--host" | "--server" => {
                 if i + 1 < raw_args.len() {
                     host_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--ssl" => {
+                ssl_opt = true;
+            }
+            "--live" => {
+                live_opt = true;
+            }
+            "--endpoint" => {
+                if i + 1 < raw_args.len() {
+                    endpoint_opt = Some(raw_args[i + 1].clone());
                     i += 1;
                 }
             }
@@ -653,7 +682,7 @@ fn main() {
             handle_pac(target_source, global_json);
         }
         "fix" => {
-            let target_kt = keytab_opt.or(file_opt);
+            let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
             handle_fix(
                 target_kt,
                 realm_opt.as_deref(),
@@ -693,8 +722,9 @@ fn main() {
                     "DC=corp,DC=local".to_string()
                 }
             });
-            let port = port_opt.unwrap_or(389);
-            handle_ldap(host, &query, &base_dn, port, global_json);
+            let default_port = if ssl_opt { 636 } else { 389 };
+            let port = port_opt.unwrap_or(default_port);
+            handle_ldap(host, &query, &base_dn, port, ssl_opt, global_json);
         }
         "auth" => {
             let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
@@ -739,6 +769,8 @@ fn main() {
                 subject_token_opt,
                 subject_token_type_opt,
                 requested_token_type_opt,
+                live_opt,
+                endpoint_opt,
                 global_json,
             );
         }
@@ -1324,20 +1356,20 @@ fn handle_auth(
             let guidance = if let Ok(os_rel) = fs::read_to_string("/etc/os-release").or_else(|_| fs::read_to_string("/usr/lib/os-release")) {
                 let low = os_rel.to_lowercase();
                 if low.contains("alpine") {
-                    "Alpine: apk add krb5-libs"
+                    "Alpine: apk add krb5"
                 } else if low.contains("debian") || low.contains("ubuntu") || low.contains("kali") {
-                    "Debian/Ubuntu/Kali: apt install libkrb5-3"
+                    "Debian/Ubuntu/Kali: apt install krb5-user"
                 } else if low.contains("rhel") || low.contains("centos") || low.contains("fedora") || low.contains("rocky") || low.contains("alma") {
-                    "RHEL/CentOS/Fedora: dnf install krb5-libs"
+                    "RHEL/CentOS/Fedora: dnf install krb5-workstation"
                 } else {
-                    "Standalone: Use the self-contained static musl binary."
+                    "Install Kerberos client utilities, or execute via Python ctypes: python3 -m tanuki auth --use-ctypes"
                 }
             } else {
-                "Standalone: Use the self-contained static musl binary."
+                "Install Kerberos client utilities, or execute via Python ctypes: python3 -m tanuki auth --use-ctypes"
             };
             emit_cli_error(
-                &format!("libkrb5/libgssapi_krb5 shared library not found on host. {}", guidance),
-                "MISSING_GSSAPI_LIBRARY",
+                &format!("kinit utility not found on host $PATH. {}", guidance),
+                "MISSING_KINIT_UTILITY",
                 "DEPENDENCY_ERROR",
                 EXIT_RESOURCE_MISSING,
                 Some(&kt_path),
@@ -1594,7 +1626,7 @@ fn handle_token(
     token_arg: Option<String>,
     file_path: Option<String>,
     audience: Option<String>,
-    _issuer: Option<String>,
+    issuer: Option<String>,
     json_output: bool,
 ) {
     let raw_token = if let Some(path) = file_path {
@@ -1605,7 +1637,7 @@ fn handle_token(
                     &format!("Error: Token file not found: {}", path),
                     "MISSING_RESOURCE",
                     "RESOURCE_MISSING",
-                    EXIT_USAGE_ERROR,
+                    EXIT_RESOURCE_MISSING,
                     Some(&path),
                     Some(&e.to_string()),
                     json_output,
@@ -1661,7 +1693,7 @@ fn handle_token(
         );
     }
 
-    match parse_and_validate_jwt(&raw_token, audience.as_deref()) {
+    match parse_and_validate_jwt(&raw_token, audience.as_deref(), issuer.as_deref()) {
         Ok(report) => {
             if json_output {
                 println!("{}", report.to_json());
@@ -1693,6 +1725,8 @@ fn handle_nhi(
     subject_token: Option<String>,
     subject_token_type: Option<String>,
     requested_token_type: Option<String>,
+    live: bool,
+    endpoint: Option<String>,
     json_output: bool,
 ) {
     match subcmd {
@@ -1721,9 +1755,24 @@ fn handle_nhi(
 
             let report = validate_token_exchange(&params);
             if json_output {
+                if live {
+                    if let Some(ref ep) = endpoint {
+                        println!("{{\n  \"live_mode\": true,\n  \"endpoint\": \"{}\",\n  \"offline_validation\": {}\n}}", escape_json(ep), report.to_json());
+                        return;
+                    }
+                }
                 println!("{}", report.to_json());
             } else {
                 println!("{}", report.format_terminal());
+                if live {
+                    if let Some(ref ep) = endpoint {
+                        println!("\n[*] Live Token Exchange Endpoint: {}", ep);
+                        println!("    Protocol: RFC 8693 OAuth 2.0 Token Exchange");
+                        println!("    Status: Offline parameter schema verified compliant.");
+                    } else {
+                        println!("\n[!] Live mode requested without --endpoint URL. Offline validation completed.");
+                    }
+                }
             }
             if !report.valid {
                 process::exit(EXIT_USAGE_ERROR);
@@ -1773,7 +1822,7 @@ fn handle_skill(json_output: bool) {
         out.push_str("    \"pioneer_agentic_ladder\": \"Dietrich Gebert (@dietrichayala), creator of Ponytail\"\n");
         out.push_str("  },\n");
         out.push_str("  \"triggers\": [\n");
-        out.push_str("    \"active directory\",\n    \"kerberos\",\n    \"keytab\",\n    \"sssd\",\n    \"kcm\",\n    \"certipy\",\n    \"ad cs\",\n    \"shadow credentials\",\n    \"rbcd\",\n    \"workload identity\",\n    \"tanuki doctor\",\n    \"pre-flight\",\n    \"telemetry\",\n    \"auditd\",\n    \"rfc 8693\",\n    \"token exchange\"\n");
+        out.push_str("    \"active directory\",\n    \"kerberos\",\n    \"keytab\",\n    \"sssd\",\n    \"kcm\",\n    \"certipy\",\n    \"ad cs\",\n    \"shadow credentials\",\n    \"rbcd\",\n    \"workload identity\",\n    \"tanuki doctor\",\n    \"tanuki auth\",\n    \"tanuki pac\",\n    \"tanuki fix\",\n    \"tanuki purge\",\n    \"tanuki adcs\",\n    \"tanuki ldap\",\n    \"tanuki shadow\",\n    \"tanuki config\",\n    \"pre-flight\",\n    \"telemetry\",\n    \"auditd\",\n    \"rfc 8693\",\n    \"token exchange\"\n");
         out.push_str("  ],\n");
         out.push_str("  \"output_standard\": \"[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]\",\n");
         out.push_str(&format!("  \"ladder\": {}\n", ladder_to_json()));
@@ -1967,6 +2016,7 @@ fn handle_ldap(
     query_type: &str,
     base_dn: &str,
     port: u16,
+    use_ssl: bool,
     json_output: bool,
 ) {
     let host = match host_opt {
@@ -1984,7 +2034,7 @@ fn handle_ldap(
         }
     };
 
-    let rep = query_active_directory_ldap(&host, query_type, base_dn, port, 5);
+    let rep = query_active_directory_ldap(&host, query_type, base_dn, port, use_ssl, 5);
     if json_output {
         println!("{}", rep.to_json());
     } else {

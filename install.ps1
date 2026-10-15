@@ -80,7 +80,11 @@ foreach ($AgyDir in $AgyPaths) {
 # Cursor
 $CursorDir = Join-Path $HOME ".cursor\rules"
 New-Item -ItemType Directory -Path $CursorDir -Force | Out-Null
-$CursorRule = @"
+$SourceMdc = Join-Path $SourceDir ".cursor\rules\tanuki.mdc"
+if (Test-Path $SourceMdc) {
+    Copy-Item -Path $SourceMdc -Destination (Join-Path $CursorDir "tanuki.mdc") -Force
+} else {
+    $CursorRule = @"
 ---
 description: Tanuki Protocol-First Linux AD & Kerberos Triage Skill
 globs: ["**/*"]
@@ -90,9 +94,10 @@ Always consult the 5-Rung Tactical Decision Ladder before issuing AD/Kerberos co
 2. Zero-Noise OPSEC (Ban RC4-HMAC, enforce AES-256)
 3. Machine Identity Reuse (HOST$)
 4. Surgical Pathfinding (Shadow Credentials, AD CS ESC1/ESC8, RBCD)
-5. Deterministic One-Liners: [TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
+5. Deterministic One-Liners: [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
 "@
-Set-Content -Path (Join-Path $CursorDir "tanuki.mdc") -Value $CursorRule -Encoding UTF8
+    Set-Content -Path (Join-Path $CursorDir "tanuki.mdc") -Value $CursorRule -Encoding UTF8
+}
 Write-Host "  [+] Cursor rule linked -> $(Join-Path $CursorDir "tanuki.mdc")" -ForegroundColor Green
 
 # 4. Clean temporary download if remote

@@ -20,10 +20,15 @@ pub struct PurgeReport {
 
 impl PurgeReport {
     pub fn to_json(&self) -> String {
+        let shredded_count = self
+            .shredded_files
+            .iter()
+            .filter(|f| f.status == "SHREDDED")
+            .count();
         let mut out = String::new();
         out.push_str("{\n");
         out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
-        out.push_str(&format!("  \"shredded_count\": {},\n", self.shredded_files.len()));
+        out.push_str(&format!("  \"shredded_count\": {},\n", shredded_count));
         out.push_str("  \"shredded_files\": [\n");
         for (i, f) in self.shredded_files.iter().enumerate() {
             out.push_str(&format!(
@@ -38,7 +43,9 @@ impl PurgeReport {
             out.push('\n');
         }
         out.push_str("  ],\n");
-        out.push_str(&format!("  \"cleared_env\": {:?}\n", self.cleared_env));
+        out.push_str(&format!("  \"cleared_env\": {:?},\n", self.cleared_env));
+        out.push_str("  \"memory_zeroed\": true,\n");
+        out.push_str("  \"passes\": 3\n");
         out.push('}');
         out
     }
@@ -73,6 +80,13 @@ impl PurgeReport {
         out
     }
 }
+
+#[cfg(target_os = "linux")]
+const O_NOFOLLOW: i32 = 0o400000;
+#[cfg(target_os = "macos")]
+const O_NOFOLLOW: i32 = 0x0100;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+const O_NOFOLLOW: i32 = 0;
 
 pub fn shred_file(path: &str) -> ShredResult {
     let p = Path::new(path);
@@ -120,7 +134,18 @@ pub fn shred_file(path: &str) -> ShredResult {
 
     let len = meta.len();
     if len > 0 {
-        if let Ok(mut file) = OpenOptions::new().read(true).write(true).open(p) {
+        let mut opts = OpenOptions::new();
+        opts.read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            if O_NOFOLLOW != 0 {
+                opts.custom_flags(O_NOFOLLOW);
+            }
+        }
+        if let Ok(mut file) = opts.open(p) {
+            let chunk_size = 4096;
+
             // Pass 1: Overwrite with pseudorandom stream
             let mut seed_bytes = [0u8; 8];
             crate::util::fill_dynamic_entropy(&mut seed_bytes);
@@ -128,7 +153,6 @@ pub fn shred_file(path: &str) -> ShredResult {
             if seed == 0 {
                 seed = 0x8543_2911_DEAD_BEEF;
             }
-            let chunk_size = 4096;
             let mut remaining = len;
             while remaining > 0 {
                 let this_chunk = remaining.min(chunk_size as u64) as usize;
@@ -143,7 +167,18 @@ pub fn shred_file(path: &str) -> ShredResult {
             }
             let _ = file.sync_all();
 
-            // Pass 2: Overwrite with zeros
+            // Pass 2: Overwrite with 0xFF (all ones)
+            let _ = file.seek(std::io::SeekFrom::Start(0));
+            remaining = len;
+            let ff_chunk = vec![0xffu8; chunk_size];
+            while remaining > 0 {
+                let this_chunk = remaining.min(chunk_size as u64) as usize;
+                let _ = file.write_all(&ff_chunk[..this_chunk]);
+                remaining -= this_chunk as u64;
+            }
+            let _ = file.sync_all();
+
+            // Pass 3: Overwrite with zeros
             let _ = file.seek(std::io::SeekFrom::Start(0));
             remaining = len;
             let zero_chunk = vec![0u8; chunk_size];

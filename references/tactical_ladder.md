@@ -28,6 +28,6 @@ The Tanuki Decision Ladder is a prioritized operational filter designed to preve
 
 [ RUNG 5: DETERMINISTIC ONE-LINER ]
   - Output format strictly follows military brevity:
-    [TARGET] -> [PREREQUISITE] -> [TACTICAL COMMAND] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
+    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]
   - No conversational padding, no multi-page generic essays.
 ```

@@ -232,6 +232,46 @@ class TestWorkloadJwtValidation(unittest.TestCase):
         rep = validate_jwt_workload(token)
         self.assertTrue(any("SYMMETRIC_ALGORITHM" in w for w in rep.get("security_warnings", [])))
 
+    def test_expected_issuer_match(self):
+        now = int(time.time())
+        token = build_test_jwt(payload={
+            "iss": "https://kubernetes.default.svc",
+            "aud": "https://sts.corp.local",
+            "sub": "system:serviceaccount:prod:app",
+            "exp": now + 3600,
+            "iat": now,
+        })
+        rep = validate_jwt_workload(token, expected_iss="https://kubernetes.default.svc")
+        self.assertTrue(rep.get("valid"))
+        self.assertFalse(any(f["code"] == "ISSUER_MISMATCH" for f in rep.get("security_evaluation", {}).get("findings", [])))
+
+    def test_expected_issuer_mismatch(self):
+        now = int(time.time())
+        token = build_test_jwt(payload={
+            "iss": "https://kubernetes.default.svc",
+            "aud": "https://sts.corp.local",
+            "sub": "system:serviceaccount:prod:app",
+            "exp": now + 3600,
+            "iat": now,
+        })
+        rep = validate_jwt_workload(token, expected_iss="https://evil.issuer.com")
+        self.assertFalse(rep.get("valid"))
+        self.assertTrue(any(f["code"] == "ISSUER_MISMATCH" and f["severity"] == "CRITICAL" for f in rep.get("security_evaluation", {}).get("findings", [])))
+        self.assertTrue(any("ISSUER_MISMATCH" in w for w in rep.get("security_warnings", [])))
+
+    def test_expected_issuer_missing(self):
+        now = int(time.time())
+        token = build_test_jwt(payload={
+            "aud": "https://sts.corp.local",
+            "sub": "system:serviceaccount:prod:app",
+            "exp": now + 3600,
+            "iat": now,
+        })
+        rep = validate_jwt_workload(token, expected_iss="https://kubernetes.default.svc")
+        self.assertFalse(rep.get("valid"))
+        self.assertTrue(any(f["code"] == "MISSING_ISSUER" and f["severity"] == "CRITICAL" for f in rep.get("security_evaluation", {}).get("findings", [])))
+        self.assertTrue(any("MISSING_ISSUER" in w for w in rep.get("security_warnings", [])))
+
 
 class TestRfc8693TokenExchange(unittest.TestCase):
     def test_valid_token_exchange_request(self):
@@ -380,6 +420,26 @@ class TestCliIntegration(unittest.TestCase):
         self.assertEqual(ret, 0)
         data = json.loads(stdout)
         self.assertIn("discovered_tokens", data)
+
+    def test_cli_token_expected_issuer(self):
+        now = int(time.time())
+        token = build_test_jwt(payload={
+            "iss": "https://kubernetes.default.svc",
+            "aud": "https://sts.corp.local",
+            "sub": "system:serviceaccount:prod:app",
+            "exp": now + 3600,
+            "iat": now,
+        })
+        ret, stdout, stderr = self.run_cli(["token", token, "--issuer", "https://kubernetes.default.svc", "--json"])
+        self.assertEqual(ret, 0)
+        data = json.loads(stdout)
+        self.assertTrue(data.get("valid"))
+
+        ret, stdout, stderr = self.run_cli(["token", token, "--issuer", "https://evil.com", "--json"])
+        self.assertEqual(ret, 0)
+        data = json.loads(stdout)
+        self.assertFalse(data.get("valid"))
+        self.assertTrue(any(f["code"] == "ISSUER_MISMATCH" for f in data.get("security_evaluation", {}).get("findings", [])))
 
 
 if __name__ == "__main__":

@@ -509,8 +509,8 @@ flowchart TD
 | **Python Unified Package** | `tanuki/` | Zero-dependency PEP 621 package providing `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing `fix`, zero-trace `purge`, and unprivileged SASL LDAP queries. |
 | **Living-off-the-Land Scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or compiler toolchains. |
 | **Agent Skill Definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
-| **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 11-code error triage, and NHI federation. |
-| **Verification Harness** | `tests/`, `tests/e2e/` | 410 automated tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
+| **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
+| **Verification Harness** | `tests/`, `tests/e2e/` | 415 automated tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
 
 <details>
 <summary><b>View complete directory file tree</b></summary>
@@ -519,6 +519,8 @@ flowchart TD
 tanuki/
 ├── .github/
 │   └── workflows/
+│       ├── build-musl.yml     # Multi-architecture static musl binary builder
+│       ├── pypi-publish.yml   # PyPI distribution workflow
 │       └── release.yml        # CI/CD test, release asset, and GHCR container packaging
 ├── Dockerfile                 # Distroless/slim container specification
 ├── Cargo.toml                 # Root workspace manifest
@@ -531,6 +533,14 @@ tanuki/
 │       ├── src/
 │       │   ├── lib.rs         # Library entry point (#![forbid(unsafe_code)])
 │       │   ├── main.rs        # CLI entry point and formatters
+│       │   ├── adcs.rs        # Passive ADCS certificate scanner
+│       │   ├── config.rs      # Zero-DNS krb5.conf generator
+│       │   ├── fix.rs         # Closed-loop remediation engine
+│       │   ├── ldap.rs        # Unprivileged LDAP & RBCD parser
+│       │   ├── pac.rs         # MS-PAC & RBCD security descriptor decoder
+│       │   ├── purge.rs       # NIST SP 800-88 cryptographic shredder
+│       │   ├── shadow.rs      # msDS-KeyCredentialLink shadow credentials
+│       │   ├── util.rs        # Entropy and JSON utilities
 │       │   ├── doctor/        # Sub-5ms pre-flight health diagnostic probe
 │       │   ├── nhi/           # RFC 8693 workload token validator
 │       │   ├── keytab/        # RFC 4120 keytab binary parser
@@ -541,13 +551,21 @@ tanuki/
 ├── tanuki/                    # Unified Python package
 │   ├── __init__.py            # Library exports (v1.3.0)
 │   ├── __main__.py            # python -m tanuki execution
+│   ├── adcs.py                # Passive ADCS template misconfiguration scanner
+│   ├── auth.py                # Unprivileged ctypes TGT acquisition
 │   ├── cli.py                 # Unified CLI matching Rust commands
+│   ├── config.py              # Zero-DNS krb5.conf generator
 │   ├── doctor.py              # Pre-flight health check engine (<5ms, zero packets)
-│   ├── nhi.py                 # Non-Human Identity & RFC 8693 token exchange
-│   ├── telemetry.py           # Dual-use SOC detection telemetry (Auditd, Event ID, Sigma)
-│   ├── keytab.py              # RFC 4120 keytab parser
+│   ├── fix.py                 # Idempotent remediation & auto-configuration
 │   ├── kcm.py                 # SSSD KCM ticket stream parser
-│   └── protocol.py            # Error dictionary & decision ladder
+│   ├── keytab.py              # RFC 4120 keytab parser
+│   ├── ldap.py                # Pure socket LDAP & binary RBCD parser
+│   ├── nhi.py                 # Non-Human Identity & RFC 8693 token exchange
+│   ├── pac.py                 # MS-PAC NDR parser & type 0x0011 decoder
+│   ├── protocol.py            # Error dictionary & decision ladder
+│   ├── purge.py               # NIST SP 800-88 zero-trace purge engine
+│   ├── shadow.py              # msDS-KeyCredentialLink binary parser
+│   └── telemetry.py           # Dual-use SOC detection telemetry
 ├── assets/
 │   ├── lab-validation-act1-dc01-setup.png          # Act 1: DC01 setup and RFC 4120 ktpass export
 │   ├── lab-validation-act2-naga-doctor-unconfigured.png # Act 2.1: Pre-flight doctor unconfigured baseline
@@ -562,6 +580,7 @@ tanuki/
 │   ├── logo-dark.png                               # Project logo (transparent background, dark mode)
 │   └── social-preview.png                          # Repository social preview banner
 ├── scripts/
+│   ├── build_musl.sh          # Static musl compilation script
 │   ├── keytab_inspector.py    # Python Living-off-the-Land keytab parser
 │   └── kcm_parser.py          # Python SSSD KCM credential cache parser
 ├── references/
@@ -571,14 +590,23 @@ tanuki/
 │   ├── error_triage.md        # Kerberos and SSSD error resolution table
 │   └── nhi_mesh.md            # Workload identity and token exchange reference
 ├── tests/
+│   ├── e2e/                   # Comprehensive end-to-end and scenario test suites
+│   ├── test_adcs.py           # ADCS misconfiguration scanner tests
+│   ├── test_auth.py           # Native ctypes Kerberos authentication tests
+│   ├── test_config.py         # Deterministic krb5.conf generation tests
 │   ├── test_doctor.py         # Pre-flight health check unit tests
-│   ├── test_telemetry.py      # Dual-use detection telemetry unit tests
+│   ├── test_fix.py            # Automated closed-loop remediation tests
+│   ├── test_kcm_parser.py     # SSSD KCM stream parser tests
+│   ├── test_keytab_inspector.py # Living-off-the-Land keytab tests
+│   ├── test_ldap.py           # Pure socket LDAP and RBCD tests
 │   ├── test_nhi.py            # RFC 8693 workload token validator tests
-│   ├── test_unified_cli.py    # Unified CLI command coverage
-│   ├── test_keytab_inspector.py
-│   ├── test_kcm_parser.py
-│   ├── test_rust_compatibility.py
-│   └── test_security_audit.py
+│   ├── test_pac.py            # PAC parsing and Type 17 attributes tests
+│   ├── test_purge.py          # NIST SP 800-88 forensic purge tests
+│   ├── test_rust_compatibility.py # Dual-engine cross-validation tests
+│   ├── test_security_audit.py # Security bounds and fuzzing tests
+│   ├── test_shadow.py         # msDS-KeyCredentialLink parser tests
+│   ├── test_telemetry.py      # Dual-use detection telemetry unit tests
+│   └── test_unified_cli.py    # Unified CLI command coverage
 ├── SKILL.md                   # Universal skill definition
 ├── AGENTS.md                  # Multi-agent prompt file
 ├── CLAUDE.md                  # Claude Code project guide
