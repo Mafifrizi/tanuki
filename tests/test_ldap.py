@@ -21,6 +21,7 @@ from tanuki.ldap import (
     ber_encode_string,
     ber_encode_tlv,
     build_ldap_bind_request,
+    build_ldap_extensible_filter,
     build_ldap_search_filter,
     build_ldap_search_request,
     format_ldap_report_terminal,
@@ -220,6 +221,46 @@ class TestLdapEngine(unittest.TestCase):
 
         with self.assertRaises(LdapError):
             ber_decode_tlv(b"\x04\x80\x00\x00", 0)
+
+    def test_build_ldap_bind_request_authenticated(self):
+        req = build_ldap_bind_request(1, bind_dn="admin@CORP.LOCAL", password="SecretPassword123")
+        tag, val, _ = ber_decode_tlv(req, 0)
+        self.assertEqual(tag, TAG_SEQUENCE)
+        self.assertIn(b"admin@CORP.LOCAL", req)
+        self.assertIn(b"SecretPassword123", req)
+
+    def test_build_ldap_extensible_filter_asreproast(self):
+        filter_bytes = build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304")
+        self.assertEqual(filter_bytes[0], 0xA9)
+        self.assertIn(b"userAccountControl", filter_bytes)
+        self.assertIn(b"1.2.840.113556.1.4.803", filter_bytes)
+        self.assertIn(b"4194304", filter_bytes)
+
+    def test_format_ldap_report_terminal_asreproast_card(self):
+        report = {
+            "status": "SUCCESS",
+            "host": "192.168.56.106",
+            "port": 389,
+            "query_type": "asreproast",
+            "count": 1,
+            "entries": [
+                {
+                    "dn": "CN=legacy-nonpreauth,OU=LabUsers,DC=lab,DC=local",
+                    "query_category": "asreproast",
+                    "attributes": {
+                        "sAMAccountName": ["legacy-nonpreauth"],
+                        "userAccountControl": ["4194816"],
+                        "msDS-SupportedEncryptionTypes": ["0"],
+                    },
+                }
+            ],
+        }
+        rendered = format_ldap_report_terminal(report)
+        self.assertIn("legacy-nonpreauth", rendered)
+        self.assertIn("Pre-Authentication: DISABLED", rendered)
+        self.assertIn("RC4-HMAC (etype 23", rendered)
+        self.assertIn("$krb5asrep$23$", rendered)
+        self.assertIn("Vulnerable to unauthenticated offline Kerberos AS-REP roasting", rendered)
 
 
 if __name__ == "__main__":

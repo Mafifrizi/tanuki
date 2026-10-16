@@ -12,6 +12,7 @@ from unittest.mock import patch
 import tanuki
 from tanuki.doctor import (
     DoctorReport,
+    check_enctype_kvno_sync,
     check_keytab,
     check_krb5_conf,
     check_sssd,
@@ -683,6 +684,48 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
         data = json.loads(proc.stdout)
         sssd_check = next(c for c in data["checks"] if c["name"] == "sssd_subsystem")
         self.assertEqual(sssd_check["secrets_status"], "ENOENT")
+
+    def test_check_enctype_kvno_sync_unit(self):
+        kt_path = os.path.join(self.temp_dir.name, "sync_test.keytab")
+        with open(kt_path, "wb") as f:
+            f.write(make_keytab_bytes([
+                {"realm": "LAB.LOCAL", "comps": ["HOST", "web01.lab.local"], "keytype": 18, "kvno": 3}
+            ]))
+
+        # Case 1: KVNO desynchronization -> FAIL
+        res_desync = check_enctype_kvno_sync(kt_path, ad_supported_enctypes=0x18, ad_kvno=5)
+        self.assertEqual(res_desync["status"], "FAIL")
+        self.assertIn("KVNO desynchronization detected", res_desync["details"])
+        self.assertEqual(res_desync["keytab_kvno"], 3)
+        self.assertEqual(res_desync["ad_kvno"], 5)
+
+        # Case 2: Missing AES in msDS-SupportedEncryptionTypes (0x0) -> WARN
+        res_no_aes = check_enctype_kvno_sync(kt_path, ad_supported_enctypes=0x0, ad_kvno=3)
+        self.assertEqual(res_no_aes["status"], "WARN")
+        self.assertIn("lacks AES in msDS-SupportedEncryptionTypes", res_no_aes["details"])
+
+        # Case 3: Fully synchronized -> PASS
+        res_sync = check_enctype_kvno_sync(kt_path, ad_supported_enctypes=0x18, ad_kvno=3)
+        self.assertEqual(res_sync["status"], "PASS")
+        self.assertIn("supports AES", res_sync["details"])
+
+        # Case 4: Missing keytab -> N_A
+        res_missing = check_enctype_kvno_sync("/nonexistent/file.keytab", ad_supported_enctypes=0x18, ad_kvno=3)
+        self.assertEqual(res_missing["status"], "N_A")
+
+    def test_diagnose_system_with_ad_enctype_and_kvno(self):
+        kt_path = os.path.join(self.temp_dir.name, "ad_diag.keytab")
+        with open(kt_path, "wb") as f:
+            f.write(make_keytab_bytes([
+                {"realm": "LAB.LOCAL", "comps": ["HOST", "web01.lab.local"], "keytype": 18, "kvno": 3}
+            ]))
+
+        report = diagnose_system(keytab_path=kt_path, ad_supported_enctypes=0x18, ad_kvno=3)
+        self.assertEqual(len(report.checks), 6)
+        check_names = [c["name"] for c in report.to_dict()["checks"]]
+        self.assertIn("enctype_sync", check_names)
+        enctype_check = next(c for c in report.to_dict()["checks"] if c["name"] == "enctype_sync")
+        self.assertEqual(enctype_check["status"], "PASS")
 
 
 if __name__ == "__main__":

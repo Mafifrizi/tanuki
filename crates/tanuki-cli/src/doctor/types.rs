@@ -9,6 +9,8 @@ pub struct DoctorOptions {
     pub secrets_path: Option<String>,
     pub ccache_path: Option<String>,
     pub include_opsec: bool,
+    pub ad_supported_enctypes: Option<u32>,
+    pub ad_kvno: Option<u32>,
 }
 
 impl Default for DoctorOptions {
@@ -21,6 +23,8 @@ impl Default for DoctorOptions {
             secrets_path: Some("/var/lib/sss/secrets/secrets.ldb".to_string()),
             ccache_path: None,
             include_opsec: false,
+            ad_supported_enctypes: None,
+            ad_kvno: None,
         }
     }
 }
@@ -60,6 +64,15 @@ impl CheckResult {
         for (k, v) in &self.extra_fields {
             if k == key {
                 return v == "true";
+            }
+        }
+        default
+    }
+
+    pub fn get_extra_int(&self, key: &str, default: i64) -> i64 {
+        for (k, v) in &self.extra_fields {
+            if k == key {
+                return v.parse::<i64>().unwrap_or(default);
             }
         }
         default
@@ -123,6 +136,7 @@ impl DoctorReport {
                 "ticket_lifetime" => "Active Ticket Cache   ",
                 "host_tooling" => "Kerberos Host Tooling ",
                 "opsec_sensors" => "Host OPSEC Sensors    ",
+                "enctype_sync" => "Enctype & KVNO Sync   ",
                 other => other,
             };
             out.push_str(&format!("[{}] {} : {}\n", check.status, title, check.details));
