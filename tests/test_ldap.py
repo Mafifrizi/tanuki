@@ -262,6 +262,50 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("$krb5asrep$23$", rendered)
         self.assertIn("Vulnerable to unauthenticated offline Kerberos AS-REP roasting", rendered)
 
+    def test_format_ldap_report_terminal_asreproast_aes(self):
+        report = {
+            "status": "SUCCESS",
+            "host": "192.168.56.106",
+            "port": 389,
+            "query_type": "asreproast",
+            "count": 1,
+            "entries": [
+                {
+                    "dn": "CN=aes-nonpreauth,OU=LabUsers,DC=lab,DC=local",
+                    "query_category": "asreproast",
+                    "attributes": {
+                        "sAMAccountName": ["aes-nonpreauth"],
+                        "userAccountControl": ["4194816"],
+                        "msDS-SupportedEncryptionTypes": ["24"],
+                    },
+                }
+            ],
+        }
+        rendered = format_ldap_report_terminal(report)
+        self.assertIn("aes-nonpreauth", rendered)
+        self.assertIn("Pre-Authentication: DISABLED", rendered)
+        self.assertIn("AES-256 (etype 18", rendered)
+        self.assertIn("$krb5asrep$18$", rendered)
+        self.assertIn("AES Supported", rendered)
+
+    def test_ldap_client_bind_error_capture(self):
+        from tanuki.ldap import LdapClient, TAG_SEQUENCE, LDAP_RESP_BIND, TAG_ENUMERATED, TAG_OCTET_STRING, ber_encode_tlv, ber_encode_int
+        client = LdapClient("127.0.0.1", 389)
+
+        # Mock send_and_recv returning bind response with resultCode 49 and diagnostic message
+        res_bytes = ber_encode_tlv(TAG_ENUMERATED, bytes([49]))
+        dn_bytes = ber_encode_tlv(TAG_OCTET_STRING, b"")
+        diag_bytes = ber_encode_tlv(TAG_OCTET_STRING, b"80090308: LdapErr: DSID-0C090447, comment: AcceptSecurityContext error, data 52e, v3839")
+        bind_val = res_bytes + dn_bytes + diag_bytes
+        bind_op = ber_encode_tlv(LDAP_RESP_BIND, bind_val)
+        seq = ber_encode_tlv(TAG_SEQUENCE, ber_encode_int(1) + bind_op)
+
+        client.send_and_recv = lambda req: seq
+        success = client.bind("user@lab.local", "wrongpwd")
+        self.assertFalse(success)
+        self.assertIn("result code 49", client.last_error)
+        self.assertIn("data 52e", client.last_error)
+
 
 if __name__ == "__main__":
     unittest.main()

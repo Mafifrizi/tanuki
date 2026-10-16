@@ -404,6 +404,7 @@ class LdapClient:
         self.sock: Optional[socket.socket] = None
         self.msg_counter = 1
         self.connected = False
+        self.last_error: Optional[str] = None
 
     def connect(self) -> None:
         """Establish TCP or LDAPS connection."""
@@ -479,7 +480,14 @@ class LdapClient:
         parsed = parse_ldap_response_stream(resp_data)
         for msg in parsed:
             if msg.get("type") == "bind_response":
-                return bool(msg.get("success"))
+                rc = msg.get("result_code", 0)
+                diag = (msg.get("diagnostic_message") or "").replace("\x00", "").strip()
+                if rc != 0:
+                    self.last_error = f"result code {rc}" + (f" ({diag})" if diag else "")
+                    return False
+                self.last_error = None
+                return True
+        self.last_error = "server closed connection or empty response"
         return False
 
     def search(
@@ -515,8 +523,18 @@ class LdapClient:
         return entries
 
 
-def probe_tcp_port(host: str, port: int = 389, timeout: float = 0.8) -> Tuple[bool, Optional[str]]:
-    """Fast non-blocking socket probe (<800ms) before initiating live wire operations."""
+def _get_attr_values(attrs: Dict[str, Any], attr_name: str) -> List[Any]:
+    """Retrieve attribute values case-insensitively from LDAP attribute dictionary."""
+    if not isinstance(attrs, dict):
+        return []
+    for k, v in attrs.items():
+        if k.lower() == attr_name.lower():
+            return v if isinstance(v, list) else [v]
+    return []
+
+
+def probe_tcp_port(host: str, port: int = 389, timeout: float = 3.0) -> Tuple[bool, Optional[str]]:
+    """Socket probe verifying connectivity before initiating live wire operations."""
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -544,24 +562,23 @@ def query_active_directory_ldap(
     password: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute Active Directory diagnostic queries (SPN, AS-REP Roast, RBCD, Shadow Credentials, Unconstrained)."""
-    # Fast non-blocking socket probe (<800ms) before initiating LDAP bind
-    probe_timeout = min(timeout, 0.8)
-    reachable, err_msg = probe_tcp_port(host, port, timeout=probe_timeout)
+    effective_port = 636 if use_ssl and port == 389 else port
+    reachable, err_msg = probe_tcp_port(host, effective_port, timeout=timeout)
     if not reachable:
-        remediation = f"ssh -L 8888:{host}:88 user@pivot -N / ssh -L {port}:{host}:{port} user@pivot -N"
+        remediation = f"ssh -L 8888:{host}:88 user@pivot -N / ssh -L {effective_port}:{host}:{effective_port} user@pivot -N"
         return {
             "status": "CONNECTION_FAILED",
             "host": host,
-            "port": port,
+            "port": effective_port,
             "query_type": query_type,
             "base_dn": base_dn,
-            "error": f"Port {port} unreachable on host '{host}' ({err_msg}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {remediation}",
+            "error": f"Port {effective_port} unreachable on host '{host}' ({err_msg}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {remediation}",
             "remediation": remediation,
             "entries": [],
             "count": 0,
         }
 
-    client = LdapClient(host=host, port=port, use_ssl=use_ssl, timeout=timeout)
+    client = LdapClient(host=host, port=effective_port, use_ssl=use_ssl, timeout=timeout)
     results: List[Dict[str, Any]] = []
 
     attr_map = {
@@ -578,17 +595,23 @@ def query_active_directory_ldap(
         # Bind unprivileged anonymous or authenticated simple bind
         bound = client.bind(bind_dn=username or "", password=password)
         if not bound:
+            bind_err = client.last_error or ""
             bind_desc = f"authenticated simple bind as '{username}'" if username else "anonymous or unprivileged access disallowed"
+            err_detail = f"LDAP bind failed ({bind_desc})"
+            if bind_err:
+                err_detail = f"LDAP bind failed: {bind_err} ({bind_desc})"
             return {
                 "status": "BIND_FAILED",
                 "host": host,
+                "port": effective_port,
                 "query_type": query_type,
-                "message": f"LDAP bind failed ({bind_desc})",
+                "message": err_detail,
                 "entries": [],
                 "count": 0,
             }
 
-        target_queries = [query_type] if query_type != "all" else ["spn", "asreproast", "rbcd", "shadow", "unconstrained"]
+        q_norm = query_type.strip().lower()
+        target_queries = [q_norm] if q_norm != "all" else ["spn", "asreproast", "rbcd", "shadow", "unconstrained"]
 
         for q in target_queries:
             attrs = attr_map.get(q, ["sAMAccountName"])
@@ -608,17 +631,14 @@ def query_active_directory_ldap(
             for e in entries:
                 e["query_category"] = q
                 if q in ("asreproast", "nopreauth"):
-                    uac_raw = e.get("attributes", {}).get("userAccountControl", ["0"])
+                    uac_raw = _get_attr_values(e.get("attributes", {}), "userAccountControl")
                     try:
-                        uac_num = int(uac_raw[0])
+                        uac_num = int(uac_raw[0]) if uac_raw else 0
                     except (ValueError, TypeError):
                         uac_num = 0
-                    enctype_raw = (
-                        e.get("attributes", {}).get("msDS-SupportedEncryptionTypes", ["0"])
-                        or e.get("attributes", {}).get("msds-supportedencryptiontypes", ["0"])
-                    )
+                    enctype_raw = _get_attr_values(e.get("attributes", {}), "msDS-SupportedEncryptionTypes")
                     try:
-                        enctype_num = int(enctype_raw[0])
+                        enctype_num = int(enctype_raw[0]) if enctype_raw else 0
                     except (ValueError, TypeError):
                         enctype_num = 0
 
@@ -712,14 +732,14 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
         lines.append(f"[{cat}] {sam}")
         lines.append(f"    {t_branch} DN: {dn}")
         if cat in ("ASREPROAST", "NOPREAUTH"):
-            uac_vals = attrs.get("userAccountControl", ["0"])
+            uac_vals = _get_attr_values(attrs, "userAccountControl")
             try:
-                uac_int = int(uac_vals[0])
+                uac_int = int(uac_vals[0]) if uac_vals else 0
             except (ValueError, TypeError):
                 uac_int = 0
-            enctype_vals = attrs.get("msDS-SupportedEncryptionTypes", ["0"]) or attrs.get("msds-supportedencryptiontypes", ["0"])
+            enctype_vals = _get_attr_values(attrs, "msDS-SupportedEncryptionTypes")
             try:
-                enctype_int = int(enctype_vals[0])
+                enctype_int = int(enctype_vals[0]) if enctype_vals else 0
             except (ValueError, TypeError):
                 enctype_int = 0
 

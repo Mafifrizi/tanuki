@@ -814,10 +814,11 @@ pub fn query_active_directory_ldap(
     }
 
     // Execute queries
-    let target_queries = if query_type == "all" {
+    let q_norm = query_type.to_ascii_lowercase();
+    let target_queries = if q_norm == "all" {
         vec!["spn", "asreproast", "rbcd", "shadow", "unconstrained"]
     } else {
-        vec![query_type]
+        vec![q_norm.as_str()]
     };
 
     let mut all_entries = Vec::new();

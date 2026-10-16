@@ -175,7 +175,7 @@ fn run_tui_wizard() {
         println!("  [3]  Keytab   : Inspect Kerberos keytab binary entries");
         println!("  [4]  Auth     : Acquire Kerberos TGT ticket cache via kinit");
         println!("  [5]  PAC      : Decode MS-PAC binary structures & privileges");
-        println!("  [6]  LDAP     : Query Active Directory via unprivileged SASL GSSAPI");
+        println!("  [6]  LDAP     : Query Active Directory via unprivileged or authenticated LDAP");
         println!("  [7]  AD CS    : Passive certificate & template scanner (ESC1-ESC11)");
         println!("  [8]  NHI      : Workload identity inspection & token exchange");
         println!("  [9]  KCM      : Extract SSSD KCM credential cache streams");
@@ -395,7 +395,13 @@ fn main() {
                     i += 1;
                 }
             }
-            "-p" | "--principal" => {
+            "--principal" => {
+                if i + 1 < raw_args.len() {
+                    principal_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "-p" => {
                 if i + 1 < raw_args.len() {
                     principal_opt = Some(raw_args[i + 1].clone());
                     password_opt = Some(raw_args[i + 1].clone());

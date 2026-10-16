@@ -349,23 +349,57 @@ fn test_build_ldap_extensible_filter_asreproast() {
 
 #[test]
 fn test_ldap_report_format_terminal_asreproast_and_rbcd() {
+    let mut ace1 = vec![0x00, 0x00];
+    let sid1 = [0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x15, 0x00, 0x00, 0x00, 0xf4, 0x01, 0x00, 0x00];
+    let ace1_len = 8 + sid1.len();
+    ace1.extend_from_slice(&(ace1_len as u16).to_le_bytes());
+    ace1.extend_from_slice(&0x10000000u32.to_le_bytes());
+    ace1.extend_from_slice(&sid1);
+
+    let acl_len = 8 + ace1.len();
+    let mut acl = vec![0x02, 0x00];
+    acl.extend_from_slice(&(acl_len as u16).to_le_bytes());
+    acl.extend_from_slice(&1u16.to_le_bytes());
+    acl.extend_from_slice(&0u16.to_le_bytes());
+    acl.extend_from_slice(&ace1);
+
+    let mut sd = vec![0x01, 0x00];
+    sd.extend_from_slice(&0x0004u16.to_le_bytes());
+    sd.extend_from_slice(&0u32.to_le_bytes());
+    sd.extend_from_slice(&0u32.to_le_bytes());
+    sd.extend_from_slice(&0u32.to_le_bytes());
+    sd.extend_from_slice(&20u32.to_le_bytes());
+    sd.extend_from_slice(&acl);
+    let rbcd_hex: String = sd.iter().map(|b| format!("{:02x}", b)).collect();
+
     let report = LdapReport {
         status: "SUCCESS".to_string(),
         host: "dc01.lab.local".to_string(),
         port: 389,
         query_type: "asreproast".to_string(),
         base_dn: "DC=lab,DC=local".to_string(),
-        count: 1,
-        entries: vec![LdapSearchEntry {
-            message_id: 2,
-            dn: "CN=Legacy,OU=Users,DC=lab,DC=local".to_string(),
-            query_category: "asreproast".to_string(),
-            attributes: vec![
-                ("sAMAccountName".to_string(), vec!["legacy-nonpreauth".to_string()]),
-                ("userAccountControl".to_string(), vec!["4194816".to_string()]),
-                ("msDS-SupportedEncryptionTypes".to_string(), vec!["0".to_string()]),
-            ],
-        }],
+        count: 2,
+        entries: vec![
+            LdapSearchEntry {
+                message_id: 2,
+                dn: "CN=Legacy,OU=Users,DC=lab,DC=local".to_string(),
+                query_category: "asreproast".to_string(),
+                attributes: vec![
+                    ("sAMAccountName".to_string(), vec!["legacy-nonpreauth".to_string()]),
+                    ("userAccountControl".to_string(), vec!["4194816".to_string()]),
+                    ("msDS-SupportedEncryptionTypes".to_string(), vec!["0".to_string()]),
+                ],
+            },
+            LdapSearchEntry {
+                message_id: 3,
+                dn: "CN=SqlSvc,OU=Users,DC=lab,DC=local".to_string(),
+                query_category: "rbcd".to_string(),
+                attributes: vec![
+                    ("sAMAccountName".to_string(), vec!["svc-sql".to_string()]),
+                    ("msDS-AllowedToActOnBehalfOfOtherIdentity".to_string(), vec![rbcd_hex]),
+                ],
+            },
+        ],
         message: None,
         error: None,
     };
@@ -376,6 +410,11 @@ fn test_ldap_report_format_terminal_asreproast_and_rbcd() {
     assert!(text.contains("RC4-HMAC (etype 23"));
     assert!(text.contains("$krb5asrep$23$"));
     assert!(text.contains("Vulnerable to unauthenticated offline Kerberos AS-REP roasting"));
+
+    assert!(text.contains("svc-sql"));
+    assert!(text.contains("msDS-AllowedToActOnBehalfOfOtherIdentity (RBCD):"));
+    assert!(text.contains("ACE Count: 1"));
+    assert!(text.contains("Allowed Trustee: S-1-5-21-500"));
 }
 
 #[test]
@@ -402,6 +441,11 @@ fn test_enctype_kvno_sync_diagnostics() {
     let check_no_aes = audit_enctype_kvno(kt_str, Some(0x0), Some(3));
     assert_eq!(check_no_aes.status, "WARN");
     assert!(check_no_aes.details.contains("lacks AES in msDS-SupportedEncryptionTypes"));
+
+    let check_both = audit_enctype_kvno(kt_str, Some(0x0), Some(5));
+    assert_eq!(check_both.status, "FAIL");
+    assert!(check_both.details.contains("KVNO desynchronization detected"));
+    assert!(check_both.details.contains("lacks AES in msDS-SupportedEncryptionTypes"));
 
     let check_sync = audit_enctype_kvno(kt_str, Some(0x18), Some(3));
     assert_eq!(check_sync.status, "PASS");
