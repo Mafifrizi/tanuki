@@ -698,6 +698,33 @@ OPERATIONAL_REMEDIATIONS: Dict[str, Dict[str, Any]] = {
             ],
         },
     },
+    "service_ticket_tgs": {
+        "title": "Kerberos Service Ticket (TGS) Mutual Authentication",
+        "tactical_cmd": "tanuki auth --spn <SPN> || kvno -c /tmp/krb5cc_$(id -u) <SPN>",
+        "telemetry": {
+            "auditd": [
+                "-w /tmp/krb5cc_* -p rwa -k krb5_ccache_tgs_access",
+                "-w /etc/krb5.keytab -p r -k keytab_tgs_audit",
+            ],
+            "event_ids": [4769, 4768],
+            "sigma": [
+                {
+                    "title": "Suspicious Kerberos Service Ticket Request (TGS-REQ)",
+                    "status": "stable",
+                    "logsource": "windows:security",
+                    "tags": ["attack.credential_access", "attack.t1558.003", "attack.lateral_movement"],
+                }
+            ],
+            "falco": [
+                {
+                    "rule": "Kerberos Ticket Cache Harvested by Non-Standard Binary",
+                    "priority": "WARNING",
+                    "condition": 'open_read and fd.name glob "/tmp/krb5cc_*" and not proc.name in (sssd, kinit, kvno, sshd)',
+                    "output": "Potential Pass-The-Ticket access detected (user=%user.name file=%fd.name cmd=%proc.cmdline)",
+                }
+            ],
+        },
+    },
 }
 
 

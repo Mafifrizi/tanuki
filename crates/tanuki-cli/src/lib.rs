@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod adcs;
+pub mod blast;
 pub mod config;
 pub mod doctor;
 pub mod fix;
@@ -15,6 +16,11 @@ pub mod shadow;
 pub mod util;
 
 pub use adcs::{scan_adcs_source, AdcsFinding, AdcsReport};
+pub use blast::{
+    blast_report_to_json, classify_identity_tier, evaluate_blast_radius,
+    format_blast_report_terminal, generate_ad_remediations, BlastReport, LateralPath,
+    RemediationRecipe, TierInfo,
+};
 pub use config::{discover_dc_via_srv, generate_krb5_conf};
 pub use doctor::{enctype::audit_enctype_kvno, run_doctor, CheckResult, DoctorOptions, DoctorReport};
 pub use fix::{run_fix, FixAction, FixResult};

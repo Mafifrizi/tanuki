@@ -7,7 +7,8 @@ from typing import Any, List, Optional
 
 from . import __version__
 from .adcs import format_adcs_report_terminal, scan_adcs
-from .auth import acquire_tgt
+from .auth import acquire_tgs, acquire_tgt
+from .blast import format_blast_report_terminal, run_blast
 from .config import discover_dc_via_srv, generate_krb5_conf
 from .doctor import diagnose_system, render_card_header, supports_unicode
 from .fix import run_fix
@@ -65,6 +66,8 @@ COMMANDS:
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     auth [OPTIONS]      Acquire TGT using keytab via host kinit or fallback ctypes
+    tgs [SPN]           Acquire Kerberos Service Ticket (TGS-REQ) for service access
+    blast [OPTIONS]     Active Directory privilege tiering and blast radius mapping
     kcm [OPTIONS]       Extract SSSD KCM credential cache streams
     triage [QUERY]      Lookup Kerberos/SSSD error codes and resolutions
     ladder              Display the 5-rung Tactical Decision Ladder
@@ -79,6 +82,7 @@ OPTIONS:
     -u, --username <U>  Username, UPN, or DN for authenticated LDAP bind
     -p, --password <P>  Password for LDAP bind (or principal for auth)
     --principal <P>     Kerberos principal for authentication
+    --spn <SPN>         Target Service Principal Name for TGS acquisition or triage
     -a, --audience <AUD> Expected audience for workload validation
     --issuer <ISS>      Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
@@ -632,6 +636,78 @@ def handle_config(
     print("    $ kinit -k -t <keytab> <principal>")
 
 
+def handle_tgs(
+    spn: Optional[str],
+    ccache_path: Optional[str],
+    keytab_path: Optional[str],
+    principal: Optional[str],
+    json_output: bool,
+    force_ctypes: bool = False,
+    krb5_conf: Optional[str] = None,
+    kdc: Optional[str] = None,
+) -> None:
+    if not spn:
+        emit_cli_error(
+            "Error: Target SPN required. Example: tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+
+    res = acquire_tgs(
+        spn=spn,
+        ccache_path=ccache_path,
+        keytab_path=keytab_path,
+        principal=principal,
+        force_ctypes=force_ctypes,
+        krb5_conf=krb5_conf,
+        kdc=kdc,
+    )
+
+    if res.get("status") == "SUCCESS":
+        if json_output:
+            print(json.dumps(res, indent=2))
+            return
+
+        for line in render_card_header(
+            "TANUKI KERBEROS SERVICE TICKET ACQUISITION",
+            f"Method: {res.get('method')} · Proof of Operational Service Access",
+        ):
+            print(line)
+
+        use_uni = supports_unicode()
+        t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
+
+        print(f"[+] Target SPN     : {res['spn']}")
+        print(f"    {t_branch} Client Princ : {res.get('client_principal', 'N/A')}")
+        print(f"    {t_branch} Ticket Cache : {res['ccache']}")
+        print(f"    {t_branch} Mutual Auth  : VERIFIED (Living off the Domain)")
+        print(f"    {t_branch} Event ID     : 4769 (Kerberos Service Ticket Request)")
+        print(f"    {l_branch} Telemetry    : Sigma Rule Match & Blue Telemetry Recorded")
+        print("\n[+] Operational Proof:")
+        print("    Mutual Kerberos service authentication established without cleartext credentials.")
+        print(f"    Active ccache exported with valid TGS for {res['spn']}.")
+        print("\n[+] Active Credential Cache Export:")
+        print(f"    $ {res['export_command']}")
+    else:
+        exit_code = res.get("exit_code", EXIT_RESOURCE_MISSING)
+        if res.get("reason_code") == "TGS_REQUEST_FAILED":
+            exit_code = EXIT_POLICY_STOP
+        elif res.get("reason_code") in ("MISSING_SPN", "PARSE_SPN_FAILED"):
+            exit_code = EXIT_USAGE_ERROR
+
+        emit_cli_error(
+            message=res.get("message", "Service ticket acquisition failed"),
+            reason_code=res.get("reason_code", "TGS_ERROR"),
+            category=res.get("category", "PROTOCOL_ERROR"),
+            exit_code=exit_code,
+            target=res.get("target") or res.get("spn"),
+            details=res.get("details") or res.get("recommendation"),
+            json_output=json_output,
+        )
+
+
 def handle_auth(
     keytab_path: Optional[str],
     principal: Optional[str],
@@ -642,7 +718,21 @@ def handle_auth(
     kdc: Optional[str] = None,
     fast: bool = False,
     armor_cache: Optional[str] = None,
+    spn: Optional[str] = None,
 ) -> None:
+    if spn:
+        handle_tgs(
+            spn=spn,
+            ccache_path=ccache_path,
+            keytab_path=keytab_path,
+            principal=principal,
+            json_output=json_output,
+            force_ctypes=force_ctypes,
+            krb5_conf=krb5_conf,
+            kdc=kdc,
+        )
+        return
+
     if not keytab_path:
         emit_cli_error(
             "Error: Keytab path required. Example: tanuki auth --keytab /etc/krb5.keytab --principal host/srv01@CORP.LOCAL",
@@ -707,6 +797,37 @@ def handle_auth(
             details=res.get("details") or res.get("recommendation"),
             json_output=json_output,
         )
+
+
+def handle_blast(
+    source: Optional[str],
+    ccache_path: Optional[str],
+    keytab_path: Optional[str],
+    pac_source: Optional[str],
+    host: Optional[str],
+    base_dn: Optional[str],
+    username: Optional[str],
+    password: Optional[str],
+    spns: Optional[List[str]],
+    json_output: bool,
+) -> None:
+    res = run_blast(
+        source=source,
+        ccache_path=ccache_path,
+        keytab_path=keytab_path,
+        pac_source=pac_source,
+        host=host,
+        base_dn=base_dn,
+        username=username,
+        password=password,
+        spns=spns,
+    )
+
+    if json_output:
+        print(json.dumps(res, indent=2))
+        return
+
+    print(format_blast_report_terminal(res))
 
 
 def handle_token(
@@ -1296,7 +1417,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     known_subcommands = {
         "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
-        "pac", "fix", "purge", "adcs", "ldap",
+        "pac", "fix", "purge", "adcs", "ldap", "tgs", "blast",
     }
 
     if not argv:
@@ -1357,6 +1478,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     password_opt: Optional[str] = None
     ad_supported_enctypes_opt: Optional[int] = None
     ad_kvno_opt: Optional[int] = None
+    spn_opt: Optional[str] = None
 
     i = 0
     while i < len(argv):
@@ -1407,6 +1529,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         elif arg == "--principal":
             if i + 1 < len(argv):
                 principal_opt = argv[i + 1]
+                i += 1
+        elif arg == "--spn":
+            if i + 1 < len(argv):
+                spn_opt = argv[i + 1]
                 i += 1
         elif arg == "-p":
             if i + 1 < len(argv):
@@ -1562,7 +1688,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 i += 1
         elif explicit_command is None and arg in (
             "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
-            "pac", "shadow", "fix", "purge", "adcs", "ldap",
+            "pac", "shadow", "fix", "purge", "adcs", "ldap", "tgs", "blast",
         ):
             explicit_command = arg
         elif not arg.startswith("-"):
@@ -1603,6 +1729,36 @@ def main(argv: Optional[List[str]] = None) -> None:
             kdc=kdc_opt,
             fast=fast_opt,
             armor_cache=armor_cache_opt,
+            spn=spn_opt,
+        )
+    elif command == "tgs":
+        target_spn = spn_opt or (positional_args[0] if positional_args else None)
+        target_kt = keytab_opt or file_opt
+        target_princ = principal_opt
+        target_ccache = ccache_opt or out_opt
+        handle_tgs(
+            spn=target_spn,
+            ccache_path=target_ccache,
+            keytab_path=target_kt,
+            principal=target_princ,
+            json_output=global_json,
+            force_ctypes=force_ctypes_opt,
+            krb5_conf=krb5_conf_opt,
+            kdc=kdc_opt,
+        )
+    elif command == "blast":
+        target_source = file_opt or (positional_args[0] if positional_args else None)
+        handle_blast(
+            source=target_source,
+            ccache_path=ccache_opt,
+            keytab_path=keytab_opt,
+            pac_source=target_source if (target_source and not target_source.endswith(".keytab") and not target_source.endswith(".ccache")) else None,
+            host=host_opt,
+            base_dn=base_dn_opt,
+            username=username_opt,
+            password=password_opt,
+            spns=[spn_opt] if spn_opt else None,
+            json_output=global_json,
         )
     elif command == "kcm":
         target = file_opt or (positional_args[0] if positional_args else None)
