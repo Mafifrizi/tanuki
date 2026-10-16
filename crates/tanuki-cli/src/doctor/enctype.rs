@@ -144,6 +144,15 @@ pub fn audit_enctype_kvno(
             if !kvno_mismatch {
                 details = "Account has SPN but lacks AES in msDS-SupportedEncryptionTypes (KDC defaults to RC4-HMAC etype 23). Presenting an AES-only keytab (etype 18) will trigger KRB_AP_ERR_NOKEY / Event 4769 failure.".to_string();
                 recommendation = Some("Enable AES on Active Directory account: Set-ADUser -Identity <account> -KerberosEncryptionType AES128,AES256 (sets msDS-SupportedEncryptionTypes to 0x18) or add RC4-HMAC key to keytab.".to_string());
+            } else {
+                details.push_str(" Additionally, account has SPN but lacks AES in msDS-SupportedEncryptionTypes (KRB_AP_ERR_NOKEY risk).");
+                let aes_rec = "Enable AES on Active Directory account: Set-ADUser -Identity <account> -KerberosEncryptionType AES128,AES256 (sets msDS-SupportedEncryptionTypes to 0x18).";
+                if let Some(ref mut rec) = recommendation {
+                    rec.push_str(" Also: ");
+                    rec.push_str(aes_rec);
+                } else {
+                    recommendation = Some(aes_rec.to_string());
+                }
             }
         }
     }

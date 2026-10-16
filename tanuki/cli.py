@@ -1104,11 +1104,12 @@ def handle_ldap(
             exit_code=EXIT_USAGE_ERROR,
             json_output=json_output,
         )
+    effective_port = 636 if use_ssl and port == 389 else port
     rep = query_active_directory_ldap(
         host=host,
         query_type=query_type,
         base_dn=base_dn,
-        port=port,
+        port=effective_port,
         use_ssl=use_ssl,
         username=username,
         password=password,
@@ -1139,7 +1140,7 @@ def run_tui_wizard() -> None:
         print("  [3]  Keytab   : Inspect RFC 4120 binary keytab file")
         print("  [4]  Auth     : Acquire TGT non-interactively via keytab")
         print("  [5]  PAC      : Decode MS-PAC binary structures & privileges")
-        print("  [6]  LDAP     : Query Active Directory via unprivileged SASL GSSAPI")
+        print("  [6]  LDAP     : Query Active Directory via unprivileged or authenticated LDAP")
         print("  [7]  AD CS    : Passive certificate & template scanner (ESC1-ESC11)")
         print("  [8]  NHI      : Workload identity inspection & token exchange")
         print("  [9]  KCM      : Extract SSSD KCM credential cache streams")
@@ -1177,7 +1178,7 @@ def run_tui_wizard() -> None:
             handle_pac(pac_src, json_output=False)
         elif choice == "6":
             host = input("Target DC IP/Host: ").strip()
-            q = input("Query type (spn/rbcd/shadow/unconstrained/all) [all]: ").strip() or "all"
+            q = input("Query type (spn/asreproast/rbcd/shadow/unconstrained/all) [all]: ").strip() or "all"
             handle_ldap(host=host, query_type=q, base_dn="DC=corp,DC=local", port=389, use_ssl=False, json_output=False)
         elif choice == "7":
             src = input("Templates JSON or Certificate path: ").strip()
@@ -1403,7 +1404,11 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 password_opt = argv[i + 1]
                 i += 1
-        elif arg in ("-p", "--principal"):
+        elif arg == "--principal":
+            if i + 1 < len(argv):
+                principal_opt = argv[i + 1]
+                i += 1
+        elif arg == "-p":
             if i + 1 < len(argv):
                 principal_opt = argv[i + 1]
                 password_opt = argv[i + 1]

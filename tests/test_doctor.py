@@ -713,6 +713,12 @@ class TestDoctorOrchestratorAndPerformance(unittest.TestCase):
         res_missing = check_enctype_kvno_sync("/nonexistent/file.keytab", ad_supported_enctypes=0x18, ad_kvno=3)
         self.assertEqual(res_missing["status"], "N_A")
 
+        # Case 5: Both KVNO desync and missing AES -> FAIL with combined details
+        res_both = check_enctype_kvno_sync(kt_path, ad_supported_enctypes=0x0, ad_kvno=5)
+        self.assertEqual(res_both["status"], "FAIL")
+        self.assertIn("KVNO desynchronization detected", res_both["details"])
+        self.assertIn("lacks AES in msDS-SupportedEncryptionTypes", res_both["details"])
+
     def test_diagnose_system_with_ad_enctype_and_kvno(self):
         kt_path = os.path.join(self.temp_dir.name, "ad_diag.keytab")
         with open(kt_path, "wb") as f:

@@ -439,6 +439,13 @@ def check_enctype_kvno_sync(
                     "Enable AES on Active Directory account: Set-ADUser -Identity <account> -KerberosEncryptionType AES128,AES256 "
                     "(sets msDS-SupportedEncryptionTypes to 0x18) or add RC4-HMAC key to keytab."
                 )
+            else:
+                result["details"] += " Additionally, account has SPN but lacks AES in msDS-SupportedEncryptionTypes (KRB_AP_ERR_NOKEY risk)."
+                aes_rec = "Enable AES on Active Directory account (Set-ADUser -Identity <account> -KerberosEncryptionType AES128,AES256)."
+                if result.get("recommendation"):
+                    result["recommendation"] += f" Also: {aes_rec}"
+                else:
+                    result["recommendation"] = aes_rec
 
     if result["status"] == "PASS":
         if ad_supported_enctypes is not None and ad_kvno is not None:
