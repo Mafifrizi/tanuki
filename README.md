@@ -108,7 +108,7 @@ Visual verification of the complete 3-act operational lifecycle across live doma
 | Act | Environment | Objectives & Validated Primitives |
 | :--- | :--- | :--- |
 | **Act 1: Domain Controller Setup** | Windows Server 2022 (`DC01`) | Domain discovery (`nltest`), SPN audit (`setspn`), and RFC 4120 AES-256 binary keytab export (`ktpass`, KVNO 9). |
-| **Act 2: Unprivileged Linux Operator** | Kali Linux 2024 (Linux Workstation) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), ticket health pass (`tanuki doctor`), protocol triage (`tanuki triage`), and zero-trace purge (`tanuki purge`). |
+| **Act 2: Unprivileged Linux Operator** | Kali Linux 2024 (Linux Workstation) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), ticket health pass (`tanuki doctor`), unprivileged LDAP recon (`tanuki ldap`), MS-PAC privilege decoding (`tanuki pac`), shadow credential triage (`tanuki shadow`), protocol triage (`tanuki triage`), and zero-trace purge (`tanuki purge`). |
 | **Act 3: Closed-Loop Verification** | Windows Server 2022 (`DC01`) | Domain Controller Security Event ID 4768 Audit Success for `tanuki-nhi` originating from client IP `192.168.56.105`. |
 
 #### Act 1: Domain Controller Service Setup & Keytab Provisioning (`DC01`)
@@ -161,36 +161,52 @@ Confirms active AES-256 Kerberos ticket cache with **11h 22m 27s** remaining lif
   <img src="assets/lab-validation-act2-naga-doctor-pass.png" alt="Act 2.5: Post-Auth Doctor Pass with AES-256 Session" width="850">
 </p>
 
-##### 6. Bounded MS-PAC Privilege Validation (`tanuki pac`)
+##### 6. Unprivileged LDAP AS-REP Roasting Reconnaissance (`tanuki ldap`)
+
+Discovers accounts configured with `DONT_REQ_PREAUTH` (UAC `0x410200`) and evaluates target encryption mode (`RC4-HMAC` vs modern `AES-256`):
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-ldap-asrep.png" alt="Act 2.6: Unprivileged LDAP AS-REP Roasting Reconnaissance" width="850">
+</p>
+
+##### 7. Resource-Based Constrained Delegation (RBCD) Discovery (`tanuki ldap`)
+
+Parses `msDS-AllowedToActOnBehalfOfOtherIdentity` binary DACL security descriptors to extract allowed Trustee SIDs without elevated privileges:
+
+<p align="center">
+  <img src="assets/lab-validation-act2-naga-ldap-rbcd.png" alt="Act 2.7: In-Line RBCD Security Descriptor Parsing" width="850">
+</p>
+
+##### 8. Bounded MS-PAC Privilege Validation (`tanuki pac`)
 
 Decodes MS-PAC privilege attributes and logon information buffers with NDR structure boundary validation:
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-pac.png" alt="Act 2.6: Bounded MS-PAC Privilege Validation" width="850">
+  <img src="assets/lab-validation-act2-naga-pac.png" alt="Act 2.8: Bounded MS-PAC Privilege Validation" width="850">
 </p>
 
-##### 7. Active Directory Shadow Credential Triage (`tanuki shadow`)
+##### 9. Active Directory Shadow Credential Triage (`tanuki shadow`)
 
 Parses `msDS-KeyCredentialLink` binary structures ([MS-ADTS] 2.2.20) to audit Next Generation Credential (NGC) key material and device GUIDs:
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-shadow.png" alt="Act 2.7: Shadow Credential Binary Inspection" width="850">
+  <img src="assets/lab-validation-act2-naga-shadow.png" alt="Act 2.9: Shadow Credential Binary Inspection" width="850">
 </p>
 
-##### 8. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
+##### 10. Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
 
 Couples tactical remediation commands with Blue Team detection telemetry (Auditd watch rules, Windows Event IDs 4768/4771, Sigma rules, and Falco signatures):
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.8: Protocol Error Triage and Telemetry" width="850">
+  <img src="assets/lab-validation-act2-naga-triage.png" alt="Act 2.10: Protocol Error Triage and Telemetry" width="850">
 </p>
 
-##### 9. Zero-Trace Cryptographic Purge (`tanuki purge`)
+##### 11. Zero-Trace Cryptographic Purge (`tanuki purge`)
 
 Executes NIST SP 800-88 compliant 3-pass file shredding, memory zeroization, and environment variable purging with `O_NOFOLLOW` symlink defense:
 
 <p align="center">
-  <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.9: NIST SP 800-88 Zero-Trace Purge" width="850">
+  <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.11: NIST SP 800-88 Zero-Trace Purge" width="850">
 </p>
 
 #### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
@@ -326,8 +342,11 @@ Query Active Directory via unprivileged LDAP (zero superuser, fast socket probe)
 # Audit Kerberos Service Principal Names (SPN)
 tanuki ldap --host 192.168.56.106 --query spn
 
+# Reconnaissance for AS-REP Roasting targets with cipher detection (RC4 vs modern AES-256)
+tanuki ldap --host 192.168.56.106 -u "user@corp.local" -p "Password123" --base-dn "DC=corp,DC=local" --query asreproast
+
 # Detect Resource-Based Constrained Delegation (RBCD) with in-line DACL parsing
-tanuki ldap --host 192.168.56.106 --query rbcd --base-dn "DC=corp,DC=local"
+tanuki ldap --host 192.168.56.106 -u "user@corp.local" -p "Password123" --base-dn "DC=corp,DC=local" --query rbcd
 
 # Detect Shadow Credentials with in-line key link decoding
 tanuki ldap --host 192.168.56.106 --query shadow --base-dn "DC=corp,DC=local"
@@ -466,6 +485,7 @@ flowchart TD
             R_KCM["kcm/ (CCACHE Extractor)"]
             R_TEL["protocol/ (Telemetry & Triage)"]
             R_PAC["pac/ (MS-PAC Decoder)"]
+            R_LDAP["ldap/ (LDAP & RBCD Parser)"]
             R_FIX["fix/ (Self-Healing)"]
             R_PURGE["purge/ (Zero-Trace)"]
         end
@@ -480,7 +500,7 @@ flowchart TD
             P_FIX["fix.py (Idempotent Self-Healing)"]
             P_PURGE["purge.py (NIST SP 800-88 Purge)"]
             P_ADCS["adcs.py (ESC1-ESC11 Scanner)"]
-            P_LDAP["ldap.py (SASL GSSAPI LDAP)"]
+            P_LDAP["ldap.py (Pure Socket LDAP & RBCD)"]
         end
     end
 
@@ -490,7 +510,7 @@ flowchart TD
         S3["references/ (Tactical Ladder, AD CS, NHI)"]
     end
 
-    subgraph VERIFICATION["Empirical Verification (410 Tests)"]
+    subgraph VERIFICATION["Empirical Verification (422 Python + 36 Rust Tests)"]
         V1["tests/ (Unit Test Suites)"]
         V2["tests/e2e/ (Tiers 1-4 Scenarios)"]
         V3["Tier 5 Adversarial Fuzzing"]
@@ -505,12 +525,12 @@ flowchart TD
 
 | Subsystem | Primary Location | Key Capabilities & Architecture |
 | :--- | :--- | :--- |
-| **Rust Systems Core** | `crates/tanuki-cli/` | High-performance binary CLI built with `#![forbid(unsafe_code)]`. Houses sub-5ms `doctor`, RFC 8693 token exchange, RFC 4120 keytab parsing, MS-PAC NDR decoding, and SSSD CCACHE extraction. |
-| **Python Unified Package** | `tanuki/` | Zero-dependency PEP 621 package providing `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing `fix`, zero-trace `purge`, and unprivileged SASL LDAP queries. |
+| **Rust Systems Core** | `crates/tanuki-cli/` | High-performance binary CLI built with `#![forbid(unsafe_code)]`. Houses sub-5ms `doctor`, RFC 8693 token exchange, RFC 4120 keytab parsing, MS-PAC NDR decoding, in-line RBCD parsing, and SSSD CCACHE extraction. |
+| **Python Unified Package** | `tanuki/` | Zero-dependency PEP 621 package providing `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing `fix`, zero-trace `purge`, and unprivileged authenticated/anonymous LDAP queries. |
 | **Living-off-the-Land Scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or compiler toolchains. |
 | **Agent Skill Definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
 | **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
-| **Verification Harness** | `tests/`, `tests/e2e/` | 415 automated tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
+| **Verification Harness** | `tests/`, `tests/e2e/` | 422 automated Python tests and 36 Rust unit tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
 
 <details>
 <summary><b>View complete directory file tree</b></summary>
