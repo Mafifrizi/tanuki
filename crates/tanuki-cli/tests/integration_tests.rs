@@ -1,10 +1,12 @@
 use tanuki::{
-    audit_enctype_kvno, build_ldap_bind_request, build_ldap_extensible_filter,
-    build_ldap_search_filter, candidates_to_json, entries_to_json, escape_json,
-    find_error_resolution, generate_krb5_conf, ladder_to_json, parse_keytab_bytes,
+    audit_enctype_kvno, blast_report_to_json, build_ldap_bind_request,
+    build_ldap_extensible_filter, build_ldap_search_filter, candidates_to_json,
+    classify_identity_tier, entries_to_json, escape_json, evaluate_blast_radius,
+    find_error_resolution, format_blast_report_terminal, generate_ad_remediations,
+    generate_krb5_conf, ladder_to_json, parse_keytab_bytes,
     parse_rbcd_security_descriptor, parse_windows_sid, save_candidates,
-    scan_for_ccache_blobs, KeytabError, LdapReport, LdapSearchEntry, DECISION_LADDER,
-    ERROR_DICTIONARY,
+    scan_for_ccache_blobs, BlastReport, KeytabError, LdapReport, LdapSearchEntry,
+    DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 fn build_keytab_entry(
@@ -453,3 +455,69 @@ fn test_enctype_kvno_sync_diagnostics() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_blast_tier_classification_and_radius_rust() {
+    let t0 = classify_identity_tier("admin@LAB.LOCAL", None, None, &[512], &[], false, false);
+    assert_eq!(t0.tier, 0);
+    assert_eq!(t0.severity, "CRITICAL");
+    assert!(t0.is_critical);
+    assert!(t0.base_score >= 90);
+
+    let t1 = classify_identity_tier("svc@LAB.LOCAL", None, None, &[549], &[], false, false);
+    assert_eq!(t1.tier, 1);
+    assert_eq!(t1.severity, "HIGH");
+    assert!(!t1.is_critical);
+
+    let t2 = classify_identity_tier("user@LAB.LOCAL", None, Some(513), &[513], &[], false, false);
+    assert_eq!(t2.tier, 2);
+    assert_eq!(t2.severity, "LOW");
+    assert_eq!(t2.base_score, 20);
+
+    let (score, severity, paths) = evaluate_blast_radius(
+        &t1,
+        &["TRUSTED_FOR_DELEGATION".to_string()],
+        &["HTTP/tanuki-app.lab.local".to_string()],
+        1,
+    );
+    assert!(score >= 85);
+    assert_eq!(severity, "CRITICAL");
+    assert!(!paths.is_empty());
+}
+
+#[test]
+fn test_blast_remediations_and_json_parity_rust() {
+    let t1 = classify_identity_tier("tanuki-nhi@LAB.LOCAL", None, None, &[], &[], true, false);
+    let recipes = generate_ad_remediations(
+        "tanuki-nhi@LAB.LOCAL",
+        &t1,
+        &[],
+        1,
+        &["HTTP/tanuki-app.lab.local".to_string()],
+    );
+    assert!(!recipes.is_empty());
+    assert!(recipes.iter().any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("AES128,AES256")));
+    assert!(recipes.iter().any(|r| r.category == "DELEGATION_HARDENING" && r.powershell.contains("msDS-AllowedToActOnBehalfOfOtherIdentity")));
+
+    let report = BlastReport {
+        principal: "tanuki-nhi@LAB.LOCAL".to_string(),
+        user_sid: "S-1-5-21-1108".to_string(),
+        tier_info: t1,
+        blast_score: 70,
+        severity: "HIGH".to_string(),
+        delegation_flags: vec![],
+        accessible_spns: vec!["HTTP/tanuki-app.lab.local".to_string()],
+        lateral_paths: vec![],
+        remediation_recipes: recipes,
+    };
+
+    let json_text = blast_report_to_json(&report);
+    assert!(json_text.contains("\"operation\": \"BLAST_RADIUS_ANALYSIS\""));
+    assert!(json_text.contains("\"event_id\": 4769"));
+    assert!(json_text.contains("\"tier\": 1"));
+
+    let terminal_text = format_blast_report_terminal(&report);
+    assert!(terminal_text.contains("TANUKI PRIVILEGE TIERING & BLAST RADIUS ENGINE"));
+    assert!(!terminal_text.contains('\u{2014}'));
+}
+
