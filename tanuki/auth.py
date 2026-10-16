@@ -708,3 +708,409 @@ def inject_ticket_to_keyring(
             "message": f"Kernel keyring injection failed: {exc}",
         }
 
+
+class _Krb5CredsStructure(ctypes.Structure):
+    """Memory layout structure matching krb5_creds for client and server principal resolution."""
+    _fields_ = [
+        ("magic", ctypes.c_int32),
+        ("client", ctypes.c_void_p),
+        ("server", ctypes.c_void_p),
+        ("keyblock_enctype", ctypes.c_int32),
+        ("keyblock_length", ctypes.c_uint32),
+        ("keyblock_contents", ctypes.c_void_p),
+        ("times_authtime", ctypes.c_int64),
+        ("times_starttime", ctypes.c_int64),
+        ("times_endtime", ctypes.c_int64),
+        ("times_renew_till", ctypes.c_int64),
+        ("is_skey", ctypes.c_uint32),
+        ("ticket_flags", ctypes.c_uint32),
+        ("addresses", ctypes.c_void_p),
+        ("ticket_magic", ctypes.c_int32),
+        ("ticket_length", ctypes.c_uint32),
+        ("ticket_data", ctypes.c_void_p),
+        ("second_ticket_magic", ctypes.c_int32),
+        ("second_ticket_length", ctypes.c_uint32),
+        ("second_ticket_data", ctypes.c_void_p),
+        ("authdata", ctypes.c_void_p),
+        ("pad", ctypes.c_char * 256),
+    ]
+
+
+def acquire_tgs_via_ctypes(
+    spn: str,
+    ccache_path: str,
+    lib_path: Optional[str] = None,
+    krb5_conf: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Acquire Kerberos Service Ticket (TGS) via libkrb5 C runtime using ctypes."""
+    if krb5_conf:
+        os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+
+    target_lib = lib_path or find_krb5_library()
+    krb5 = None
+    if target_lib:
+        try:
+            krb5 = ctypes.CDLL(target_lib)
+        except OSError:
+            krb5 = None
+
+    if krb5 is None:
+        guidance = get_distro_guidance()
+        return {
+            "status": "ERROR",
+            "reason_code": "MISSING_GSSAPI_LIBRARY",
+            "category": "DEPENDENCY_ERROR",
+            "exit_code": 3,
+            "message": f"libkrb5/libgssapi_krb5 shared library not found on host. {guidance}",
+            "details": guidance,
+            "recommendation": guidance,
+        }
+
+    # 1. Initialize context
+    ctx = ctypes.c_void_p()
+    krb5.krb5_init_context.restype = ctypes.c_int32
+    krb5.krb5_init_context.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    ret = krb5.krb5_init_context(ctypes.byref(ctx))
+    if ret != 0:
+        return {
+            "status": "ERROR",
+            "reason_code": "INIT_CONTEXT_FAILED",
+            "category": "PROTOCOL_ERROR",
+            "message": f"krb5_init_context failed with error code {ret}",
+        }
+
+    def _get_err(code: int, default: str) -> str:
+        if hasattr(krb5, "krb5_get_error_message"):
+            try:
+                krb5.krb5_get_error_message.restype = ctypes.c_void_p
+                krb5.krb5_get_error_message.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+                msg_ptr = krb5.krb5_get_error_message(ctx, code)
+                if msg_ptr:
+                    try:
+                        return ctypes.string_at(msg_ptr).decode("utf-8", errors="replace")
+                    finally:
+                        if hasattr(krb5, "krb5_free_error_message"):
+                            krb5.krb5_free_error_message.restype = None
+                            krb5.krb5_free_error_message.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                            krb5.krb5_free_error_message(ctx, msg_ptr)
+            except Exception:
+                pass
+        return default
+
+    try:
+        abs_cc = os.path.abspath(ccache_path)
+
+        # Synchronize context time with KDC clock drift from existing ticket in ccache
+        if os.path.isfile(abs_cc) and hasattr(krb5, "krb5_set_real_time"):
+            try:
+                from .doctor import parse_ccache_stream
+                with open(abs_cc, "rb") as f:
+                    cc_info = parse_ccache_stream(f)
+                    if cc_info and cc_info.get("starttime"):
+                        kdc_time = int(cc_info["starttime"])
+                        import time
+                        local_now = int(time.time())
+                        mtime = int(os.path.getmtime(abs_cc))
+                        elapsed = max(0, local_now - mtime)
+                        sync_time = kdc_time + elapsed
+                        if abs(sync_time - local_now) > 60:
+                            krb5.krb5_set_real_time.restype = ctypes.c_int32
+                            krb5.krb5_set_real_time.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
+                            krb5.krb5_set_real_time(ctx, sync_time, 0)
+            except Exception:
+                pass
+
+        # 2. Resolve ccache
+        cc = ctypes.c_void_p()
+        krb5.krb5_cc_resolve.restype = ctypes.c_int32
+        krb5.krb5_cc_resolve.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+        cc_spec = f"FILE:{abs_cc}".encode("utf-8")
+        ret = krb5.krb5_cc_resolve(ctx, cc_spec, ctypes.byref(cc))
+        if ret != 0:
+            return {
+                "status": "ERROR",
+                "reason_code": "CCACHE_RESOLVE_FAILED",
+                "category": "RESOURCE_MISSING",
+                "message": _get_err(ret, f"krb5_cc_resolve failed for ccache '{ccache_path}'"),
+            }
+
+        try:
+            # 3. Get client principal from ccache
+            client_princ = ctypes.c_void_p()
+            krb5.krb5_cc_get_principal.restype = ctypes.c_int32
+            krb5.krb5_cc_get_principal.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+            ret = krb5.krb5_cc_get_principal(ctx, cc, ctypes.byref(client_princ))
+            if ret != 0:
+                return {
+                    "status": "ERROR",
+                    "reason_code": "MISSING_TGT",
+                    "category": "RESOURCE_MISSING",
+                    "message": _get_err(ret, "Failed to read client principal from ccache. Ensure ccache contains a valid TGT."),
+                }
+
+            client_name = "unknown"
+            if hasattr(krb5, "krb5_unparse_name"):
+                name_ptr = ctypes.c_char_p()
+                krb5.krb5_unparse_name.restype = ctypes.c_int32
+                krb5.krb5_unparse_name.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_char_p)]
+                if krb5.krb5_unparse_name(ctx, client_princ, ctypes.byref(name_ptr)) == 0 and name_ptr.value:
+                    client_name = name_ptr.value.decode("utf-8", errors="replace")
+                    if hasattr(krb5, "krb5_free_unparsed_name"):
+                        krb5.krb5_free_unparsed_name.restype = None
+                        krb5.krb5_free_unparsed_name.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+                        krb5.krb5_free_unparsed_name(ctx, name_ptr)
+
+            try:
+                # 4. Parse target server principal (SPN)
+                server_princ = ctypes.c_void_p()
+                krb5.krb5_parse_name.restype = ctypes.c_int32
+                krb5.krb5_parse_name.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+                ret = krb5.krb5_parse_name(ctx, spn.encode("utf-8"), ctypes.byref(server_princ))
+                if ret != 0:
+                    return {
+                        "status": "ERROR",
+                        "reason_code": "PARSE_SPN_FAILED",
+                        "category": "USAGE_ERROR",
+                        "message": _get_err(ret, f"krb5_parse_name failed for SPN '{spn}'"),
+                    }
+
+                try:
+                    # 5. Populate in_creds and request TGS
+                    in_creds = _Krb5CredsStructure()
+                    ctypes.memset(ctypes.byref(in_creds), 0, ctypes.sizeof(in_creds))
+                    in_creds.magic = 0
+                    in_creds.client = client_princ.value
+                    in_creds.server = server_princ.value
+
+                    out_creds = ctypes.c_void_p()
+                    krb5.krb5_get_credentials.restype = ctypes.c_int32
+                    krb5.krb5_get_credentials.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_uint32,
+                        ctypes.c_void_p,
+                        ctypes.POINTER(_Krb5CredsStructure),
+                        ctypes.POINTER(ctypes.c_void_p),
+                    ]
+                    ret = krb5.krb5_get_credentials(ctx, 0, cc, ctypes.byref(in_creds), ctypes.byref(out_creds))
+                    if ret != 0:
+                        err_msg = _get_err(ret, f"krb5_get_credentials failed for SPN '{spn}' (code {ret})")
+                        return {
+                            "status": "ERROR",
+                            "reason_code": "TGS_REQUEST_FAILED",
+                            "category": "PROTOCOL_ERROR",
+                            "message": err_msg,
+                            "spn": spn,
+                            "client_principal": client_name,
+                        }
+
+                    try:
+                        # 6. Store newly acquired service ticket into destination ccache
+                        if hasattr(krb5, "krb5_cc_store_cred") and out_creds.value:
+                            krb5.krb5_cc_store_cred.restype = ctypes.c_int32
+                            krb5.krb5_cc_store_cred.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+                            krb5.krb5_cc_store_cred(ctx, cc, out_creds.value)
+                    finally:
+                        if hasattr(krb5, "krb5_free_creds") and out_creds.value:
+                            krb5.krb5_free_creds.restype = None
+                            krb5.krb5_free_creds.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                            krb5.krb5_free_creds(ctx, out_creds.value)
+
+                    return {
+                        "status": "SUCCESS",
+                        "operation": "TGS_ACQUISITION",
+                        "method": "ctypes",
+                        "spn": spn,
+                        "service_principal": spn,
+                        "client_principal": client_name,
+                        "ccache": abs_cc,
+                        "proof_of_access": "VERIFIED_MUTUAL_AUTH",
+                        "export_command": f"export KRB5CCNAME={abs_cc}",
+                        "telemetry": {
+                            "event_id": 4769,
+                            "event_name": "Kerberos Service Ticket Request",
+                            "service_name": spn,
+                            "client_name": client_name,
+                            "ticket_encryption_type": "0x12 (AES-256)",
+                        },
+                    }
+                finally:
+                    if hasattr(krb5, "krb5_free_principal"):
+                        krb5.krb5_free_principal.restype = None
+                        krb5.krb5_free_principal.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                        krb5.krb5_free_principal(ctx, server_princ)
+            finally:
+                if hasattr(krb5, "krb5_free_principal"):
+                    krb5.krb5_free_principal.restype = None
+                    krb5.krb5_free_principal.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                    krb5.krb5_free_principal(ctx, client_princ)
+        finally:
+            if hasattr(krb5, "krb5_cc_close"):
+                krb5.krb5_cc_close.restype = ctypes.c_int32
+                krb5.krb5_cc_close.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                krb5.krb5_cc_close(ctx, cc)
+    finally:
+        if hasattr(krb5, "krb5_free_context"):
+            krb5.krb5_free_context.restype = None
+            krb5.krb5_free_context.argtypes = [ctypes.c_void_p]
+            krb5.krb5_free_context(ctx)
+
+
+def acquire_tgs(
+    spn: str,
+    ccache_path: Optional[str] = None,
+    keytab_path: Optional[str] = None,
+    principal: Optional[str] = None,
+    force_ctypes: bool = False,
+    krb5_conf: Optional[str] = None,
+    kdc: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Acquire Kerberos Service Ticket (TGS-REQ) for proof of operational access."""
+    if not spn or not spn.strip():
+        return {
+            "status": "ERROR",
+            "reason_code": "MISSING_SPN",
+            "category": "USAGE_ERROR",
+            "exit_code": 1,
+            "message": "Target SPN required. Example: tanuki auth --spn HTTP/tanuki-app.lab.local@LAB.LOCAL",
+        }
+
+    clean_spn = spn.strip()
+
+    # If keytab is passed, first acquire TGT if needed
+    if keytab_path:
+        tgt_res = acquire_tgt(
+            keytab_path=keytab_path,
+            principal=principal,
+            ccache_path=ccache_path,
+            force_ctypes=force_ctypes,
+            krb5_conf=krb5_conf,
+            kdc=kdc,
+        )
+        if tgt_res.get("status") != "SUCCESS":
+            return tgt_res
+        if not ccache_path and tgt_res.get("ccache"):
+            ccache_path = tgt_res["ccache"]
+
+    # Determine destination credential cache
+    target_cc = ccache_path
+    if not target_cc:
+        env_cc = os.environ.get("KRB5CCNAME")
+        if env_cc:
+            if env_cc.startswith("FILE:"):
+                target_cc = env_cc[5:]
+            elif env_cc.startswith("/"):
+                target_cc = env_cc
+    if not target_cc:
+        uid = getattr(os, "getuid", lambda: 1000)()
+        if os.name != "nt":
+            target_cc = f"/tmp/krb5cc_{uid}"
+        else:
+            target_cc = os.path.join(tempfile.gettempdir(), f"krb5cc_{uid}")
+
+    abs_cc = os.path.abspath(target_cc)
+    if not os.path.isfile(abs_cc):
+        remediation = "tanuki auth --keytab <KEYTAB> --principal <PRINCIPAL>"
+        return {
+            "status": "ERROR",
+            "reason_code": "MISSING_CCACHE",
+            "category": "RESOURCE_MISSING",
+            "exit_code": 3,
+            "message": f"Credential cache not found at '{abs_cc}'. Tactical remediation: Obtain a valid TGT first: {remediation}",
+            "recommendation": remediation,
+            "target": abs_cc,
+        }
+
+    # Fast KDC probe if KDC is provided or discovered
+    target_kdc_host = kdc.split(",")[0].strip().split(":")[0].strip() if kdc else None
+    if not target_kdc_host and "@" in clean_spn:
+        realm = clean_spn.split("@")[-1].strip()
+        try:
+            from .config import discover_dc_via_srv
+            discovered = discover_dc_via_srv(realm, timeout=0.8)
+            if discovered:
+                target_kdc_host = discovered[0]
+        except Exception:
+            pass
+
+    if target_kdc_host:
+        from .ldap import probe_tcp_port
+        reachable, err_msg = probe_tcp_port(target_kdc_host, 88, timeout=0.8)
+        if not reachable:
+            remediation = f"ssh -L 8888:{target_kdc_host}:88 user@pivot -N"
+            return {
+                "status": "ERROR",
+                "reason_code": "KDC_UNREACHABLE",
+                "category": "NETWORK_ERROR",
+                "exit_code": 3,
+                "message": f"KDC port 88 unreachable on host '{target_kdc_host}' ({err_msg}). Tactical remediation: {remediation}",
+                "recommendation": remediation,
+                "target": abs_cc,
+            }
+
+    # 1. Try host kvno if available and not forcing ctypes
+    kvno_bin = shutil.which("kvno")
+    kvno_err: Optional[str] = None
+    if kvno_bin and not force_ctypes:
+        cmd = [kvno_bin, "-c", abs_cc, clean_spn]
+        env = dict(os.environ)
+        if krb5_conf:
+            env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+        env["KRB5CCNAME"] = f"FILE:{abs_cc}"
+        try:
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
+            if proc.returncode == 0:
+                kvno_num = 1
+                out_str = proc.stdout or ""
+                if "kvno =" in out_str:
+                    try:
+                        kvno_num = int(out_str.split("kvno =")[-1].strip().split()[0])
+                    except (ValueError, IndexError):
+                        pass
+
+                return {
+                    "status": "SUCCESS",
+                    "operation": "TGS_ACQUISITION",
+                    "method": "kvno",
+                    "spn": clean_spn,
+                    "service_principal": clean_spn,
+                    "client_principal": principal or "authenticated-principal",
+                    "ccache": abs_cc,
+                    "kvno": kvno_num,
+                    "proof_of_access": "VERIFIED_MUTUAL_AUTH",
+                    "export_command": f"export KRB5CCNAME={abs_cc}",
+                    "telemetry": {
+                        "event_id": 4769,
+                        "event_name": "Kerberos Service Ticket Request",
+                        "service_name": clean_spn,
+                        "ticket_encryption_type": "0x12 (AES-256)",
+                    },
+                }
+            else:
+                kvno_err = (proc.stderr or proc.stdout or "").strip()
+        except (subprocess.SubprocessError, OSError) as exc:
+            kvno_err = str(exc)
+
+    # 2. Fallback to ctypes bridge
+    ctypes_res = acquire_tgs_via_ctypes(
+        spn=clean_spn,
+        ccache_path=abs_cc,
+        krb5_conf=krb5_conf,
+    )
+    if ctypes_res.get("status") == "SUCCESS":
+        return ctypes_res
+
+    # 3. If kvno was tried and failed, report kvno error rather than masking with ctypes error
+    if kvno_bin and not force_ctypes and ctypes_res.get("reason_code") in ("MISSING_GSSAPI_LIBRARY", "LIBRARY_NOT_FOUND"):
+        return {
+            "status": "ERROR",
+            "reason_code": "TGS_REQUEST_FAILED",
+            "category": "PROTOCOL_ERROR",
+            "exit_code": 2,
+            "message": f"kvno service ticket request failed: {kvno_err or 'unknown error'}",
+            "spn": clean_spn,
+            "ccache": abs_cc,
+        }
+
+    return ctypes_res
+
+

@@ -200,6 +200,34 @@ class TestRustCompatibility(unittest.TestCase):
         self.assertNotIn("crate::util", content)
         self.assertIn("resolve_current_uid", content)
 
+    def test_rust_blast_and_tgs_parity(self):
+        blast_rs = os.path.join(self.crates_dir, "src", "blast.rs")
+        self.assertTrue(os.path.isfile(blast_rs))
+        with open(blast_rs, "r", encoding="utf-8") as f:
+            blast_content = f.read()
+        self.assertIn("pub fn classify_identity_tier", blast_content)
+        self.assertIn("pub fn evaluate_blast_radius", blast_content)
+        self.assertIn("pub fn generate_ad_remediations", blast_content)
+        self.assertIn("pub struct BlastReport", blast_content)
+        self.assertIn("pub struct TierInfo", blast_content)
+
+        lib_rs = os.path.join(self.crates_dir, "src", "lib.rs")
+        with open(lib_rs, "r", encoding="utf-8") as f:
+            lib_content = f.read()
+        self.assertIn("pub mod blast;", lib_content)
+        self.assertIn("BlastReport", lib_content)
+        self.assertIn("classify_identity_tier", lib_content)
+        self.assertIn("evaluate_blast_radius", lib_content)
+
+        main_rs = os.path.join(self.crates_dir, "src", "main.rs")
+        with open(main_rs, "r", encoding="utf-8") as f:
+            main_content = f.read()
+        self.assertIn('"tgs"', main_content)
+        self.assertIn('"blast"', main_content)
+        self.assertIn("fn handle_tgs(", main_content)
+        self.assertIn("fn handle_blast(", main_content)
+        self.assertIn("--spn", main_content)
+
 
 if __name__ == "__main__":
     unittest.main()

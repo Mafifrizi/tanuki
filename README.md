@@ -217,6 +217,38 @@ Native high-efficiency log query via `wevtutil` on the Domain Controller proving
   <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 3: Windows Event ID 4768 Audit Success Verification" width="850">
 </p>
 
+#### Act 4 / The Climax: Active Directory Sovereign Architecture
+
+A complete 3-phase operational workflow bridging unprivileged offensive verification with sovereign enterprise defense, executed live against Windows Server 2022 (`DC01-GUI`) and Kali Linux (`Naga`):
+
+##### Phase 1: Operational Proof of Service Access (TGS Acquisition)
+
+Acquires a Kerberos Service Ticket (TGS-REQ) for the designated Service Principal Name (`HTTP/tanuki-app.lab.local@LAB.LOCAL`) using the existing valid machine TGT in `/tmp/krb5cc_live_climax`, establishing mutual Kerberos authentication without cleartext credentials:
+
+<p align="center">
+  <img src="assets/lab-validation-climax-phase1-tgs.png" alt="Phase 1: Kerberos Service Ticket Acquisition (TGS-REQ) Proof of Operational Service Access" width="850">
+</p>
+
+##### Phase 2: Active Directory Privilege Tiering and Quantitative Blast Radius Mapping
+
+Performs deterministic privilege tiering (Tier 0 Control Plane, Tier 1 Server/Operator Infrastructure, Tier 2 Workstation Endpoints) with a quantitative 0-100 risk score, lateral movement path calculation, and actionable PowerShell remediation recipes:
+
+<p align="center">
+  <img src="assets/lab-validation-climax-phase2-blast.png" alt="Phase 2: Active Directory Privilege Tiering and Quantitative Blast Radius Engine" width="850">
+</p>
+
+##### Phase 3: Closed-Loop Sovereign Hardening, Telemetry Verification & Zero-Trace Purge
+
+Audits live Windows Security Event ID 4769 on `DC01-GUI` confirming successful Kerberos Service Ticket issuance with modern AES-256 (`0x12`), followed by cryptographic zero-trace artifact purge (`tanuki purge --all`) compliant with NIST SP 800-88:
+
+<p align="center">
+  <img src="assets/lab-validation-climax-phase3-event4769.png" alt="Phase 3: Domain Controller Security Event ID 4769 Live Telemetry Correlation" width="850">
+</p>
+
+<p align="center">
+  <img src="assets/lab-validation-climax-phase3-purge.png" alt="Phase 3: NIST SP 800-88 Cryptographic Zero-Trace Purge" width="850">
+</p>
+
 ---
 
 ## The Decision Ladder
@@ -350,6 +382,35 @@ tanuki ldap --host 192.168.56.106 -u "user@corp.local" -p "Password123" --base-d
 
 # Detect Shadow Credentials with in-line key link decoding
 tanuki ldap --host 192.168.56.106 --query shadow --base-dn "DC=corp,DC=local"
+```
+
+Acquire Kerberos Service Tickets (TGS-REQ) for service workloads:
+
+```bash
+# Acquire service ticket using existing cached TGT
+tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL
+
+# Acquire service ticket with custom ccache destination
+tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL --ccache /tmp/krb5cc_live_climax
+
+# Combined TGT and TGS acquisition via keytab
+tanuki auth --keytab /etc/krb5.keytab --spn HTTP/tanuki-app.lab.local@LAB.LOCAL
+
+# Structured JSON export for agent telemetry
+tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL --json
+```
+
+Active Directory Privilege Tiering and Quantitative Blast Radius Engine:
+
+```bash
+# Evaluate identity privilege tier and quantitative blast radius (0-100 score)
+tanuki blast --keytab /etc/krb5.keytab
+
+# Correlate cached ticket privileges and accessible SPNs
+tanuki blast --keytab /etc/krb5.keytab --ccache /tmp/krb5cc_live_climax
+
+# Structured JSON export with sovereign PowerShell remediation recipes
+tanuki blast --keytab /etc/krb5.keytab --json
 ```
 
 Query the Kerberos error triage dictionary with dual-use SOC detection telemetry:
@@ -572,7 +633,8 @@ tanuki/
 │   ├── __init__.py            # Library exports (v1.3.0)
 │   ├── __main__.py            # python -m tanuki execution
 │   ├── adcs.py                # Passive ADCS template misconfiguration scanner
-│   ├── auth.py                # Unprivileged ctypes TGT acquisition
+│   ├── auth.py                # Unprivileged ctypes TGT & TGS acquisition
+│   ├── blast.py               # Privilege tiering and quantitative blast radius engine
 │   ├── cli.py                 # Unified CLI matching Rust commands
 │   ├── config.py              # Zero-DNS krb5.conf generator
 │   ├── doctor.py              # Pre-flight health check engine (<5ms, zero packets)
@@ -596,6 +658,10 @@ tanuki/
 │   ├── lab-validation-act2-naga-triage.png         # Act 2.6: Protocol error triage and telemetry
 │   ├── lab-validation-act2-naga-purge.png          # Act 2.7: NIST SP 800-88 zero-trace purge
 │   ├── lab-validation-act3-dc01-event4768.png      # Act 3: Closed-loop Event ID 4768 audit verification
+│   ├── lab-validation-climax-phase1-tgs.png        # Phase 1: Kerberos service ticket (TGS) proof of access
+│   ├── lab-validation-climax-phase2-blast.png      # Phase 2: Privilege tiering and blast radius mapping
+│   ├── lab-validation-climax-phase3-event4769.png  # Phase 3: Closed-loop Event ID 4769 audit verification
+│   ├── lab-validation-climax-phase3-purge.png      # Phase 3: NIST SP 800-88 cryptographic zero-trace purge
 │   ├── logo.png                                    # Project logo (transparent background, light mode)
 │   ├── logo-dark.png                               # Project logo (transparent background, dark mode)
 │   └── social-preview.png                          # Repository social preview banner

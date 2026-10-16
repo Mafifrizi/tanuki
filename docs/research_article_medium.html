@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dissecting Enterprise Identity: From RFC 6113 FAST and PKINIT to Memory-First Kerberos on Linux</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+      line-height: 1.7;
+      color: #242424;
+      max-width: 780px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background-color: #ffffff;
+    }
+    h1 {
+      font-size: 2.2rem;
+      line-height: 1.25;
+      margin-bottom: 8px;
+      font-weight: 700;
+      color: #242424;
+    }
+    .subtitle {
+      font-size: 1.2rem;
+      color: #6b6b6b;
+      margin-top: 0;
+      margin-bottom: 24px;
+      font-style: italic;
+    }
+    h2 {
+      font-size: 1.6rem;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      font-weight: 700;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 6px;
+      color: #242424;
+    }
+    h3 {
+      font-size: 1.25rem;
+      margin-top: 24px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #242424;
+    }
+    p {
+      margin-bottom: 18px;
+      font-size: 1.05rem;
+    }
+    ul, ol {
+      margin-bottom: 18px;
+      padding-left: 28px;
+      font-size: 1.05rem;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    code {
+      background: #f2f2f2;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.95em;
+    }
+    pre {
+      background: #f8f8f8;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      margin-bottom: 20px;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 0.95rem;
+    }
+    th {
+      background-color: #f7f7f7;
+      font-weight: 600;
+    }
+    a {
+      color: #1a8917;
+      text-decoration: underline;
+    }
+    hr {
+      border: 0;
+      border-top: 1px solid #e0e0e0;
+      margin: 32px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Dissecting Enterprise Identity: From RFC 6113 FAST and PKINIT to Memory-First Kerberos on Linux</h1>
+  <div class="subtitle">Engineering Field Notes: Deep Protocol Analysis, Active Directory Delegation, and Bounded Telemetry Triage from Building Tanuki</div>
+
+  <p style="text-align: center; margin: 28px 0;">
+    <img src="https://raw.githubusercontent.com/Mafifrizi/tanuki/main/assets/logo.png" alt="Tanuki Logo" width="220" style="display: inline-block; max-width: 100%; height: auto;">
+  </p>
+
+  <hr>
+
+  <h2>1. Introduction: The Modern Enterprise Identity Perimeter</h2>
+  <p>Active Directory remains the predominant identity directory in enterprise environments, but the workloads interacting with it have changed drastically. In the past, Linux integration meant joining a physical server to the domain using Winbind or SSSD, persisting machine credentials in <code>/etc/krb5.keytab</code>, and storing tickets in disk files under <code>/tmp/krb5cc_&lt;uid&gt;</code>.</p>
+  <p>In modern environments, Linux workloads operate as ephemeral Kubernetes pods, unprivileged microservice containers, cloud runners, and autonomous AI agents. These environments introduce strict operational constraints:</p>
+  <ol>
+    <li><strong>Unprivileged Execution</strong>: Containers frequently run as unprivileged users (UID 1000) without <code>CAP_SYS_TIME</code>, preventing clock adjustments (<code>ntpdate</code>/<code>chrony</code>), and without root access to edit <code>/etc/krb5.conf</code>.</li>
+    <li><strong>Ephemeral Lifecycles</strong>: Writing credential material to disk introduces persistent forensic footprints and creates symlink race hazards (CWE-59).</li>
+    <li><strong>Advanced Identity Controls</strong>: Modern Active Directory domains increasingly enforce Kerberos Armoring (FAST RFC 6113), Public Key Cryptography for Initial Authentication (PKINIT RFC 4556), and Resource-Based Constrained Delegation (RBCD).</li>
+    <li><strong>Tooling Gaps</strong>: Standard command-line utilities (<code>kinit</code>, <code>klist</code>, <code>ldapsearch</code>) are absent from minimal container base images, while high-level LDAP clients frequently corrupt binary directory attributes like security descriptors.</li>
+  </ol>
+  <p>To address these operational constraints, we developed <strong>Tanuki</strong>, an open-source identity operator with a pure Python standard library engine and a memory-safe Rust core. During development, we tested Tanuki against live Windows Server 2022 domain controllers and Linux clients.</p>
+  <p>Below are our technical field notes, wire protocol mechanics, and defensive telemetry mappings from the testbed.</p>
+
+  <hr>
+
+  <h2>2. The Empirical Testing Environment</h2>
+  <p>To observe actual protocol interactions on the wire rather than relying on mocks or synthetic abstractions, all tests were executed across an isolated hypervisor testbed:</p>
+  <ul>
+    <li><strong>Domain Controller (<code>DC01-GUI</code>)</strong>: Windows Server 2022 Standard (Domain: <code>LAB.LOCAL</code>, IP: <code>192.168.56.106</code>, Active Directory Domain Services, KDC ports TCP/UDP 88, LDAP port 389, LDAPS port 636).</li>
+    <li><strong>Linux Client (<code>Naga</code>)</strong>: Kali Linux 2024 / Debian Bookworm (IP: <code>192.168.56.105</code>, unjoined container host, user <code>kraii</code>).</li>
+    <li><strong>Service Principal</strong>: <code>tanuki-nhi</code> mapped to <code>HTTP/tanuki-app.lab.local</code> with AES-256 CTS HMAC SHA1-96 encryption and Key Version Number (KVNO) 9.</li>
+  </ul>
+  <p>Observing traffic with Wireshark and analyzing Domain Controller Security Event Logs revealed protocol edge cases that standard documentation rarely covers.</p>
+
+  <hr>
+
+  <h2>3. Kerberos Armoring (RFC 6113 FAST) and Armor Cache Architecture</h2>
+  <h3>The Pre-Authentication Problem</h3>
+  <p>In standard Kerberos pre-authentication (<code>PA-ENC-TIMESTAMP</code>), the client encrypts the current timestamp using a key derived from the user's password or keytab. An adversary monitoring the network can capture the <code>AS-REQ</code> packet and perform offline dictionary attacks against the encrypted timestamp without generating logon failure alerts on the Domain Controller.</p>
+  <h3>How FAST Solves the Problem</h3>
+  <p>RFC 6113 defines Flexible Authentication Secure Tunneling (FAST). FAST establishes an armored tunnel between the client and the KDC before sensitive authentication exchange occurs. The armor key is derived from an existing credential cache (typically the host's machine ticket <code>host/machine.domain@REALM</code>):</p>
+  <ol>
+    <li>The client obtains an armor ticket (e.g. computer account TGT).</li>
+    <li>The client initiates an <code>AS-REQ</code> wrapped in a <code>PA-REQ-ENC-PA-REP</code> inner request protected by the armor key.</li>
+    <li>The KDC decrypts the outer armor layer before processing the inner pre-authentication data.</li>
+  </ol>
+  <h3>Field Edge Case: <code>KDC_ERR_PREAUTH_REQUIRED_FOR_FAST</code> (Error 93)</h3>
+  <p>When a domain controller is configured with <em>Flexible Authentication Secure Tunneling (FAST) required</em> via Group Policy (<code>Administrative Templates -&gt; System -&gt; KDC -&gt; KDC support for FAST</code>), non-armored <code>AS-REQ</code> requests are rejected with:</p>
+  <ul>
+    <li><strong>RFC 4120 / RFC 6113 Code</strong>: 93 (<code>KDC_ERR_PREAUTH_REQUIRED_FOR_FAST</code>)</li>
+    <li><strong>Windows Security Event ID</strong>: 4771 (Failure Code: <code>0x18</code>: Pre-authentication failed / FAST required)</li>
+  </ul>
+  <p>Standard Linux <code>kinit</code> invocations fail without actionable diagnostic details when this happens. To resolve this:</p>
+  <pre><code># /etc/krb5.conf or local configuration
+[libdefaults]
+    fast_req_armoring = true</code></pre>
+  <p>The operator must supply an armored ticket cache using the <code>-T</code> flag:</p>
+  <pre><code>kinit -T /tmp/krb5cc_machine -k -t /etc/krb5.keytab svc_tanuki@LAB.LOCAL</code></pre>
+  <p>Tanuki synthesizes this configuration automatically and correlates error 93 directly to Event ID 4771 and Rung 2 OPSEC enforcement in its decision engine.</p>
+
+  <hr>
+
+  <h2>4. PKINIT (RFC 4556) and AD CS Certificate Architecture</h2>
+  <p>While symmetric keytabs (<code>AES256-CTS-HMAC-SHA1-96</code>) remain common for service accounts, enterprise environments increasingly adopt Public Key Cryptography for Initial Authentication (PKINIT RFC 4556).</p>
+  <h3>Symmetric vs Asymmetric Risks</h3>
+  <ul>
+    <li><strong>Symmetric Keytabs</strong>: Storing AES keys in <code>/etc/krb5.keytab</code> leaves long-lived cryptographic secrets on disk. If the keytab file is compromised, an attacker can forge tickets until the account password is changed or the KVNO is rolled.</li>
+    <li><strong>PKINIT</strong>: Authentication relies on asymmetric X.509 certificates and private keys stored in PKCS#12 bundles or hardware tokens. The KDC signs the <code>AS-REP</code> reply using its own certificate, establishing mutual cryptographic trust without shared static symmetric keys.</li>
+  </ul>
+  <h3>Passive AD CS Template Auditing (ESC1 through ESC11)</h3>
+  <p>When Active Directory Certificate Services (AD CS) is deployed, certificate templates can introduce severe privilege escalation paths. For example:</p>
+  <ul>
+    <li><strong>ESC1</strong>: A template specifies <code>ENROLLEE_SUPPLIES_SUBJECT</code> (flag <code>0x00010000</code>) and includes Client Authentication Extended Key Usage (EKU <code>1.3.6.1.5.5.7.3.2</code>), allowing any unprivileged user to request a certificate as Domain Admin.</li>
+    <li><strong>ESC8</strong>: AD CS Web Enrollment HTTP endpoints (<code>/certsrv/</code>) accept unauthenticated NTLM relay authentication.</li>
+  </ul>
+  <p>Tanuki includes an offline ASN.1/DER certificate and template parser. By evaluating exported template attribute dumps without emitting active network packets, operators can audit AD CS security posture while maintaining zero network footprint.</p>
+
+  <hr>
+
+  <h2>5. Resource-Based Constrained Delegation (RBCD) and Binary Security Descriptors</h2>
+  <h3>Active Directory Delegation Models</h3>
+  <p>Active Directory supports three forms of delegation:</p>
+  <ol>
+    <li><strong>Unconstrained Delegation</strong>: The server receives a forwardable TGT from the client and stores it in memory (high risk: compromise of the server compromises all delegating accounts).</li>
+    <li><strong>Constrained Delegation (S4U2Proxy)</strong>: The server can request service tickets on behalf of users, controlled by the <code>msDS-AllowedToDelegateTo</code> attribute on the delegating service account.</li>
+    <li><strong>Resource-Based Constrained Delegation (RBCD)</strong>: The target resource determines who can delegate to it via the <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code> attribute.</li>
+  </ol>
+  <h3>The Binary Parsing Trap in LDAP Clients</h3>
+  <p>The <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code> attribute does not store textual access rules. It contains a raw binary NT Security Descriptor (<code>SECURITY_DESCRIPTOR_RELATIVE</code>).</p>
+  <p>When inspecting this attribute with naive scripts or standard LDAP clients, software frequently calls <code>.decode("utf-8")</code> on the returned OCTET STRING. Because raw binary security descriptors contain non-UTF-8 control bytes, this results in <code>UnicodeDecodeError</code> or string corruption.</p>
+  <h3>Anatomy of <code>SECURITY_DESCRIPTOR_RELATIVE</code></h3>
+  <p>To parse this safely without third-party dependencies, Tanuki implements a bounded binary parser:</p>
+  <ol>
+    <li><strong>Header (20 bytes)</strong>:
+      <ul>
+        <li><code>Revision</code> (1 byte, usually 0x01)</li>
+        <li><code>Sbz1</code> (1 byte padding)</li>
+        <li><code>Control</code> (2 bytes bitmask, e.g. <code>SE_DACL_PRESENT</code>)</li>
+        <li><code>OffsetOwner</code> (4 bytes uint32)</li>
+        <li><code>OffsetGroup</code> (4 bytes uint32)</li>
+        <li><code>OffsetSacl</code> (4 bytes uint32)</li>
+        <li><code>OffsetDacl</code> (4 bytes uint32)</li>
+      </ul>
+    </li>
+    <li><strong>DACL Header (8 bytes at <code>OffsetDacl</code>)</strong>:
+      <ul>
+        <li><code>AclRevision</code> (1 byte)</li>
+        <li><code>Sbz1</code> (1 byte)</li>
+        <li><code>AclSize</code> (2 bytes uint16)</li>
+        <li><code>AceCount</code> (2 bytes uint16)</li>
+        <li><code>Sbz2</code> (2 bytes)</li>
+      </ul>
+    </li>
+    <li><strong>Access Control Entries (ACEs)</strong>:
+      <ul>
+        <li><code>AceType</code> (1 byte: <code>ACCESS_ALLOWED_ACE_TYPE</code> = 0x00)</li>
+        <li><code>AceFlags</code> (1 byte)</li>
+        <li><code>AceSize</code> (2 bytes uint16)</li>
+        <li><code>Mask</code> (4 bytes uint32)</li>
+        <li><code>SidStart</code> (variable-length Windows SID structure)</li>
+      </ul>
+    </li>
+  </ol>
+  <p>Extracting the trustee SIDs from each ACE reveals exactly which computer accounts or service principals are permitted to impersonate users against the resource.</p>
+
+  <hr>
+
+  <h2>6. Memory-First Kerberos Architecture: Keyring and SSSD KCM</h2>
+  <p>Traditional Kerberos implementations persist ticket granting tickets in <code>/tmp/krb5cc_&lt;uid&gt;</code>. On multi-tenant systems, file-backed caches present two major risks:</p>
+  <ol>
+    <li><strong>Forensic Residue</strong>: Deleted tickets can be recovered from unallocated disk space unless cryptographically wiped with multi-pass random data (NIST SP 800-88).</li>
+    <li><strong>Symlink Attacks</strong>: Predictable filenames under <code>/tmp</code> expose unprivileged processes to symlink traversal vulnerabilities (CWE-59).</li>
+  </ol>
+  <h3>Linux Kernel Keyring (<code>KEYRING:persistent:&lt;uid&gt;</code>)</h3>
+  <p>Modern Linux distributions allow storing tickets directly in kernel memory:</p>
+  <ul>
+    <li>Tickets are attached to kernel keys inside dedicated user keyrings.</li>
+    <li>Unprivileged processes cannot read tickets belonging to other UIDs.</li>
+    <li>Tickets automatically expire and purge from kernel memory upon timeout without touching storage media.</li>
+  </ul>
+  <pre><code>export KRB5CCNAME=KEYRING:persistent:$(id -u)
+kinit -k -t /etc/krb5.keytab svc_tanuki@LAB.LOCAL</code></pre>
+  <h3>SSSD Kerberos Cache Manager (KCM)</h3>
+  <p>SSSD implements a daemonized Kerberos Cache Manager communicating over a UNIX domain socket (<code>/var/lib/sss/pipes/kcm</code>):</p>
+  <ul>
+    <li>Tickets reside inside the SSSD encrypted secrets database (<code>/var/lib/sss/secrets/secrets.ldb</code>).</li>
+    <li>Interacting with KCM avoids disk writes entirely.</li>
+    <li>Tanuki supports direct extraction and reconstruction of standard CCACHE streams from SSSD databases passively without requiring <code>ptrace</code> or debugger attachments.</li>
+  </ul>
+
+  <hr>
+
+  <h2>7. Dual-Use Telemetry: Correlating Tactical Commands with Blue Team Telemetry</h2>
+  <p>Operational tools should not merely execute authentication or identify configuration flaws; they must provide defenders with the exact telemetry signatures generated by those actions.</p>
+  <p>Tanuki couples every error code and tactical resolution with its corresponding detection footprint across three layers:</p>
+  <pre><code>[TACTICAL RESOLUTION]
+  $ chronyc -q 'server 192.168.56.106 iburst' || ntpdate 192.168.56.106
+
+[BLUE TEAM TELEMETRY]
+  ├── Auditd : -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k system_time_change
+  ├── DC Event: Event ID 4768 (TGT Request), Event ID 4771 (Pre-auth Failed, Code 0x25)
+  ├── Sigma   : System Time Modification Detected (attack.t1070.006)
+  └── Falco   : open_write on /etc/chrony.conf or /etc/ntp.conf</code></pre>
+  <h3>Windows Security Event ID Reference Matrix</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Windows Event ID</th>
+        <th>Event Description</th>
+        <th>Kerberos Context</th>
+        <th>Common Failure Code</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>4768</strong></td>
+        <td>Kerberos TGT Request (<code>AS-REQ</code>)</td>
+        <td>Client requests initial Ticket Granting Ticket</td>
+        <td><code>0x0</code> (Success), <code>0x6</code> (Principal Unknown)</td>
+      </tr>
+      <tr>
+        <td><strong>4769</strong></td>
+        <td>Kerberos Service Ticket Request (<code>TGS-REQ</code>)</td>
+        <td>Client requests ticket for specific service SPN</td>
+        <td><code>0x1F</code> (Integrity Check Failed / Bad KVNO)</td>
+      </tr>
+      <tr>
+        <td><strong>4771</strong></td>
+        <td>Kerberos Pre-Authentication Failed</td>
+        <td>Client pre-authentication failed</td>
+        <td><code>0x18</code> (FAST Required / Bad Password), <code>0x25</code> (Clock Skew)</td>
+      </tr>
+      <tr>
+        <td><strong>5136</strong></td>
+        <td>Directory Service Object Modified</td>
+        <td>Active Directory attribute modification</td>
+        <td>Attribute: <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code></td>
+      </tr>
+      <tr>
+        <td><strong>4624 / 4625</strong></td>
+        <td>Successful / Failed Logon</td>
+        <td>Network logon verification</td>
+        <td>Status: <code>0xC000006D</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <h2>8. The Climax: 3-Phase Sovereign Active Directory Architecture</h2>
+  <p>While diagnosing authentication and dissecting credentials provides deep tactical clarity, operational identity security requires a sovereign, closed-loop workflow that connects unprivileged access verification to quantitative risk assessment and definitive defensive remediation.</p>
+  <p>In the climax of Tanuki's Active Directory architecture, we validated an end-to-end 3-phase operational cycle against our live Windows Server 2022 domain controller (<code>DC01-GUI</code>, <code>192.168.56.106</code>) and unprivileged Kali Linux client (<code>Naga</code>, <code>192.168.56.105</code>):</p>
+
+  <h3>Phase 1: Operational Proof of Service Access (TGS Acquisition)</h3>
+  <p>Modern identity operations mandate Living off the Domain (LotD) - proving operational reach without introducing foreign tooling or cleartext credentials. Using an existing valid Ticket Granting Ticket (<code>/tmp/krb5cc_live_climax</code>), Tanuki dispatches a native Kerberos TGS-REQ targeting <code>HTTP/tanuki-app.lab.local@LAB.LOCAL</code> via <code>tanuki tgs</code> (or <code>tanuki auth --spn</code>):</p>
+  <ul>
+    <li>Unprivileged C runtime invocation via <code>ctypes</code> directly calling MIT <code>krb5_get_credentials</code>.</li>
+    <li>Automatic hypervisor clock skew compensation derived from ccache timestamps.</li>
+    <li>Immediate cryptographic proof of mutual Kerberos authentication.</li>
+  </ul>
+  <p><img src="../assets/lab-validation-climax-phase1-tgs.png" alt="Phase 1: Kerberos Service Ticket Acquisition (TGS-REQ)" style="max-width: 100%; height: auto; border: 1px solid #e1e4e8; border-radius: 6px; margin: 16px 0;"></p>
+
+  <h3>Phase 2: Privilege Tiering and Quantitative Blast Radius Mapping</h3>
+  <p>Once service access is established, Tanuki's tiering engine (<code>tanuki blast</code>) deterministically classifies the identity into Microsoft Active Directory Enterprise Access Tiers:</p>
+  <ul>
+    <li><strong>Tier 0 (Control Plane)</strong>: Domain Controllers, Enterprise Admins, PKI root CAs, KDC service principals (Base score: 90).</li>
+    <li><strong>Tier 1 (Server &amp; Operator Infrastructure)</strong>: Registered Service Principal Names (SPN), SQL/HTTP service accounts, Tier 1 management servers (Base score: 65).</li>
+    <li><strong>Tier 2 (Workstation &amp; User Endpoints)</strong>: Standard user identities and endpoint computers (Base score: 20).</li>
+  </ul>
+  <p>Tanuki calculates a quantitative blast radius impact score (0-100) based on delegation flags (<code>TRUSTED_FOR_DELEGATION</code>, <code>TRUSTED_TO_AUTH_FOR_DELEGATION</code>), accessible SPNs, and Resource-Based Constrained Delegation (RBCD) targets. Crucially, the engine emits sovereign Active Directory PowerShell hardening recipes:</p>
+  <ol>
+    <li>Modern encryption enforcement: <code>Set-ADUser -Identity "&lt;ACCOUNT&gt;" -KerberosEncryptionType AES128,AES256</code></li>
+    <li>Sensitive delegation protection: <code>Set-ADUser -Identity "&lt;ACCOUNT&gt;" -AccountNotDelegated $true</code></li>
+    <li>KVNO keytab re-synchronization: <code>ktpass -princ &lt;SPN&gt; -pass &lt;PASSPHRASE&gt; -mapuser &lt;ACCOUNT&gt; -crypto AES256-SHA1 -ptype KRB5_NT_PRINCIPAL -SetUPN NO -out &lt;ACCOUNT&gt;.keytab</code></li>
+  </ol>
+  <p><img src="../assets/lab-validation-climax-phase2-blast.png" alt="Phase 2: Privilege Tiering &amp; Quantitative Blast Radius Engine" style="max-width: 100%; height: auto; border: 1px solid #e1e4e8; border-radius: 6px; margin: 16px 0;"></p>
+
+  <h3>Phase 3: Closed-Loop Sovereign Hardening, Telemetry Verification &amp; Zero-Trace Purge</h3>
+  <p>The operational cycle closes with empirical verification and forensic sanitization:</p>
+  <ol>
+    <li><strong>Domain Controller Telemetry Audit</strong>: On <code>DC01-GUI</code>, querying Windows Security Event Log confirms Event ID 4769 (Kerberos Service Ticket Request) with Audit Success, <code>Ticket Options: 0x40810000</code>, <code>Ticket Encryption Type: 0x12</code> (AES-256-CTS-HMAC-SHA1-96), and <code>Client Address: ::ffff:192.168.56.105</code>.</li>
+    <li><strong>Cryptographic Zero-Trace Purge</strong>: Tanuki executes multi-pass overwrite and metadata destruction (<code>tanuki purge --all</code>) compliant with NIST SP 800-88, eliminating ccache artifacts, temporary krb5 configurations, and memory chunks with zero forensic trace remaining.</li>
+  </ol>
+  <p><img src="../assets/lab-validation-climax-phase3-event4769.png" alt="Phase 3: Domain Controller Security Event ID 4769 Live Telemetry Correlation" style="max-width: 100%; height: auto; border: 1px solid #e1e4e8; border-radius: 6px; margin: 16px 0;"></p>
+  <p><img src="../assets/lab-validation-climax-phase3-purge.png" alt="Phase 3: NIST SP 800-88 Cryptographic Zero-Trace Purge" style="max-width: 100%; height: auto; border: 1px solid #e1e4e8; border-radius: 6px; margin: 16px 0;"></p>
+
+  <hr>
+
+  <h2>9. Summary of Engineering Takeaways</h2>
+  <p>Building and validating Tanuki against live Windows Server 2022 and Linux environments reinforced several key principles for modern identity engineering:</p>
+  <ol>
+    <li><strong>Avoid Mocking Wire Protocols</strong>: Real hypervisor testing revealed essential configuration flags (<code>udp_preference_limit = 0</code> to prevent PAC UDP drops, <code>rdns = false</code> to eliminate reverse DNS delays) that never appear in synthetic unit tests.</li>
+    <li><strong>Enforce Memory Safety for Parsers</strong>: Keytabs, credential caches, and ASN.1 BER payloads are untrusted binary streams. Parsing them requires strict buffer bounds checking and memory safety (<code>#![forbid(unsafe_code)]</code> in Rust).</li>
+    <li><strong>Preserve Raw Binary Attributes</strong>: Directory attributes like <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code> and <code>objectSid</code> must never be coerced into UTF-8 strings.</li>
+    <li><strong>Bridge Red and Blue Disciplines</strong>: Every identity diagnostic or tactical action must be paired with clear SOC telemetry, Event IDs, and Auditd rules so teams understand both sides of the protocol transaction.</li>
+  </ol>
+
+  <hr>
+
+  <h2>10. Resources and Open Source Repository</h2>
+  <ul>
+    <li><strong>Tanuki Source Repository</strong>: <a href="https://github.com/Mafifrizi/tanuki" target="_blank" rel="noopener">https://github.com/Mafifrizi/tanuki</a></li>
+    <li><strong>RFC Specifications</strong>:
+      <ul>
+        <li>RFC 4120: The Kerberos Network Authentication Service (V5)</li>
+        <li>RFC 4556: Public Key Cryptography for Initial Authentication in Kerberos (PKINIT)</li>
+        <li>RFC 6113: A Generalized Framework for Kerberos Pre-Authentication (FAST)</li>
+        <li>RFC 8693: OAuth 2.0 Token Exchange</li>
+      </ul>
+    </li>
+    <li><strong>Microsoft Protocol Documentation</strong>:
+      <ul>
+        <li><code>[MS-PAC]</code>: Privilege Attribute Certificate Data Structure</li>
+        <li><code>[MS-DTYP]</code>: Security Descriptor Description Language (SDDL) &amp; Binary Security Descriptors</li>
+      </ul>
+    </li>
+  </ul>
+
+</body>
+</html>

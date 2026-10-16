@@ -29,7 +29,6 @@ license*.json
 *.token
 
 # Documentation & coverage
-docs/
 .coverage
 htmlcov/
 
