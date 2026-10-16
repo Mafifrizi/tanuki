@@ -99,6 +99,7 @@ class DoctorReport:
                 "ticket_lifetime": "Active Ticket Cache   ",
                 "host_tooling": "Kerberos Host Tooling ",
                 "opsec_sensors": "Host OPSEC Sensors    ",
+                "enctype_sync": "Enctype & KVNO Sync   ",
             }
             display_title = title_map.get(name, name.replace("_", " ").title().ljust(22))
 
@@ -338,6 +339,123 @@ def check_keytab(keytab_path: str = "/etc/krb5.keytab") -> Dict[str, Any]:
         result["issues"].append(f"Corrupted entry: {exc}")
 
     return result
+
+
+def check_enctype_kvno_sync(
+    keytab_path: str = "/etc/krb5.keytab",
+    ad_supported_enctypes: Optional[int] = None,
+    ad_kvno: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Validate Kerberos encryption type alignment and KVNO synchronization between keytab and Active Directory."""
+    result: Dict[str, Any] = {
+        "name": "enctype_sync",
+        "status": "PASS",
+        "details": "",
+        "recommendation": None,
+        "keytab_path": keytab_path,
+        "exists": False,
+        "keytab_kvno": None,
+        "ad_kvno": ad_kvno,
+        "ad_supported_enctypes": ad_supported_enctypes,
+        "is_aes_only": False,
+        "has_spn": False,
+        "issues": [],
+    }
+
+    if not os.path.exists(keytab_path):
+        result["status"] = "N_A"
+        result["details"] = f"Keytab file not found: {keytab_path}"
+        result["recommendation"] = f"Join domain or export keytab at {keytab_path}"
+        return result
+
+    result["exists"] = True
+
+    try:
+        with open(keytab_path, "rb") as f:
+            data = f.read(65536)
+    except OSError as exc:
+        result["status"] = "N_A"
+        result["details"] = f"Read access denied or unavailable: {exc}"
+        return result
+
+    if len(data) < 2 or data[0] != 0x05 or data[1] != 0x02:
+        result["status"] = "N_A"
+        result["details"] = "Invalid or non-v2 keytab header"
+        return result
+
+    try:
+        entries = parse_keytab_stream(io.BytesIO(data))
+    except Exception as exc:
+        result["status"] = "N_A"
+        result["details"] = f"Failed to parse keytab entries: {exc}"
+        return result
+
+    if not entries:
+        result["status"] = "N_A"
+        result["details"] = "Keytab contains no entries"
+        return result
+
+    keytypes = {e.get("keytype") for e in entries if e.get("keytype") is not None}
+    has_aes = any(kt in (17, 18) for kt in keytypes)
+    has_rc4 = any(kt in (1, 2, 3, 23) for kt in keytypes)
+    is_aes_only = has_aes and not has_rc4
+    has_spn = any("/" in e.get("principal", "") for e in entries)
+    keytab_kvno = max((e.get("vno", 0) for e in entries), default=0)
+
+    result["keytab_kvno"] = keytab_kvno
+    result["is_aes_only"] = is_aes_only
+    result["has_spn"] = has_spn
+
+    # Check 1: KVNO desynchronization
+    kvno_mismatch = False
+    if ad_kvno is not None and keytab_kvno > 0 and ad_kvno != keytab_kvno:
+        kvno_mismatch = True
+        result["status"] = "FAIL"
+        issue = (
+            f"KVNO desynchronization detected: keytab KVNO is {keytab_kvno} but Active Directory "
+            f"msDS-KeyVersionNumber is {ad_kvno}. Mutual authentication will fail with KRB_AP_ERR_BADKEYVER / Event 4769."
+        )
+        result["issues"].append(issue)
+        result["details"] = issue
+        result["recommendation"] = (
+            f"Re-synchronize keytab KVNO with Active Directory (ktpass -princ <SPN> -kvno {ad_kvno}) "
+            f"or update Active Directory account key."
+        )
+
+    # Check 2: Missing msDS-SupportedEncryptionTypes / AES omission on SPN account
+    if ad_supported_enctypes is not None:
+        has_ad_aes = bool(ad_supported_enctypes & 0x18)
+        if has_spn and is_aes_only and not has_ad_aes:
+            if result["status"] == "PASS":
+                result["status"] = "WARN"
+            issue = (
+                "Account has SPN but lacks AES in msDS-SupportedEncryptionTypes (KDC defaults to RC4-HMAC etype 23). "
+                "Presenting an AES-only keytab (etype 18) will trigger KRB_AP_ERR_NOKEY / Event 4769 failure."
+            )
+            result["issues"].append(issue)
+            if not kvno_mismatch:
+                result["details"] = issue
+                result["recommendation"] = (
+                    "Enable AES on Active Directory account: Set-ADUser -Identity <account> -KerberosEncryptionType AES128,AES256 "
+                    "(sets msDS-SupportedEncryptionTypes to 0x18) or add RC4-HMAC key to keytab."
+                )
+
+    if result["status"] == "PASS":
+        if ad_supported_enctypes is not None and ad_kvno is not None:
+            result["details"] = (
+                f"Active Directory msDS-SupportedEncryptionTypes (0x{ad_supported_enctypes:x}) supports AES; "
+                f"KVNO ({keytab_kvno}) is synchronized with Active Directory."
+            )
+        elif is_aes_only and has_spn:
+            result["details"] = (
+                f"Keytab contains {len(entries)} AES-only service entries (KVNO {keytab_kvno}). "
+                "Verify Active Directory msDS-SupportedEncryptionTypes (0x18) to prevent KRB_AP_ERR_NOKEY."
+            )
+        else:
+            result["details"] = f"Keytab contains {len(entries)} entries (KVNO {keytab_kvno}, AES: {has_aes}, RC4: {has_rc4})"
+
+    return result
+
 
 
 def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
@@ -1211,6 +1329,8 @@ def diagnose_system(
     auditd_pid_path: str = "/run/auditd.pid",
     falco_socket: str = "/var/run/falco/falco.sock",
     secrets_path: str = "/var/lib/sss/secrets/secrets.ldb",
+    ad_supported_enctypes: Optional[int] = None,
+    ad_kvno: Optional[int] = None,
 ) -> DoctorReport:
     """Run all pre-flight diagnostic probes deterministically in <5ms without network emissions."""
     t0 = time.perf_counter()
@@ -1224,6 +1344,15 @@ def diagnose_system(
         check_ticket_lifetime(ccache_path),
         check_host_tools(tools_search_path),
     ]
+
+    if ad_supported_enctypes is not None or ad_kvno is not None:
+        checks.append(
+            check_enctype_kvno_sync(
+                keytab_path=keytab_path,
+                ad_supported_enctypes=ad_supported_enctypes,
+                ad_kvno=ad_kvno,
+            )
+        )
 
     if include_opsec:
         checks.append(

@@ -47,7 +47,7 @@ COMMANDS:
     pac <FILE|HEX>      Decode and audit MS-PAC authorization data
     shadow <INPUT>      Dissect Active Directory Shadow Credentials (MS-ADTS 2.2.20)
     adcs <FILE|SOURCE>  Scan Active Directory Certificate Templates (ESC1-ESC11)
-    ldap [OPTIONS]      Unprivileged Active Directory LDAP query engine
+    ldap [OPTIONS]      Query Active Directory via unprivileged or authenticated LDAP
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     auth [OPTIONS]      Acquire TGT using keytab via host kinit
@@ -62,7 +62,9 @@ OPTIONS:
     -i, --interactive   Launch fast, interactive TUI wizard menu
     -f, --file <PATH>   Target database, keytab, template or token file
     -o, --out <PATH>    Output directory for extracted caches or config path
-    -p, --principal <P> Kerberos principal for authentication
+    -u, --username <U>  Username, UPN, or DN for authenticated LDAP bind
+    -p, --password <P>  Password for LDAP bind (or principal for auth)
+    --principal <P>     Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
     --issuer <ISS>      Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
@@ -79,11 +81,13 @@ OPTIONS:
     --sssd-pid <PATH>   Target SSSD pid path for doctor
     --secrets-path <PATH> Target SSSD secrets database path for doctor
     --ccache <PATH>     Target ccache path for doctor/auth/fix
+    --ad-enctypes <HEX> Active Directory msDS-SupportedEncryptionTypes for doctor
+    --ad-kvno <INT>     Active Directory msDS-KeyVersionNumber for doctor
     --opsec             Include live host OPSEC sensor probe in pre-flight doctor
     --dry-run           Simulate remediation without applying changes (for tanuki fix)
     --all               Purge all discovered ticket caches and temp configs
     --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
-    --query <TYPE>      LDAP query category (spn, rbcd, shadow, unconstrained, all)
+    --query <TYPE>      LDAP query category (spn, asreproast, rbcd, shadow, unconstrained, all)
     --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
     --port <PORT>       Target LDAP port (default: 389)
     --json              Output structured JSON for agent and pipeline consumption
@@ -198,7 +202,7 @@ fn run_tui_wizard() {
                 process::exit(0);
             }
             "1" => {
-                handle_doctor(false, None, None, None, None, None, false, None);
+                handle_doctor(false, None, None, None, None, None, false, None, None, None);
             }
             "2" => {
                 handle_fix(None, None, None, None, None, false, 300, None, false);
@@ -224,11 +228,11 @@ fn run_tui_wizard() {
             }
             "6" => {
                 let host = read_line_prompt("Target DC IP/Host: ").unwrap_or_default();
-                let q = match read_line_prompt("Query type (spn/rbcd/shadow/unconstrained/all) [all]: ") {
+                let q = match read_line_prompt("Query type (spn/asreproast/rbcd/shadow/unconstrained/all) [all]: ") {
                     Some(s) if !s.is_empty() => s,
                     _ => "all".to_string(),
                 };
-                handle_ldap(Some(host), &q, "DC=corp,DC=local", 389, false, false);
+                handle_ldap(Some(host), &q, "DC=corp,DC=local", 389, false, false, None, None);
             }
             "7" => {
                 let src = read_line_prompt("Templates JSON or Certificate path: ").unwrap_or_default();
@@ -348,6 +352,10 @@ fn main() {
     let mut armor_cache_opt: Option<String> = None;
     let mut krb_error_opt: Option<String> = None;
     let mut secrets_path_opt: Option<String> = None;
+    let mut username_opt: Option<String> = None;
+    let mut password_opt: Option<String> = None;
+    let mut ad_supported_enctypes_opt: Option<u32> = None;
+    let mut ad_kvno_opt: Option<u32> = None;
 
     let mut i = 0;
     while i < raw_args.len() {
@@ -375,9 +383,40 @@ fn main() {
                     i += 1;
                 }
             }
+            "-u" | "--username" | "--user" => {
+                if i + 1 < raw_args.len() {
+                    username_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--password" => {
+                if i + 1 < raw_args.len() {
+                    password_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
             "-p" | "--principal" => {
                 if i + 1 < raw_args.len() {
                     principal_opt = Some(raw_args[i + 1].clone());
+                    password_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--ad-supported-enctypes" | "--ad-enctypes" => {
+                if i + 1 < raw_args.len() {
+                    let val = &raw_args[i + 1];
+                    let parsed = if val.to_lowercase().starts_with("0x") {
+                        u32::from_str_radix(&val[2..], 16).ok()
+                    } else {
+                        val.parse::<u32>().ok()
+                    };
+                    ad_supported_enctypes_opt = parsed;
+                    i += 1;
+                }
+            }
+            "--ad-kvno" => {
+                if i + 1 < raw_args.len() {
+                    ad_kvno_opt = raw_args[i + 1].parse::<u32>().ok();
                     i += 1;
                 }
             }
@@ -675,6 +714,8 @@ fn main() {
                 ccache_opt,
                 opsec_opt,
                 secrets_path_opt,
+                ad_supported_enctypes_opt,
+                ad_kvno_opt,
             );
         }
         "pac" => {
@@ -724,7 +765,16 @@ fn main() {
             });
             let default_port = if ssl_opt { 636 } else { 389 };
             let port = port_opt.unwrap_or(default_port);
-            handle_ldap(host, &query, &base_dn, port, ssl_opt, global_json);
+            handle_ldap(
+                host,
+                &query,
+                &base_dn,
+                port,
+                ssl_opt,
+                global_json,
+                username_opt.as_deref(),
+                password_opt.as_deref(),
+            );
         }
         "auth" => {
             let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
@@ -1581,6 +1631,8 @@ fn handle_doctor(
     ccache_path: Option<String>,
     include_opsec: bool,
     secrets_path: Option<String>,
+    ad_supported_enctypes: Option<u32>,
+    ad_kvno: Option<u32>,
 ) {
     let opts = DoctorOptions {
         keytab_path: keytab_path.or_else(|| Some("/etc/krb5.keytab".to_string())),
@@ -1590,6 +1642,8 @@ fn handle_doctor(
         secrets_path: secrets_path.or_else(|| Some("/var/lib/sss/secrets/secrets.ldb".to_string())),
         ccache_path,
         include_opsec,
+        ad_supported_enctypes,
+        ad_kvno,
     };
 
     let report = run_doctor(&opts);
@@ -2018,6 +2072,8 @@ fn handle_ldap(
     port: u16,
     use_ssl: bool,
     json_output: bool,
+    username: Option<&str>,
+    password: Option<&str>,
 ) {
     let host = match host_opt {
         Some(h) => h,
@@ -2034,7 +2090,7 @@ fn handle_ldap(
         }
     };
 
-    let rep = query_active_directory_ldap(&host, query_type, base_dn, port, use_ssl, 5);
+    let rep = query_active_directory_ldap(&host, query_type, base_dn, port, use_ssl, 5, username, password);
     if json_output {
         println!("{}", rep.to_json());
     } else {

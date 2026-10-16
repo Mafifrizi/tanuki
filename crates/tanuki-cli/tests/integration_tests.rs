@@ -1,7 +1,9 @@
 use tanuki::{
-    candidates_to_json, entries_to_json, escape_json, find_error_resolution,
-    generate_krb5_conf, ladder_to_json, parse_keytab_bytes, parse_rbcd_security_descriptor,
-    parse_windows_sid, save_candidates, scan_for_ccache_blobs, KeytabError, DECISION_LADDER,
+    audit_enctype_kvno, build_ldap_bind_request, build_ldap_extensible_filter,
+    build_ldap_search_filter, candidates_to_json, entries_to_json, escape_json,
+    find_error_resolution, generate_krb5_conf, ladder_to_json, parse_keytab_bytes,
+    parse_rbcd_security_descriptor, parse_windows_sid, save_candidates,
+    scan_for_ccache_blobs, KeytabError, LdapReport, LdapSearchEntry, DECISION_LADDER,
     ERROR_DICTIONARY,
 };
 
@@ -317,4 +319,93 @@ fn test_parse_rbcd_security_descriptor_parity() {
     let mut invalid_offset_sd = sd.clone();
     invalid_offset_sd[16..20].copy_from_slice(&10u32.to_le_bytes());
     assert!(parse_rbcd_security_descriptor(&invalid_offset_sd).is_err());
+}
+
+#[test]
+fn test_build_ldap_bind_request_simple_and_anon() {
+    let anon_req = build_ldap_bind_request(1, "", None, None, None);
+    assert!(!anon_req.is_empty());
+    assert_eq!(anon_req[0], 0x30);
+
+    let auth_req = build_ldap_bind_request(2, "admin@CORP.LOCAL", Some("P@ssw0rd!"), None, None);
+    assert!(!auth_req.is_empty());
+    assert_eq!(auth_req[0], 0x30);
+    assert!(auth_req.windows("admin@CORP.LOCAL".len()).any(|w| w == b"admin@CORP.LOCAL"));
+    assert!(auth_req.windows("P@ssw0rd!".len()).any(|w| w == b"P@ssw0rd!"));
+}
+
+#[test]
+fn test_build_ldap_extensible_filter_asreproast() {
+    let eq_filter = build_ldap_search_filter("servicePrincipalName", "*");
+    assert_eq!(eq_filter[0], 0x87);
+
+    let filter = build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304");
+    assert!(!filter.is_empty());
+    assert_eq!(filter[0], 0xA9);
+    assert!(filter.windows("userAccountControl".len()).any(|w| w == b"userAccountControl"));
+    assert!(filter.windows("1.2.840.113556.1.4.803".len()).any(|w| w == b"1.2.840.113556.1.4.803"));
+    assert!(filter.windows("4194304".len()).any(|w| w == b"4194304"));
+}
+
+#[test]
+fn test_ldap_report_format_terminal_asreproast_and_rbcd() {
+    let report = LdapReport {
+        status: "SUCCESS".to_string(),
+        host: "dc01.lab.local".to_string(),
+        port: 389,
+        query_type: "asreproast".to_string(),
+        base_dn: "DC=lab,DC=local".to_string(),
+        count: 1,
+        entries: vec![LdapSearchEntry {
+            message_id: 2,
+            dn: "CN=Legacy,OU=Users,DC=lab,DC=local".to_string(),
+            query_category: "asreproast".to_string(),
+            attributes: vec![
+                ("sAMAccountName".to_string(), vec!["legacy-nonpreauth".to_string()]),
+                ("userAccountControl".to_string(), vec!["4194816".to_string()]),
+                ("msDS-SupportedEncryptionTypes".to_string(), vec!["0".to_string()]),
+            ],
+        }],
+        message: None,
+        error: None,
+    };
+
+    let text = report.format_terminal();
+    assert!(text.contains("legacy-nonpreauth"));
+    assert!(text.contains("Pre-Authentication: DISABLED"));
+    assert!(text.contains("RC4-HMAC (etype 23"));
+    assert!(text.contains("$krb5asrep$23$"));
+    assert!(text.contains("Vulnerable to unauthenticated offline Kerberos AS-REP roasting"));
+}
+
+#[test]
+fn test_enctype_kvno_sync_diagnostics() {
+    let temp_dir = std::env::temp_dir().join("tanuki_test_enctype");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let kt_path = temp_dir.join("test.keytab");
+
+    let mut file_bytes = vec![0x05, 0x02];
+    let entry = build_keytab_entry(&["HOST", "web01.lab.local"], "LAB.LOCAL", 18, &[0x55; 32], 3, 3);
+    file_bytes.extend_from_slice(&(entry.len() as i32).to_be_bytes());
+    file_bytes.extend_from_slice(&entry);
+    std::fs::write(&kt_path, &file_bytes).unwrap();
+
+    let kt_str = kt_path.to_str().unwrap();
+
+    let check_desync = audit_enctype_kvno(kt_str, Some(0x18), Some(5));
+    assert_eq!(check_desync.status, "FAIL");
+    assert!(check_desync.details.contains("KVNO desynchronization detected"));
+    assert_eq!(check_desync.get_extra_int("keytab_kvno", 0), 3);
+    assert_eq!(check_desync.get_extra_int("ad_kvno", 0), 5);
+
+    let check_no_aes = audit_enctype_kvno(kt_str, Some(0x0), Some(3));
+    assert_eq!(check_no_aes.status, "WARN");
+    assert!(check_no_aes.details.contains("lacks AES in msDS-SupportedEncryptionTypes"));
+
+    let check_sync = audit_enctype_kvno(kt_str, Some(0x18), Some(3));
+    assert_eq!(check_sync.status, "PASS");
+    assert!(check_sync.details.contains("synchronized with Active Directory"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }

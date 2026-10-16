@@ -1,9 +1,10 @@
-"""Unprivileged SASL GSSAPI LDAP Query Engine (tanuki ldap).
+"""Active Directory LDAP Query Engine (tanuki ldap).
 
 Pure standard-library LDAPv3 client over TCP port 389 (LDAP) and port 636 (LDAPS).
-Authenticates via active Kerberos ccache tickets (SASL GSSAPI) or unprivileged binds.
+Authenticates via unprivileged anonymous bind or simple bind (username and password).
 Queries Active Directory for:
 - Service Principal Names (SPNs) for Kerberoasting triage.
+- Accounts with Pre-Authentication Disabled (AS-REP Roasting / DONT_REQ_PREAUTH).
 - Resource-Based Constrained Delegation (RBCD: msDS-AllowedToActOnBehalfOfOtherIdentity).
 - Shadow Credentials (msDS-KeyCredentialLink).
 - Unconstrained Delegation accounts (UAC flag 0x80000).
@@ -203,6 +204,15 @@ def build_ldap_search_filter(attribute: str, value: str = "*") -> bytes:
         # Equality filter: [0xA3] SEQUENCE { attributeDesc OCTET STRING, assertionValue OCTET STRING }
         eq_payload = ber_encode_string(attribute) + ber_encode_string(value)
         return ber_encode_tlv(FILTER_EQUALITY, eq_payload)
+
+
+def build_ldap_extensible_filter(attribute: str, matching_rule: str, value: str) -> bytes:
+    """Construct LDAP extensible matching rule filter (RFC 4511 MatchingRuleAssertion)."""
+    rule_bytes = ber_encode_tlv(0x81, matching_rule.encode("utf-8"))
+    type_bytes = ber_encode_tlv(0x82, attribute.encode("utf-8"))
+    val_bytes = ber_encode_tlv(0x83, value.encode("utf-8"))
+    return ber_encode_tlv(FILTER_EXTENSIBLE, rule_bytes + type_bytes + val_bytes)
+
 
 
 def build_ldap_search_request(
@@ -530,8 +540,10 @@ def query_active_directory_ldap(
     port: int = 389,
     use_ssl: bool = False,
     timeout: float = 3.0,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Execute unprivileged AD diagnostic queries (SPN, RBCD, Shadow Credentials, Unconstrained)."""
+    """Execute Active Directory diagnostic queries (SPN, AS-REP Roast, RBCD, Shadow Credentials, Unconstrained)."""
     # Fast non-blocking socket probe (<800ms) before initiating LDAP bind
     probe_timeout = min(timeout, 0.8)
     reachable, err_msg = probe_tcp_port(host, port, timeout=probe_timeout)
@@ -554,6 +566,8 @@ def query_active_directory_ldap(
 
     attr_map = {
         "spn": ["sAMAccountName", "servicePrincipalName", "userAccountControl"],
+        "asreproast": ["sAMAccountName", "userPrincipalName", "userAccountControl", "msDS-SupportedEncryptionTypes"],
+        "nopreauth": ["sAMAccountName", "userPrincipalName", "userAccountControl", "msDS-SupportedEncryptionTypes"],
         "rbcd": ["sAMAccountName", "msDS-AllowedToActOnBehalfOfOtherIdentity"],
         "shadow": ["sAMAccountName", "msDS-KeyCredentialLink"],
         "unconstrained": ["sAMAccountName", "userAccountControl"],
@@ -561,25 +575,28 @@ def query_active_directory_ldap(
 
     try:
         client.connect()
-        # Bind unprivileged / anonymous / GSSAPI
-        bound = client.bind()
+        # Bind unprivileged anonymous or authenticated simple bind
+        bound = client.bind(bind_dn=username or "", password=password)
         if not bound:
+            bind_desc = f"authenticated simple bind as '{username}'" if username else "anonymous or unprivileged access disallowed"
             return {
                 "status": "BIND_FAILED",
                 "host": host,
                 "query_type": query_type,
-                "message": "LDAP bind failed (anonymous or unprivileged access disallowed)",
+                "message": f"LDAP bind failed ({bind_desc})",
                 "entries": [],
                 "count": 0,
             }
 
-        target_queries = [query_type] if query_type != "all" else ["spn", "rbcd", "shadow", "unconstrained"]
+        target_queries = [query_type] if query_type != "all" else ["spn", "asreproast", "rbcd", "shadow", "unconstrained"]
 
         for q in target_queries:
             attrs = attr_map.get(q, ["sAMAccountName"])
             f_bytes = None
             if q == "spn":
                 f_bytes = build_ldap_search_filter("servicePrincipalName", "*")
+            elif q in ("asreproast", "nopreauth"):
+                f_bytes = build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304")
             elif q == "rbcd":
                 f_bytes = build_ldap_search_filter("msDS-AllowedToActOnBehalfOfOtherIdentity", "*")
             elif q == "shadow":
@@ -590,7 +607,30 @@ def query_active_directory_ldap(
             entries = client.search(base_dn=base_dn, filter_bytes=f_bytes, attributes=attrs)
             for e in entries:
                 e["query_category"] = q
-                if q == "rbcd":
+                if q in ("asreproast", "nopreauth"):
+                    uac_raw = e.get("attributes", {}).get("userAccountControl", ["0"])
+                    try:
+                        uac_num = int(uac_raw[0])
+                    except (ValueError, TypeError):
+                        uac_num = 0
+                    enctype_raw = (
+                        e.get("attributes", {}).get("msDS-SupportedEncryptionTypes", ["0"])
+                        or e.get("attributes", {}).get("msds-supportedencryptiontypes", ["0"])
+                    )
+                    try:
+                        enctype_num = int(enctype_raw[0])
+                    except (ValueError, TypeError):
+                        enctype_num = 0
+
+                    has_aes = bool(enctype_num & 0x18)
+                    e["asrep_roastable"] = {
+                        "dont_req_preauth": bool(uac_num & 0x400000),
+                        "encryption": "AES-256 (etype 18)" if has_aes else "RC4-HMAC (etype 23)",
+                        "hashcat_format": "$krb5asrep$18$" if has_aes else "$krb5asrep$23$",
+                        "etype": 18 if has_aes else 23,
+                        "supported_encryption_types": enctype_num,
+                    }
+                elif q == "rbcd":
                     rbcd_raw_list = e.get("attributes", {}).get("msDS-AllowedToActOnBehalfOfOtherIdentity", [])
                     if rbcd_raw_list and isinstance(rbcd_raw_list[0], (bytes, bytearray)):
                         try:
@@ -671,6 +711,34 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
 
         lines.append(f"[{cat}] {sam}")
         lines.append(f"    {t_branch} DN: {dn}")
+        if cat in ("ASREPROAST", "NOPREAUTH"):
+            uac_vals = attrs.get("userAccountControl", ["0"])
+            try:
+                uac_int = int(uac_vals[0])
+            except (ValueError, TypeError):
+                uac_int = 0
+            enctype_vals = attrs.get("msDS-SupportedEncryptionTypes", ["0"]) or attrs.get("msds-supportedencryptiontypes", ["0"])
+            try:
+                enctype_int = int(enctype_vals[0])
+            except (ValueError, TypeError):
+                enctype_int = 0
+
+            has_aes = bool(enctype_int & 0x18)
+            if has_aes:
+                cipher_desc = "AES-256 (etype 18 · Hashcat: $krb5asrep$18$)"
+                enctype_desc = f"0x{enctype_int:x} (AES Supported)"
+            else:
+                cipher_desc = "RC4-HMAC (etype 23 · Hashcat: $krb5asrep$23$)"
+                enctype_desc = f"0x{enctype_int:x} (Default KDC Fallback: RC4-HMAC)"
+
+            lines.append(f"    {t_branch} Pre-Authentication: DISABLED (DONT_REQ_PREAUTH · UAC 0x{uac_int:x})")
+            lines.append(f"    {t_branch} Encryption Mode   : {cipher_desc}")
+            lines.append(f"    {t_branch} Supported Enctypes: {enctype_desc}")
+            lines.append(f"    {l_branch} Exposure          : Vulnerable to unauthenticated offline Kerberos AS-REP roasting")
+            if not is_last:
+                lines.append("")
+            continue
+
         for a_name, a_vals in attrs.items():
             if a_name != "sAMAccountName":
                 if a_name.lower() == "msds-allowedtoactonbehalfofotheridentity":

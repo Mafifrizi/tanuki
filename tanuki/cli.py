@@ -61,7 +61,7 @@ COMMANDS:
     pac [PATH_OR_HEX]   Decode MS-PAC binary structures and privileges
     shadow [INPUT]      Decode msDS-KeyCredentialLink binary structures ([MS-ADTS] 2.2.20)
     adcs [OPTIONS]      Passive AD CS certificate and template scanner (ESC1-ESC11)
-    ldap [OPTIONS]      Query Active Directory via unprivileged SASL GSSAPI LDAP
+    ldap [OPTIONS]      Query Active Directory via unprivileged or authenticated LDAP
     keytab [PATH]       Inspect binary keytab file (RFC 4120)
     config [OPTIONS]    Generate unprivileged zero-DNS Kerberos config (RFC 4120)
     auth [OPTIONS]      Acquire TGT using keytab via host kinit or fallback ctypes
@@ -76,7 +76,9 @@ OPTIONS:
     -i, --interactive   Launch fast, interactive TUI wizard menu
     -f, --file <PATH>   Target database, keytab, template or token file
     -o, --out <PATH>    Output directory for extracted caches or target config path
-    -p, --principal <P> Kerberos principal for authentication
+    -u, --username <U>  Username, UPN, or DN for authenticated LDAP bind
+    -p, --password <P>  Password for LDAP bind (or principal for auth)
+    --principal <P>     Kerberos principal for authentication
     -a, --audience <AUD> Expected audience for workload validation
     --issuer <ISS>      Expected issuer for workload validation
     --realm <REALM>     Target Kerberos realm (mandates uppercase)
@@ -92,11 +94,13 @@ OPTIONS:
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
     --ccache <PATH>     Target ccache path for doctor/auth/fix
+    --ad-enctypes <HEX> Active Directory msDS-SupportedEncryptionTypes for doctor
+    --ad-kvno <INT>     Active Directory msDS-KeyVersionNumber for doctor
     --opsec             Include live host OPSEC sensor probe in pre-flight doctor
     --dry-run           Simulate remediation without applying changes (for tanuki fix)
     --all               Purge all discovered ticket caches and temp configs
     --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
-    --query <TYPE>      LDAP query category (spn, rbcd, shadow, unconstrained, all)
+    --query <TYPE>      LDAP query category (spn, asreproast, rbcd, shadow, unconstrained, all)
     --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
     --live              Execute live HTTP POST token exchange client (RFC 8693)
     --endpoint <URL>    STS endpoint URL for live token exchange
@@ -377,6 +381,8 @@ def handle_doctor(
     ccache_path: Optional[str] = None,
     opsec: bool = False,
     secrets_path: Optional[str] = None,
+    ad_supported_enctypes: Optional[int] = None,
+    ad_kvno: Optional[int] = None,
 ) -> None:
     kwargs = {}
     if keytab_path:
@@ -393,6 +399,10 @@ def handle_doctor(
         kwargs["include_opsec"] = True
     if secrets_path:
         kwargs["secrets_path"] = secrets_path
+    if ad_supported_enctypes is not None:
+        kwargs["ad_supported_enctypes"] = ad_supported_enctypes
+    if ad_kvno is not None:
+        kwargs["ad_kvno"] = ad_kvno
 
     report = diagnose_system(**kwargs)
     if json_output:
@@ -1083,6 +1093,8 @@ def handle_ldap(
     port: int,
     use_ssl: bool,
     json_output: bool,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
 ) -> None:
     if not host:
         emit_cli_error(
@@ -1098,6 +1110,8 @@ def handle_ldap(
         base_dn=base_dn,
         port=port,
         use_ssl=use_ssl,
+        username=username,
+        password=password,
     )
     if json_output:
         print(json.dumps(rep, indent=2, default=lambda o: o.hex() if isinstance(o, bytes) else str(o)))
@@ -1338,6 +1352,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     armor_cache_opt: Optional[str] = None
     krb_error_opt: Optional[str] = None
     secrets_path_opt: Optional[str] = None
+    username_opt: Optional[str] = None
+    password_opt: Optional[str] = None
+    ad_supported_enctypes_opt: Optional[int] = None
+    ad_kvno_opt: Optional[int] = None
 
     i = 0
     while i < len(argv):
@@ -1377,9 +1395,33 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 out_opt = argv[i + 1]
                 i += 1
+        elif arg in ("-u", "--username", "--user"):
+            if i + 1 < len(argv):
+                username_opt = argv[i + 1]
+                i += 1
+        elif arg == "--password":
+            if i + 1 < len(argv):
+                password_opt = argv[i + 1]
+                i += 1
         elif arg in ("-p", "--principal"):
             if i + 1 < len(argv):
                 principal_opt = argv[i + 1]
+                password_opt = argv[i + 1]
+                i += 1
+        elif arg in ("--ad-supported-enctypes", "--ad-enctypes"):
+            if i + 1 < len(argv):
+                val = argv[i + 1]
+                try:
+                    ad_supported_enctypes_opt = int(val, 16) if val.lower().startswith("0x") else int(val)
+                except ValueError:
+                    ad_supported_enctypes_opt = None
+                i += 1
+        elif arg == "--ad-kvno":
+            if i + 1 < len(argv):
+                try:
+                    ad_kvno_opt = int(argv[i + 1])
+                except ValueError:
+                    ad_kvno_opt = None
                 i += 1
         elif arg in ("-a", "--audience"):
             if i + 1 < len(argv):
@@ -1577,6 +1619,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             ccache_path=ccache_opt,
             opsec=opsec_opt,
             secrets_path=secrets_path_opt,
+            ad_supported_enctypes=ad_supported_enctypes_opt,
+            ad_kvno=ad_kvno_opt,
         )
     elif command == "pac":
         target = file_opt or (positional_args[0] if positional_args else None)
@@ -1617,6 +1661,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             port=port_opt,
             use_ssl=ssl_opt,
             json_output=global_json,
+            username=username_opt,
+            password=password_opt,
         )
     elif command == "token":
         token_arg = positional_args[0] if positional_args else None

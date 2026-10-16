@@ -201,6 +201,17 @@ pub fn build_ldap_search_filter(attribute: &str, value: &str) -> Vec<u8> {
     }
 }
 
+pub fn build_ldap_extensible_filter(attribute: &str, matching_rule: &str, value: &str) -> Vec<u8> {
+    let rule_bytes = ber_encode_tlv(0x81, matching_rule.as_bytes());
+    let type_bytes = ber_encode_tlv(0x82, attribute.as_bytes());
+    let val_bytes = ber_encode_tlv(0x83, value.as_bytes());
+    let mut payload = Vec::new();
+    payload.extend(rule_bytes);
+    payload.extend(type_bytes);
+    payload.extend(val_bytes);
+    ber_encode_tlv(FILTER_EXTENSIBLE, &payload)
+}
+
 pub fn build_ldap_search_request(
     msg_id: i64,
     base_dn: &str,
@@ -343,6 +354,36 @@ impl LdapReport {
 
             out.push_str(&format!("[{}] {}\n", e.query_category.to_uppercase(), sam));
             out.push_str(&format!("    ├─ DN: {}\n", e.dn));
+
+            if e.query_category.eq_ignore_ascii_case("asreproast") || e.query_category.eq_ignore_ascii_case("nopreauth") {
+                let uac_int = e.attributes.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("userAccountControl"))
+                    .and_then(|(_, v)| v.first())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                let enctype_int = e.attributes.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("msDS-SupportedEncryptionTypes"))
+                    .and_then(|(_, v)| v.first())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                let has_aes = (enctype_int & 0x18) != 0;
+                let (cipher_desc, enctype_desc) = if has_aes {
+                    ("AES-256 (etype 18 · Hashcat: $krb5asrep$18$)", format!("0x{:x} (AES Supported)", enctype_int))
+                } else {
+                    ("RC4-HMAC (etype 23 · Hashcat: $krb5asrep$23$)", format!("0x{:x} (Default KDC Fallback: RC4-HMAC)", enctype_int))
+                };
+
+                out.push_str(&format!("    ├─ Pre-Authentication: DISABLED (DONT_REQ_PREAUTH · UAC 0x{:x})\n", uac_int));
+                out.push_str(&format!("    ├─ Encryption Mode   : {}\n", cipher_desc));
+                out.push_str(&format!("    ├─ Supported Enctypes: {}\n", enctype_desc));
+                out.push_str("    ╰─ Exposure          : Vulnerable to unauthenticated offline Kerberos AS-REP roasting\n");
+                if !is_last {
+                    out.push('\n');
+                }
+                continue;
+            }
 
             for (a_name, a_vals) in &e.attributes {
                 if a_name != "sAMAccountName" {
@@ -619,6 +660,8 @@ pub fn query_active_directory_ldap(
     port: u16,
     use_ssl: bool,
     timeout_secs: u64,
+    username: Option<&str>,
+    password: Option<&str>,
 ) -> LdapReport {
     let effective_port = if use_ssl && port == 389 { 636 } else { port };
     let timeout = Duration::from_secs(timeout_secs);
@@ -679,7 +722,8 @@ pub fn query_active_directory_ldap(
     let _ = stream.set_write_timeout(Some(timeout));
 
     // Send Bind Request
-    let bind_req = build_ldap_bind_request(1, "", None, None, None);
+    let bind_dn = username.unwrap_or("");
+    let bind_req = build_ldap_bind_request(1, bind_dn, password, None, None);
     if let Err(e) = stream.write_all(&bind_req) {
         return LdapReport {
             status: "CONNECTION_FAILED".to_string(),
@@ -713,6 +757,11 @@ pub fn query_active_directory_ldap(
     };
 
     if n == 0 {
+        let bind_desc = if let Some(u) = username {
+            format!("authenticated simple bind as '{}'", u)
+        } else {
+            "anonymous or unprivileged access disallowed".to_string()
+        };
         return LdapReport {
             status: "BIND_FAILED".to_string(),
             host: host.to_string(),
@@ -721,14 +770,52 @@ pub fn query_active_directory_ldap(
             base_dn: base_dn.to_string(),
             count: 0,
             entries: Vec::new(),
-            message: Some("LDAP bind failed (server closed connection)".to_string()),
+            message: Some(format!("LDAP bind failed ({})", bind_desc)),
             error: None,
         };
     }
 
+    if n > 0 {
+        if let Ok((TAG_SEQUENCE, seq_val, _)) = ber_decode_tlv(&bind_buf[..n], 0) {
+            let mut off = 0;
+            if let Ok((TAG_INTEGER, _, next_off)) = ber_decode_tlv(seq_val, off) {
+                off = next_off;
+                if let Ok((LDAP_RESP_BIND, bind_val, _)) = ber_decode_tlv(seq_val, off) {
+                    if let Ok((TAG_ENUMERATED, res_bytes, next_res_off)) = ber_decode_tlv(bind_val, 0) {
+                        let res_code = ber_decode_int(res_bytes);
+                        if res_code != 0 {
+                            let mut diag_msg = String::new();
+                            if let Ok((_, _, dn_off)) = ber_decode_tlv(bind_val, next_res_off) {
+                                if let Ok((_, diag_bytes, _)) = ber_decode_tlv(bind_val, dn_off) {
+                                    diag_msg = ber_decode_string(diag_bytes).replace('\0', "").trim().to_string();
+                                }
+                            }
+                            let err_detail = if diag_msg.is_empty() {
+                                format!("LDAP bind failed with result code {}", res_code)
+                            } else {
+                                format!("LDAP bind failed with result code {} ({})", res_code, diag_msg)
+                            };
+                            return LdapReport {
+                                status: "BIND_FAILED".to_string(),
+                                host: host.to_string(),
+                                port,
+                                query_type: query_type.to_string(),
+                                base_dn: base_dn.to_string(),
+                                count: 0,
+                                entries: Vec::new(),
+                                message: Some(err_detail),
+                                error: None,
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Execute queries
     let target_queries = if query_type == "all" {
-        vec!["spn", "rbcd", "shadow", "unconstrained"]
+        vec!["spn", "asreproast", "rbcd", "shadow", "unconstrained"]
     } else {
         vec![query_type]
     };
@@ -737,15 +824,33 @@ pub fn query_active_directory_ldap(
     let mut msg_id = 2;
 
     for q in target_queries {
-        let (filter_attr, attrs): (&str, Vec<&str>) = match q {
-            "spn" => ("servicePrincipalName", vec!["sAMAccountName", "servicePrincipalName", "userAccountControl"]),
-            "rbcd" => ("msDS-AllowedToActOnBehalfOfOtherIdentity", vec!["sAMAccountName", "msDS-AllowedToActOnBehalfOfOtherIdentity"]),
-            "shadow" => ("msDS-KeyCredentialLink", vec!["sAMAccountName", "msDS-KeyCredentialLink"]),
-            "unconstrained" => ("userAccountControl", vec!["sAMAccountName", "userAccountControl"]),
-            _ => ("objectClass", vec!["sAMAccountName"]),
+        let (f_bytes, attrs): (Vec<u8>, Vec<&str>) = match q {
+            "spn" => (
+                build_ldap_search_filter("servicePrincipalName", "*"),
+                vec!["sAMAccountName", "servicePrincipalName", "userAccountControl"],
+            ),
+            "asreproast" | "nopreauth" => (
+                build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304"),
+                vec!["sAMAccountName", "userPrincipalName", "userAccountControl", "msDS-SupportedEncryptionTypes"],
+            ),
+            "rbcd" => (
+                build_ldap_search_filter("msDS-AllowedToActOnBehalfOfOtherIdentity", "*"),
+                vec!["sAMAccountName", "msDS-AllowedToActOnBehalfOfOtherIdentity"],
+            ),
+            "shadow" => (
+                build_ldap_search_filter("msDS-KeyCredentialLink", "*"),
+                vec!["sAMAccountName", "msDS-KeyCredentialLink"],
+            ),
+            "unconstrained" => (
+                build_ldap_search_filter("userAccountControl", "*"),
+                vec!["sAMAccountName", "userAccountControl"],
+            ),
+            _ => (
+                build_ldap_search_filter("objectClass", "*"),
+                vec!["sAMAccountName"],
+            ),
         };
 
-        let f_bytes = build_ldap_search_filter(filter_attr, "*");
         let search_req = build_ldap_search_request(msg_id, base_dn, SCOPE_SUBTREE, Some(&f_bytes), &attrs, 100, 10);
         msg_id += 1;
 

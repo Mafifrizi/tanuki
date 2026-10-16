@@ -16,11 +16,14 @@ pub mod util;
 
 pub use adcs::{scan_adcs_source, AdcsFinding, AdcsReport};
 pub use config::{discover_dc_via_srv, generate_krb5_conf};
-pub use doctor::{run_doctor, CheckResult, DoctorOptions, DoctorReport};
+pub use doctor::{enctype::audit_enctype_kvno, run_doctor, CheckResult, DoctorOptions, DoctorReport};
 pub use fix::{run_fix, FixAction, FixResult};
 pub use kcm::{candidates_to_json, save_candidates, scan_for_ccache_blobs, CcacheCandidate};
 pub use keytab::{entries_to_json, parse_keytab_bytes, KeytabEntry, KeytabError};
-pub use ldap::{query_active_directory_ldap, LdapReport, LdapSearchEntry};
+pub use ldap::{
+    build_ldap_bind_request, build_ldap_extensible_filter, build_ldap_search_filter,
+    query_active_directory_ldap, LdapReport, LdapSearchEntry,
+};
 pub use nhi::{
     b64url_decode, parse_and_validate_jwt, validate_token_exchange, Finding, JwtClaims,
     JwtHeader, JwtValidationReport, SecurityEvaluation, TemporalStatus, TokenExchangeParams,

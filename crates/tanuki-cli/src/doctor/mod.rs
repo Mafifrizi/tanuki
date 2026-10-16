@@ -1,3 +1,4 @@
+pub mod enctype;
 pub mod keytab;
 pub mod krb5_conf;
 pub mod opsec;
@@ -39,6 +40,11 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
     let check5 = tools::audit_host_tools();
 
     let mut checks = vec![check1, check2, check3, check4, check5];
+
+    if opts.ad_supported_enctypes.is_some() || opts.ad_kvno.is_some() {
+        let check6 = enctype::audit_enctype_kvno(keytab_path, opts.ad_supported_enctypes, opts.ad_kvno);
+        checks.push(check6);
+    }
 
     if opts.include_opsec {
         let check_opsec = opsec::audit_opsec_sensors(keytab_path, opts.ccache_path.as_deref());
