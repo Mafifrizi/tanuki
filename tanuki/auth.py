@@ -19,37 +19,54 @@ from .keytab import parse_keytab_file
 
 def find_krb5_library() -> Optional[str]:
     """Locate libkrb5 or libgssapi_krb5 shared library on the host."""
-    candidates = [
-        "libkrb5.so.3",
-        "libkrb5.so",
-        "libgssapi_krb5.so.2",
+    trusted_abs_candidates = [
         "/usr/lib/x86_64-linux-gnu/libkrb5.so.3",
         "/usr/lib/aarch64-linux-gnu/libkrb5.so.3",
         "/usr/lib64/libkrb5.so.3",
         "/usr/lib/libkrb5.so.3",
+        "/lib/x86_64-linux-gnu/libkrb5.so.3",
+        "/lib64/libkrb5.so.3",
     ]
-    for cand in candidates:
+    for cand in trusted_abs_candidates:
+        if os.path.isabs(cand) and not os.path.islink(cand) and os.path.isfile(cand):
+            try:
+                ctypes.CDLL(cand)
+                return cand
+            except OSError:
+                pass
+
+    soname_candidates = [
+        "/usr/lib/x86_64-linux-gnu/libkrb5.so.3",
+        "/usr/lib/aarch64-linux-gnu/libkrb5.so.3",
+        "/usr/lib64/libkrb5.so.3",
+        "/usr/lib/libkrb5.so.3",
+        "libkrb5.so.3",
+        "libkrb5.so",
+        "libgssapi_krb5.so.2",
+    ]
+    cwd = os.getcwd()
+    for cand in soname_candidates:
+        if not os.path.isabs(cand):
+            if "/" in cand or "\\" in cand or os.path.exists(os.path.join(cwd, cand)):
+                continue
         try:
-            lib = ctypes.CDLL(cand)
+            ctypes.CDLL(cand)
             return cand
         except OSError:
             pass
 
-    found = ctypes.util.find_library("krb5")
-    if found:
-        try:
-            ctypes.CDLL(found)
-            return found
-        except OSError:
-            pass
-
-    found_gss = ctypes.util.find_library("gssapi_krb5")
-    if found_gss:
-        try:
-            ctypes.CDLL(found_gss)
-            return found_gss
-        except OSError:
-            pass
+    for lib_short in ("krb5", "gssapi_krb5"):
+        found = ctypes.util.find_library(lib_short)
+        if found:
+            if not os.path.isabs(found) and (
+                "/" in found or "\\" in found or os.path.exists(os.path.join(cwd, found))
+            ):
+                continue
+            try:
+                ctypes.CDLL(found)
+                return found
+            except OSError:
+                pass
 
     return None
 
@@ -103,6 +120,14 @@ def acquire_tgt_via_ctypes(
     armor_cache: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire TGT using standard library ctypes bound to libkrb5 C runtime."""
+    if principal and principal.strip().startswith("-"):
+        return {
+            "status": "ERROR",
+            "reason_code": "INVALID_ARGUMENT",
+            "category": "USAGE_ERROR",
+            "exit_code": 1,
+            "message": f"Invalid principal name starting with '-': '{principal}'",
+        }
     if krb5_conf:
         os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
 
@@ -476,6 +501,15 @@ def acquire_tgt(
             }
 
     target_princ = target_princ.strip()
+    if target_princ.startswith("-"):
+        return {
+            "status": "ERROR",
+            "reason_code": "INVALID_ARGUMENT",
+            "category": "USAGE_ERROR",
+            "exit_code": 1,
+            "message": f"Invalid principal name starting with '-': '{target_princ}'",
+            "target": keytab_path,
+        }
 
     # Determine destination credential cache path
     target_ccache = ccache_path
@@ -553,9 +587,10 @@ def acquire_tgt(
     kinit_bin = shutil.which("kinit")
     kinit_err: Optional[str] = None
     if kinit_bin and not force_ctypes:
-        cmd = [kinit_bin, "-k", "-t", abs_keytab, target_princ]
+        cmd = [kinit_bin, "-k", "-t", abs_keytab, "-c", abs_ccache]
         if armor_cache:
             cmd.extend(["-T", os.path.abspath(armor_cache)])
+        cmd.append(target_princ)
         env = dict(os.environ)
         if krb5_conf:
             env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
@@ -672,16 +707,17 @@ def inject_ticket_to_keyring(
 
     try:
         libc = ctypes.CDLL(None, use_errno=True)
+        libc.syscall.restype = ctypes.c_long
         key_type = b"user"
         key_desc = key_name.encode("utf-8")
-        payload_buf = ctypes.c_char_p(data)
+        payload_buf = ctypes.create_string_buffer(data, len(data))
         payload_len = ctypes.c_size_t(len(data))
         target_ring = ctypes.c_int32(keyring_id)
 
         res_id = libc.syscall(
             ctypes.c_long(syscall_nr),
-            key_type,
-            key_desc,
+            ctypes.c_char_p(key_type),
+            ctypes.c_char_p(key_desc),
             payload_buf,
             payload_len,
             target_ring,
@@ -737,6 +773,25 @@ class _Krb5CredsStructure(ctypes.Structure):
     ]
 
 
+def _resolve_ccache_etype_label(abs_cc: str) -> str:
+    try:
+        if os.path.isfile(abs_cc):
+            from .doctor import parse_ccache_stream
+            with open(abs_cc, "rb") as f:
+                cc_info = parse_ccache_stream(f)
+            if cc_info:
+                etype = cc_info.get("ticket_etype") or cc_info.get("session_key_etype")
+                if etype == 23:
+                    return "0x17 (RC4-HMAC)"
+                if etype == 17:
+                    return "0x11 (AES-128)"
+                if etype == 18:
+                    return "0x12 (AES-256)"
+    except Exception:
+        pass
+    return "0x12 (AES-256)"
+
+
 def acquire_tgs_via_ctypes(
     spn: str,
     ccache_path: str,
@@ -744,6 +799,14 @@ def acquire_tgs_via_ctypes(
     krb5_conf: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Acquire Kerberos Service Ticket (TGS) via libkrb5 C runtime using ctypes."""
+    if spn and spn.strip().startswith("-"):
+        return {
+            "status": "ERROR",
+            "reason_code": "INVALID_ARGUMENT",
+            "category": "USAGE_ERROR",
+            "exit_code": 1,
+            "message": f"Invalid SPN starting with '-': '{spn}'",
+        }
     if krb5_conf:
         os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
 
@@ -904,18 +967,12 @@ def acquire_tgs_via_ctypes(
                             "client_principal": client_name,
                         }
 
-                    try:
-                        # 6. Store newly acquired service ticket into destination ccache
-                        if hasattr(krb5, "krb5_cc_store_cred") and out_creds.value:
-                            krb5.krb5_cc_store_cred.restype = ctypes.c_int32
-                            krb5.krb5_cc_store_cred.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-                            krb5.krb5_cc_store_cred(ctx, cc, out_creds.value)
-                    finally:
-                        if hasattr(krb5, "krb5_free_creds") and out_creds.value:
-                            krb5.krb5_free_creds.restype = None
-                            krb5.krb5_free_creds.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                            krb5.krb5_free_creds(ctx, out_creds.value)
+                    if hasattr(krb5, "krb5_free_creds") and out_creds.value:
+                        krb5.krb5_free_creds.restype = None
+                        krb5.krb5_free_creds.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                        krb5.krb5_free_creds(ctx, out_creds.value)
 
+                    etype_label = _resolve_ccache_etype_label(abs_cc)
                     return {
                         "status": "SUCCESS",
                         "operation": "TGS_ACQUISITION",
@@ -931,7 +988,7 @@ def acquire_tgs_via_ctypes(
                             "event_name": "Kerberos Service Ticket Request",
                             "service_name": spn,
                             "client_name": client_name,
-                            "ticket_encryption_type": "0x12 (AES-256)",
+                            "ticket_encryption_type": etype_label,
                         },
                     }
                 finally:
@@ -976,6 +1033,14 @@ def acquire_tgs(
         }
 
     clean_spn = spn.strip()
+    if clean_spn.startswith("-"):
+        return {
+            "status": "ERROR",
+            "reason_code": "INVALID_ARGUMENT",
+            "category": "USAGE_ERROR",
+            "exit_code": 1,
+            "message": f"Invalid SPN starting with '-': '{clean_spn}'",
+        }
 
     # If keytab is passed, first acquire TGT if needed
     if keytab_path:
@@ -1080,6 +1145,7 @@ def acquire_tgs(
                     except (ValueError, IndexError):
                         pass
 
+                etype_label = _resolve_ccache_etype_label(abs_cc)
                 return {
                     "status": "SUCCESS",
                     "operation": "TGS_ACQUISITION",
@@ -1095,7 +1161,7 @@ def acquire_tgs(
                         "event_id": 4769,
                         "event_name": "Kerberos Service Ticket Request",
                         "service_name": clean_spn,
-                        "ticket_encryption_type": "0x12 (AES-256)",
+                        "ticket_encryption_type": etype_label,
                     },
                 }
             else:

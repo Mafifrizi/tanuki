@@ -153,6 +153,19 @@ pub fn validate_token_exchange(params: &TokenExchangeParams) -> TokenValidationR
                         subject_token_report: Some(rep),
                     };
                 }
+                if !rep.valid {
+                    return TokenValidationReport {
+                        valid: false,
+                        exchange_valid: false,
+                        error: Some("invalid_grant".to_string()),
+                        error_description: Some(
+                            "The provided subject_token failed security policy validation".to_string(),
+                        ),
+                        parameters: params.clone(),
+                        security_warnings,
+                        subject_token_report: Some(rep),
+                    };
+                }
                 subject_report = Some(rep);
             }
             Err(e) => {

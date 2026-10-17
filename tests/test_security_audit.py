@@ -262,6 +262,109 @@ class TestSecurityAudit(unittest.TestCase):
             parse_pac_bytes(raw_pac)
         self.assertIn("overlaps header", str(ctx.exception))
 
+    def test_config_rejects_ini_syntax_injection(self):
+        """Verify generate_krb5_conf rejects INI/krb5.conf syntax injection characters."""
+        from tanuki.config import generate_krb5_conf
+
+        for payload in ("CORP.LOCAL}\n[libdefaults]", "CORP.LOCAL;allow_weak_crypto=true", "CORP.LOCAL#comment", "CORP=LOCAL"):
+            with self.assertRaises(ValueError):
+                generate_krb5_conf(realm=payload, kdc="192.168.56.106")
+        for kdc_payload in ("192.168.56.106;evil", "192.168.56.106}", "192.168.56.106=1"):
+            with self.assertRaises(ValueError):
+                generate_krb5_conf(realm="CORP.LOCAL", kdc=kdc_payload)
+
+    def test_auth_rejects_leading_dash_option_injection(self):
+        """Verify acquire_tgt and acquire_tgs reject principals/SPNs starting with '-'."""
+        from tanuki.auth import acquire_tgs, acquire_tgt
+
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b"\x05\x02")
+            kt_path = tf.name
+        try:
+            res_tgt = acquire_tgt(keytab_path=kt_path, principal="-c/tmp/pwn@CORP.LOCAL")
+            self.assertEqual(res_tgt["status"], "ERROR")
+            self.assertEqual(res_tgt["reason_code"], "INVALID_ARGUMENT")
+
+            res_tgs = acquire_tgs(spn="-S/evil@CORP.LOCAL", ccache_path=kt_path)
+            self.assertEqual(res_tgs["status"], "ERROR")
+            self.assertEqual(res_tgs["reason_code"], "INVALID_ARGUMENT")
+        finally:
+            if os.path.exists(kt_path):
+                os.unlink(kt_path)
+
+    def test_nhi_jwt_signature_and_exchange_validation(self):
+        """Verify JWT signature segment validation and RFC 8693 subject_token validity propagation."""
+        import base64
+        import json as _json
+        from tanuki.nhi import validate_jwt_workload, validate_token_exchange
+
+        hdr = base64.urlsafe_b64encode(_json.dumps({"alg": "RS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        pay = base64.urlsafe_b64encode(
+            _json.dumps({"iss": "https://issuer.example", "sub": "svc", "aud": "api://target", "exp": 4102444800}).encode()
+        ).decode().rstrip("=")
+
+        # Empty signature must fail for RS256
+        rep_empty_sig = validate_jwt_workload(f"{hdr}.{pay}.")
+        self.assertFalse(_json.loads(rep_empty_sig.to_json())["valid"])
+
+        # Invalid subject_token in RFC 8693 exchange must mark exchange as invalid
+        ex_rep = validate_token_exchange({
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "subject_token": f"{hdr}.{pay}.",
+            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+            "audience": "api://target",
+        })
+        self.assertFalse(_json.loads(ex_rep.to_json())["valid"])
+
+    def test_doctor_flags_allow_weak_crypto_as_fail(self):
+        """Verify check_krb5_conf flags allow_weak_crypto = true as FAIL."""
+        from tanuki.doctor import check_krb5_conf
+
+        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False, encoding="utf-8") as tf:
+            tf.write("[libdefaults]\n    default_realm = CORP.LOCAL\n    allow_weak_crypto = true\n")
+            conf_path = tf.name
+        try:
+            res = check_krb5_conf(conf_path)
+            self.assertEqual(res["status"], "FAIL")
+            self.assertTrue(any("allow_weak_crypto" in issue for issue in res.get("issues", [])))
+        finally:
+            if os.path.exists(conf_path):
+                os.unlink(conf_path)
+
+    def test_fix_preserves_unrelated_krb5_sections_idempotently(self):
+        """Verify run_fix preserves unrelated INI sections like [logging] across consecutive runs."""
+        from tanuki.fix import run_fix
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conf_path = os.path.join(tmpdir, "krb5.conf")
+            with open(conf_path, "w", encoding="utf-8") as f:
+                f.write("[libdefaults]\n    default_realm = OLD.LOCAL\n\n[logging]\n    default = FILE:/var/log/krb5.log\n")
+
+            rep1 = run_fix(realm="CORP.LOCAL", kdc="192.168.56.106", krb5_conf=conf_path, dry_run=False)
+            self.assertEqual(rep1.status, "SUCCESS")
+            with open(conf_path, "r", encoding="utf-8") as f:
+                updated = f.read()
+            self.assertIn("[logging]", updated)
+            self.assertIn("default = FILE:/var/log/krb5.log", updated)
+
+            rep2 = run_fix(realm="CORP.LOCAL", kdc="192.168.56.106", krb5_conf=conf_path, dry_run=False)
+            self.assertEqual(rep2.status, "SUCCESS")
+            cfg_actions = [a for a in rep2.actions if a.get("action") == "krb5_configuration"]
+            self.assertEqual(cfg_actions[0]["status"], "IDEMPOTENT_SKIPPED")
+
+    def test_protocol_stime_prioritizes_context_tag_0xa4(self):
+        """Verify parse_krb_error_stime prioritizes [4] stime (0xa4) over earlier [1] ctime (0xa1)."""
+        from tanuki.protocol import parse_krb_error_stime
+
+        # [1] ctime = 20200101000000Z, [4] stime = 20261007120000Z
+        payload = (
+            b"\x30\x26"
+            b"\xa1\x11\x18\x0f20200101000000Z"
+            b"\xa4\x11\x18\x0f20261007120000Z"
+        )
+        stime = parse_krb_error_stime(payload)
+        self.assertEqual(stime, 1791374400)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -519,10 +519,18 @@ def parse_pac_logon_info(data: bytes) -> Dict[str, Any]:
     (uac_raw,) = struct.unpack_from("<I", data, uac_offset)
     (domain_sid_ptr,) = struct.unpack_from("<I", data, domain_sid_ptr_offset)
 
-    # Deferral parsing begins after fixed header
-    # Standard KERB_VALIDATION_INFO size before pointees is typically ~220-256 bytes
-    # We locate the deferral area dynamically or scan for Domain SID and groups
-    deferral_start = struct_start + min_fixed_hdr
+    # Deferral parsing begins after fixed header (176 bytes in standard/synthetic layouts, or 172/200 bytes)
+    deferral_start = struct_start + (176 if len(data) - struct_start >= 176 else min_fixed_hdr)
+    eff_len, eff_max_len, eff_ptr = struct.unpack_from("<HHI", data, eff_name_hdr)
+    if eff_ptr != 0 and eff_len > 0:
+        expected_chars = eff_len // 2
+        for cand_off in (struct_start + 176, struct_start + 172, struct_start + 200):
+            if cand_off + 12 <= len(data):
+                mc, oc, ac = struct.unpack_from("<III", data, cand_off)
+                if oc == 0 and ac == expected_chars and mc >= ac:
+                    deferral_start = cand_off
+                    break
+
     # Align to 4 bytes
     if deferral_start % 4 != 0:
         deferral_start += (4 - (deferral_start % 4))

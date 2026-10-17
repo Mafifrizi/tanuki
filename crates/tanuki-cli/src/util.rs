@@ -47,11 +47,6 @@ pub fn fill_dynamic_entropy(buf: &mut [u8]) {
 pub fn resolve_current_uid() -> u32 {
     #[cfg(unix)]
     {
-        if let Ok(uid_str) = std::env::var("UID") {
-            if let Ok(uid) = uid_str.trim().parse::<u32>() {
-                return uid;
-            }
-        }
         if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
             for line in status.lines() {
                 if line.starts_with("Uid:") {
@@ -62,6 +57,11 @@ pub fn resolve_current_uid() -> u32 {
                         }
                     }
                 }
+            }
+        }
+        if let Ok(uid_str) = std::env::var("UID") {
+            if let Ok(uid) = uid_str.trim().parse::<u32>() {
+                return uid;
             }
         }
     }

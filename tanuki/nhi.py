@@ -24,8 +24,19 @@ SUPPORTED_TOKEN_TYPES = {
 }
 
 
+KNOWN_JWT_ALGORITHMS = {
+    "RS256", "RS384", "RS512",
+    "ES256", "ES384", "ES512",
+    "PS256", "PS384", "PS512",
+    "EdDSA",
+    "HS256", "HS384", "HS512",
+}
+
+
 def b64url_decode(segment: str) -> bytes:
     clean = segment.strip().rstrip("=")
+    if clean and not re.fullmatch(r"[A-Za-z0-9_+/\-]+", clean):
+        raise ValueError("Invalid characters in Base64URL encoding")
     mod = len(clean) % 4
     if mod == 1:
         raise ValueError("Invalid Base64URL encoding (data character length cannot be 1 mod 4)")
@@ -57,6 +68,8 @@ def parse_workload_jwt(token_str: str) -> Dict[str, Any]:
         raise ValueError(f"Invalid JWT format: expected 3 period-delimited segments, got {len(parts)}")
     header = decode_jwt_segment(parts[0])
     payload = decode_jwt_segment(parts[1])
+    if parts[2]:
+        b64url_decode(parts[2])
     return {
         "header": header,
         "payload": payload,
@@ -231,16 +244,28 @@ def validate_jwt_workload(
             security_warnings.append(f"OVERLY_BROAD_SUBJECT: {msg}")
 
     alg_val = header.get("alg")
+    alg_str = str(alg_val).strip() if alg_val is not None else ""
     insecure_algorithm = False
-    if alg_val is None or str(alg_val).lower() == "none":
+    if not alg_str or alg_str.lower() == "none":
         insecure_algorithm = True
-        msg = "Unsecured JWT (alg=none) detected"
+        msg = "Unsecured JWT (alg=none or missing) detected"
         findings.append({"severity": "CRITICAL", "code": "INSECURE_ALGORITHM", "message": msg})
         security_warnings.append(f"INSECURE_ALGORITHM: {msg}")
-    elif str(alg_val).upper().startswith("HS"):
+    elif alg_str not in KNOWN_JWT_ALGORITHMS:
+        insecure_algorithm = True
+        msg = f"Unrecognized or unsupported JWT algorithm '{alg_str}'"
+        findings.append({"severity": "CRITICAL", "code": "INSECURE_ALGORITHM", "message": msg})
+        security_warnings.append(f"INSECURE_ALGORITHM: {msg}")
+    elif alg_str.upper().startswith("HS"):
         msg = f"Symmetric algorithm {alg_val} used instead of asymmetric for workload identity"
         findings.append({"severity": "MEDIUM", "code": "SYMMETRIC_ALGORITHM", "message": msg})
         security_warnings.append(f"SYMMETRIC_ALGORITHM: {msg}")
+
+    if not insecure_algorithm and not parsed.get("signature_raw"):
+        insecure_algorithm = True
+        msg = f"Missing JWT signature segment for algorithm '{alg_str}'"
+        findings.append({"severity": "CRITICAL", "code": "INSECURE_ALGORITHM", "message": msg})
+        security_warnings.append(f"INSECURE_ALGORITHM: {msg}")
 
     if exp_val is None:
         msg = "Token has no expiration (exp) claim"
@@ -419,6 +444,15 @@ def validate_token_exchange(params: Dict[str, Any]) -> TokenValidationReport:
                     "security_warnings": security_warnings,
                     "subject_token_report": subject_report,
                 })
+            if not subject_report.get("valid"):
+                return TokenValidationReport({
+                    "valid": False,
+                    "exchange_valid": False,
+                    "error": "invalid_grant",
+                    "error_description": "The provided subject_token failed security policy validation",
+                    "security_warnings": security_warnings,
+                    "subject_token_report": subject_report,
+                })
         except Exception as exc:
             return TokenValidationReport({
                 "valid": False,
@@ -520,6 +554,44 @@ def format_exchange_report_terminal(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _validate_http_url(url: str) -> Optional[str]:
+    """Validate that a URL uses http/https, has a host, and contains no CRLF injection."""
+    import urllib.parse
+
+    if not url or any(ch in url for ch in ("\r", "\n", "\x00")):
+        return "URL contains invalid control characters or is empty"
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        return f"Unsupported or unsafe URL scheme: {parsed.scheme!r}"
+    if not parsed.netloc:
+        return "URL is missing a target host"
+    return None
+
+
+def _build_safe_http_opener(allow_same_scheme_redirects: bool = True):
+    """Build a urllib OpenerDirector that blocks scheme downgrades and metadata SSRF redirects."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if not allow_same_scheme_redirects:
+                raise urllib.error.HTTPError(req.full_url, code, "Redirects are disabled for this request", headers, fp)
+            err = _validate_http_url(newurl)
+            if err:
+                raise urllib.error.HTTPError(req.full_url, code, err, headers, fp)
+            orig_parsed = urllib.parse.urlparse(req.full_url)
+            new_parsed = urllib.parse.urlparse(newurl)
+            if orig_parsed.scheme.lower() == "https" and new_parsed.scheme.lower() != "https":
+                raise urllib.error.HTTPError(req.full_url, code, "Refusing HTTPS to HTTP redirect downgrade", headers, fp)
+            if new_parsed.hostname in ("169.254.169.254", "metadata.google.internal"):
+                raise urllib.error.HTTPError(req.full_url, code, "Refusing redirect to cloud metadata endpoint", headers, fp)
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+    return urllib.request.build_opener(_SafeRedirectHandler())
+
+
 def exchange_token_live(
     endpoint: str,
     subject_token: str,
@@ -534,6 +606,15 @@ def exchange_token_live(
     import urllib.error
     import urllib.parse
     import urllib.request
+
+    url_err = _validate_http_url(endpoint)
+    if url_err:
+        return {
+            "status": "ERROR",
+            "endpoint": endpoint,
+            "error": "invalid_endpoint",
+            "error_description": url_err,
+        }
 
     form_data: Dict[str, str] = {
         "grant_type": RFC8693_TOKEN_EXCHANGE_GRANT,
@@ -554,7 +635,15 @@ def exchange_token_live(
         "User-Agent": "Tanuki-Identity-Engine/2.0",
     }
     if extra_headers:
-        req_headers.update(extra_headers)
+        for k, v in extra_headers.items():
+            if any(ch in str(k) or ch in str(v) for ch in ("\r", "\n", "\x00")):
+                return {
+                    "status": "ERROR",
+                    "endpoint": endpoint,
+                    "error": "invalid_header",
+                    "error_description": "HTTP header contains prohibited control characters",
+                }
+            req_headers[str(k)] = str(v)
 
     req = urllib.request.Request(
         url=endpoint,
@@ -563,10 +652,11 @@ def exchange_token_live(
         method="POST",
     )
 
+    opener = _build_safe_http_opener(allow_same_scheme_redirects=True)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             status_code = resp.status
-            body_bytes = resp.read()
+            body_bytes = resp.read(1024 * 1024)
             body_str = body_bytes.decode("utf-8", errors="replace")
             try:
                 json_data = json.loads(body_str)
@@ -584,7 +674,7 @@ def exchange_token_live(
                 "expires_in": json_data.get("expires_in"),
             }
     except urllib.error.HTTPError as exc:
-        err_body = exc.read().decode("utf-8", errors="replace")
+        err_body = exc.read(1024 * 1024).decode("utf-8", errors="replace") if exc.fp else ""
         try:
             err_json = json.loads(err_body)
         except Exception:
@@ -643,6 +733,7 @@ def fetch_imds_token(
 ) -> Dict[str, Any]:
     """Fetch workload identity token from cloud instance metadata service (IMDSv2)."""
     import urllib.error
+    import urllib.parse
     import urllib.request
 
     result: Dict[str, Any] = {
@@ -652,6 +743,13 @@ def fetch_imds_token(
         "details": None,
     }
 
+    url_err = _validate_http_url(imds_base_url)
+    if url_err:
+        result["details"] = url_err
+        return result
+
+    opener = _build_safe_http_opener(allow_same_scheme_redirects=False)
+
     # 1. AWS IMDSv2 Token Probe
     if cloud_provider in ("auto", "aws"):
         try:
@@ -660,9 +758,9 @@ def fetch_imds_token(
                 headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"},
                 method="PUT",
             )
-            with urllib.request.urlopen(token_req, timeout=timeout) as resp:
+            with opener.open(token_req, timeout=timeout) as resp:
                 if resp.status == 200:
-                    aws_token = resp.read().decode("utf-8").strip()
+                    aws_token = resp.read(65536).decode("utf-8").strip()
                     result["status"] = "SUCCESS"
                     result["provider"] = "aws_imdsv2"
                     result["token"] = aws_token
@@ -685,9 +783,9 @@ def fetch_imds_token(
                 headers={"Metadata": "true"},
                 method="GET",
             )
-            with urllib.request.urlopen(azure_req, timeout=timeout) as resp:
+            with opener.open(azure_req, timeout=timeout) as resp:
                 if resp.status == 200:
-                    body = json.loads(resp.read().decode("utf-8"))
+                    body = json.loads(resp.read(65536).decode("utf-8"))
                     result["status"] = "SUCCESS"
                     result["provider"] = "azure_imds"
                     result["token"] = body.get("access_token")
@@ -710,9 +808,9 @@ def fetch_imds_token(
                 headers={"Metadata-Flavor": "Google"},
                 method="GET",
             )
-            with urllib.request.urlopen(gcp_req, timeout=timeout) as resp:
+            with opener.open(gcp_req, timeout=timeout) as resp:
                 if resp.status == 200:
-                    gcp_jwt = resp.read().decode("utf-8").strip()
+                    gcp_jwt = resp.read(65536).decode("utf-8").strip()
                     result["status"] = "SUCCESS"
                     result["provider"] = "gcp_imds"
                     result["token"] = gcp_jwt

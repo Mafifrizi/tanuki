@@ -81,7 +81,7 @@ class DoctorReport:
         )
         lines: List[str] = []
         lines.extend(render_card_header(
-            "TANUKI PRE-FLIGHT DOCTOR (v1.3.0)",
+            "TANUKI PRE-FLIGHT DOCTOR (v2.0.0)",
             f"Host: {hostname} · Mode: Passive Diagnostic (0 network packets)",
         ))
         lines.append("")
@@ -516,6 +516,7 @@ def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
     default_realm: Optional[str] = None
     realms_seen: List[str] = []
     lowercase_realms: List[str] = []
+    allow_weak_crypto = False
 
     for line_num, raw_line in enumerate(lines, 1):
         clean = raw_line.split("#")[0].split(";")[0].strip()
@@ -539,6 +540,11 @@ def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
                         result["issues"].append(
                             f"Line {line_num}: Lowercase default_realm '{val}' in [libdefaults]"
                         )
+                elif key == "allow_weak_crypto" and val.lower() in ("true", "1", "yes"):
+                    allow_weak_crypto = True
+                    result["issues"].append(
+                        f"Line {line_num}: Insecure allow_weak_crypto={val} in [libdefaults]"
+                    )
 
         elif current_section == "realms":
             if brace_depth == 0 and "=" in clean:
@@ -575,6 +581,7 @@ def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
     result["default_realm"] = default_realm
     result["realms"] = realms_seen
     result["lowercase_realms"] = lowercase_realms
+    result["allow_weak_crypto"] = allow_weak_crypto
 
     if lowercase_realms:
         result["status"] = "FAIL"
@@ -584,6 +591,12 @@ def check_krb5_conf(krb5_conf_path: Optional[str] = None) -> Dict[str, Any]:
         )
         result["recommendation"] = (
             f"Capitalize realm names in {krb5_conf_path} to match Active Directory uppercase convention"
+        )
+    elif allow_weak_crypto:
+        result["status"] = "FAIL"
+        result["details"] = "Insecure allow_weak_crypto = true detected in [libdefaults]"
+        result["recommendation"] = (
+            f"Set allow_weak_crypto = false in {krb5_conf_path} to enforce AES encryption"
         )
     elif default_realm:
         result["status"] = "PASS"
@@ -771,18 +784,23 @@ def _read_principal(stream: io.BytesIO) -> Optional[str]:
     return f"@{realm}"
 
 
-def parse_ccache_stream(stream: io.BytesIO) -> Optional[Dict[str, Any]]:
-    """Parse MIT Kerberos CCACHE v4 binary stream extracting primary credentials and expiration."""
-    head = stream.read(4)
-    if len(head) < 4:
+def parse_ccache_stream(stream: Any) -> Optional[Dict[str, Any]]:
+    """Parse MIT Kerberos CCACHE v3/v4 binary stream extracting primary credentials and expiration."""
+    if isinstance(stream, (bytes, bytearray)):
+        stream = io.BytesIO(stream)
+    head = stream.read(2)
+    if len(head) < 2:
         return None
 
-    if head[:2] != b"\x05\x04":
-        return None
-
-    (header_len,) = struct.unpack(">H", head[2:4])
-    tags = stream.read(header_len)
-    if len(tags) < header_len:
+    if head == b"\x05\x04":
+        hlen_b = stream.read(2)
+        if len(hlen_b) < 2:
+            return None
+        (header_len,) = struct.unpack(">H", hlen_b)
+        tags = stream.read(header_len)
+        if len(tags) < header_len:
+            return None
+    elif head != b"\x05\x03":
         return None
 
     default_principal = _read_principal(stream)
@@ -1236,12 +1254,45 @@ def check_opsec_sensors(
             result["auditd_running"] = True
             break
 
-    # 3. Falco Socket Presence
+    # 3. Falco / eBPF / Process Presence
     falco_candidates = [falco_socket, "/run/falco/falco.sock"]
     for fs in falco_candidates:
         if os.path.exists(fs):
             result["falco_active"] = True
             break
+
+    if os.path.isdir("/proc"):
+        try:
+            for entry in os.listdir("/proc"):
+                if entry.isdigit():
+                    comm_path = f"/proc/{entry}/comm"
+                    if os.path.isfile(comm_path):
+                        try:
+                            with open(comm_path, "r", encoding="utf-8", errors="replace") as f:
+                                comm = f.read().strip().lower()
+                            if comm == "auditd":
+                                result["auditd_running"] = True
+                            elif comm in ("falco", "tetragon", "tracee", "bpftrace"):
+                                result["falco_active"] = True
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+
+    if os.path.isdir("/sys/fs/bpf"):
+        try:
+            if os.listdir("/sys/fs/bpf"):
+                result["ebpf_active"] = True
+        except OSError:
+            pass
+
+    if os.path.isfile("/sys/kernel/debug/tracing/enabled_functions"):
+        try:
+            with open("/sys/kernel/debug/tracing/enabled_functions", "r", encoding="utf-8", errors="replace") as f:
+                if f.read(64).strip():
+                    result["ftrace_active"] = True
+        except OSError:
+            pass
 
     # 4. Audit Rules Inspection
     rules_text = ""
@@ -1274,25 +1325,42 @@ def check_opsec_sensors(
         line = line.strip()
         if line.startswith("#") or not line:
             continue
-        if "-w " in line:
-            parts = line.split()
-            if "-w" in parts:
-                idx = parts.index("-w")
-                if idx + 1 < len(parts):
-                    wpath = parts[idx + 1]
-                    norm_w = os.path.abspath(wpath)
-                    if norm_w == norm_kt or norm_kt.startswith(norm_w.rstrip("/\\") + "/"):
-                        kt_watched = True
-                        if wpath not in monitored:
-                            monitored.append(wpath)
-                    if ccache_path and (norm_w == os.path.abspath(ccache_path) or "/tmp/krb5cc" in wpath):
-                        cc_watched = True
-                        if wpath not in monitored:
-                            monitored.append(wpath)
-                    elif "/tmp/krb5cc" in wpath or "krb5cc" in wpath:
-                        cc_watched = True
-                        if wpath not in monitored:
-                            monitored.append(wpath)
+        watched_candidates: List[str] = []
+        parts = line.split()
+        for idx, tok in enumerate(parts):
+            if tok == "-w" and idx + 1 < len(parts):
+                watched_candidates.append(parts[idx + 1])
+            elif tok == "-F" and idx + 1 < len(parts):
+                f_arg = parts[idx + 1]
+                if f_arg.startswith("path="):
+                    watched_candidates.append(f_arg[5:])
+                elif f_arg.startswith("dir="):
+                    watched_candidates.append(f_arg[4:])
+            elif tok.startswith("path="):
+                watched_candidates.append(tok[5:])
+            elif tok.startswith("dir="):
+                watched_candidates.append(tok[4:])
+
+        for wpath in watched_candidates:
+            if not wpath:
+                continue
+            norm_w = os.path.abspath(wpath)
+            norm_w_prefix = norm_w.rstrip("/\\") + os.sep
+            w_clean_prefix = wpath.rstrip("/") + "/"
+            if norm_w == norm_kt or norm_kt.startswith(norm_w_prefix) or (keytab_path or "/etc/krb5.keytab").startswith(w_clean_prefix):
+                kt_watched = True
+                if wpath not in monitored:
+                    monitored.append(wpath)
+            if ccache_path:
+                norm_cc = os.path.abspath(ccache_path)
+                if norm_w == norm_cc or norm_cc.startswith(norm_w_prefix) or ccache_path.startswith(w_clean_prefix) or "/tmp/krb5cc" in wpath:
+                    cc_watched = True
+                    if wpath not in monitored:
+                        monitored.append(wpath)
+            elif "/tmp/krb5cc" in wpath or "krb5cc" in wpath or wpath.rstrip("/") == "/tmp":
+                cc_watched = True
+                if wpath not in monitored:
+                    monitored.append(wpath)
 
     result["keytab_monitored"] = kt_watched
     result["ccache_monitored"] = cc_watched

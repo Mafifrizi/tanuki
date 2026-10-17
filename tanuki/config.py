@@ -6,6 +6,16 @@ import struct
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
+_KRB5_CONF_FORBIDDEN_CHARS = set("\r\n\x00;#{}[]=")
+
+
+def _validate_krb5_conf_token(value: str, field_name: str) -> None:
+    if "\n" in value or "\r" in value:
+        raise ValueError(f"{field_name} cannot contain newline characters")
+    if any(ch in _KRB5_CONF_FORBIDDEN_CHARS for ch in value):
+        raise ValueError(f"{field_name} contains forbidden configuration syntax characters")
+
+
 def generate_krb5_conf(
     realm: str,
     kdc: Union[str, List[str]],
@@ -25,24 +35,27 @@ def generate_krb5_conf(
     """Generate an RFC 4120-compliant Kerberos configuration with uppercase realm."""
     if not realm or not realm.strip():
         raise ValueError("Realm cannot be empty")
-    if "\n" in realm or "\r" in realm:
-        raise ValueError("Realm cannot contain newline characters")
+    _validate_krb5_conf_token(realm, "Realm")
     if not kdc:
         raise ValueError("KDC cannot be empty")
 
     clean_realm = realm.strip().upper()
+    if any(ch.isspace() for ch in clean_realm):
+        raise ValueError("Realm cannot contain whitespace")
     domain = clean_realm.lower()
+
+    _validate_krb5_conf_token(ticket_lifetime, "ticket_lifetime")
+    _validate_krb5_conf_token(renew_lifetime, "renew_lifetime")
 
     if armor_cache is not None:
         armor_cache = armor_cache.strip()
         if not armor_cache:
             armor_cache = None
-        elif "\n" in armor_cache or "\r" in armor_cache:
-            raise ValueError("armor_cache cannot contain newline characters")
+        else:
+            _validate_krb5_conf_token(armor_cache, "armor_cache")
 
     if admin_server is not None:
-        if "\n" in admin_server or "\r" in admin_server:
-            raise ValueError("admin_server cannot contain newline characters")
+        _validate_krb5_conf_token(admin_server, "admin_server")
 
     if isinstance(kdc, str):
         kdc_candidates = [k.strip() for k in kdc.split(",") if k.strip()]
@@ -60,8 +73,7 @@ def generate_krb5_conf(
         raise ValueError("KDC cannot be empty")
 
     for k in kdc_candidates:
-        if "\n" in k or "\r" in k:
-            raise ValueError("KDC cannot contain newline characters")
+        _validate_krb5_conf_token(k, "KDC")
 
     admin_target = admin_server.strip() if admin_server else kdc_candidates[0]
 
@@ -139,7 +151,7 @@ def write_krb5_conf_file(
     if parent_dir and not os.path.exists(parent_dir):
         os.makedirs(parent_dir, exist_ok=True)
 
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(abs_path, flags, 0o644)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
@@ -213,6 +225,13 @@ def parse_dns_name(data: bytes, offset: int) -> Tuple[str, int]:
     return ".".join(labels), next_offset
 
 
+def _is_valid_dns_hostname(hostname: str) -> bool:
+    clean = hostname.strip(".")
+    if not clean or len(clean) > 253:
+        return False
+    return all(ch.isalnum() or ch in ".-_" for ch in clean)
+
+
 def parse_srv_response(
     data: bytes, expected_tx_id: Optional[int] = None
 ) -> List[Tuple[int, int, int, str]]:
@@ -240,10 +259,12 @@ def parse_srv_response(
             break
         rtype, _rclass, _ttl, rdlength = struct.unpack(">HHIH", data[offset : offset + 10])
         offset += 10
-        if rtype == 33 and rdlength >= 6:  # SRV
+        if offset + rdlength > len(data):
+            break
+        if rtype == 33 and rdlength >= 6 and offset + 6 <= len(data):  # SRV
             priority, weight, port = struct.unpack(">HHH", data[offset : offset + 6])
             target, _ = parse_dns_name(data, offset + 6)
-            if target:
+            if target and _is_valid_dns_hostname(target):
                 records.append((priority, weight, port, target))
         offset += rdlength
 

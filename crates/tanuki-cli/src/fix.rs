@@ -210,7 +210,10 @@ pub fn run_fix(
     }
 
     // 2. Audit & remediate krb5.conf
-    let target_conf = krb5_conf.unwrap_or("./krb5.conf");
+    let env_krb5_conf = std::env::var("KRB5_CONFIG").ok();
+    let target_conf = krb5_conf
+        .or(env_krb5_conf.as_deref())
+        .unwrap_or("./krb5.conf");
     let extracted_realm = if let Some(ref kt) = resolved_keytab {
         if let Ok(bytes) = fs::read(kt) {
             if let Ok(entries) = crate::keytab::parse_keytab_bytes(&bytes) {
@@ -244,8 +247,12 @@ pub fn run_fix(
     if let (Some(r), Some(k)) = (target_realm, target_kdc.as_deref()) {
         let mut effective_skew = clock_skew;
         if let Some(err_val) = krb_error {
-            let raw_bytes = if let Ok(bytes) = fs::read(err_val) {
-                bytes
+            let raw_bytes = if err_val.len() < 260
+                && fs::symlink_metadata(err_val)
+                    .map(|m| m.is_file() && !m.file_type().is_symlink() && m.len() <= 1_048_576)
+                    .unwrap_or(false)
+            {
+                fs::read(err_val).unwrap_or_default()
             } else {
                 let clean_hex = err_val.trim().replace(' ', "").replace('\n', "");
                 let clean_hex = clean_hex.strip_prefix("0x").unwrap_or(&clean_hex);
@@ -296,8 +303,36 @@ pub fn run_fix(
                 details: format!("Refusing to overwrite symbolic link backup: {}.bak", target_conf),
                 backup: None,
             });
-        } else if let Ok(optimal_content) = generate_krb5_conf(&r, k, None, Some(effective_skew), false, false, None) {
+        } else if let Ok(mut optimal_content) = generate_krb5_conf(&r, k, None, Some(effective_skew), false, false, None) {
             let existing_content = fs::read_to_string(target_conf).ok();
+            if let Some(ref existing) = existing_content {
+                let mut preserved: Vec<&str> = Vec::new();
+                let mut in_preserved = false;
+                for line in existing.lines() {
+                    let st = line.trim();
+                    if st.starts_with('[') && st.ends_with(']') && st.len() > 2 {
+                        let sec = st[1..st.len() - 1].trim().to_ascii_lowercase();
+                        in_preserved = !matches!(sec.as_str(), "libdefaults" | "realms" | "domain_realm");
+                    }
+                    if in_preserved {
+                        preserved.push(line);
+                    }
+                }
+                while let Some(last) = preserved.last() {
+                    if last.trim().is_empty() {
+                        preserved.pop();
+                    } else {
+                        break;
+                    }
+                }
+                if !preserved.is_empty() {
+                    optimal_content = format!(
+                        "{}\n\n{}\n",
+                        optimal_content.trim_end_matches('\n'),
+                        preserved.join("\n")
+                    );
+                }
+            }
             if existing_content.as_deref() == Some(&optimal_content) {
                 actions.push(FixAction {
                     action: "krb5_configuration".to_string(),
@@ -317,7 +352,7 @@ pub fn run_fix(
             } else {
                 let mut backup_path = None;
                 if Path::new(target_conf).exists() {
-                    if let Ok(_) = fs::copy(target_conf, &bak) {
+                    if fs::copy(target_conf, &bak).is_ok() {
                         backup_path = Some(bak);
                     }
                 }
@@ -354,8 +389,21 @@ pub fn run_fix(
     }
 
     // 3. Ticket Cache Status
-    let resolved_ccache = ccache_path.map(|c| c.to_string())
-        .or_else(|| std::env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()));
+    let default_uid_cc = format!("/tmp/krb5cc_{}", crate::util::resolve_current_uid());
+    let resolved_ccache = ccache_path
+        .map(|c| c.to_string())
+        .or_else(|| {
+            std::env::var("KRB5CCNAME")
+                .ok()
+                .map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string())
+        })
+        .or_else(|| {
+            if Path::new(&default_uid_cc).exists() {
+                Some(default_uid_cc)
+            } else {
+                None
+            }
+        });
 
     if let Some(ref cc) = resolved_ccache {
         if Path::new(cc).exists() {

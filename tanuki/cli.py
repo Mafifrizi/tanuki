@@ -1325,9 +1325,20 @@ def run_tui_wizard() -> None:
             handle_skill(False)
         elif choice == "14":
             realm = input("Active Directory Realm (e.g. CORP.LOCAL): ").strip()
-            kdc = input("KDC IP or Hostname (optional): ").strip() or None
+            kdc = input("KDC IP or Hostname (e.g. 192.168.56.106): ").strip() or None
             out_file = input("Output path (optional): ").strip() or None
-            handle_config(realm=realm, kdc=kdc, domain=None, clock_skew=300, forwardable=True, proxiable=False, rdns=False, out_file=out_file, json_output=False)
+            if not realm or not kdc:
+                print("Error: Both Realm and KDC are required to generate configuration.")
+            else:
+                handle_config(
+                    realm_opt=realm,
+                    kdc_opt=kdc,
+                    admin_server_opt=None,
+                    out_path=out_file,
+                    stdout_mode=False,
+                    json_output=False,
+                    clockskew_opt=300,
+                )
         elif choice == "15":
             target = input("Target KeyCredentialLink hex or file path: ").strip()
             handle_shadow(source=target, json_output=False)
@@ -1417,7 +1428,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     known_subcommands = {
         "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
-        "pac", "fix", "purge", "adcs", "ldap", "tgs", "blast",
+        "pac", "fix", "purge", "adcs", "ldap", "tgs", "blast", "shadow",
     }
 
     if not argv:

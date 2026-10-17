@@ -93,6 +93,47 @@ pub fn ber_encode_sequence(elements: &[Vec<u8>]) -> Vec<u8> {
     ber_encode_tlv(TAG_SEQUENCE, &val)
 }
 
+pub const MAX_LDAP_PDU_SIZE: usize = 10 * 1024 * 1024;
+
+pub fn escape_ldap_filter_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\5c"),
+            '*' => out.push_str("\\2a"),
+            '(' => out.push_str("\\28"),
+            ')' => out.push_str("\\29"),
+            '\0' => out.push_str("\\00"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+pub fn unescape_ldap_filter_value(value: &str) -> Vec<u8> {
+    let bytes = value.as_bytes();
+    let mut raw = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 2 < bytes.len() {
+            let h1 = bytes[i + 1];
+            let h2 = bytes[i + 2];
+            if h1.is_ascii_hexdigit() && h2.is_ascii_hexdigit() {
+                if let Ok(hex_str) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
+                    if let Ok(val) = u8::from_str_radix(hex_str, 16) {
+                        raw.push(val);
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+        }
+        raw.push(bytes[i]);
+        i += 1;
+    }
+    raw
+}
+
 pub fn ber_decode_tlv(data: &[u8], offset: usize) -> Result<(u8, &[u8], usize), String> {
     if offset >= data.len() {
         return Err(format!("Unexpected end of BER stream at offset {}", offset));
@@ -119,6 +160,13 @@ pub fn ber_decode_tlv(data: &[u8], offset: usize) -> Result<(u8, &[u8], usize), 
         curr += num_len_bytes;
         l
     };
+
+    if length > MAX_LDAP_PDU_SIZE {
+        return Err(format!(
+            "BER length {} exceeds maximum allowed PDU size ({})",
+            length, MAX_LDAP_PDU_SIZE
+        ));
+    }
 
     let end_offset = match curr.checked_add(length) {
         Some(end) => end,
@@ -196,7 +244,12 @@ pub fn build_ldap_search_filter(attribute: &str, value: &str) -> Vec<u8> {
         ber_encode_tlv(FILTER_PRESENT, attribute.as_bytes())
     } else {
         let mut eq_payload = ber_encode_string(attribute);
-        eq_payload.extend(ber_encode_string(value));
+        let val_bytes = if value.contains('\\') {
+            unescape_ldap_filter_value(value)
+        } else {
+            value.as_bytes().to_vec()
+        };
+        eq_payload.extend(ber_encode_tlv(TAG_OCTET_STRING, &val_bytes));
         ber_encode_tlv(FILTER_EQUALITY, &eq_payload)
     }
 }
@@ -311,7 +364,63 @@ impl LdapReport {
                 }
                 out.push('\n');
             }
-            out.push_str("      }\n");
+            out.push_str("      }");
+            if entry.query_category.eq_ignore_ascii_case("asreproast") || entry.query_category.eq_ignore_ascii_case("nopreauth") {
+                let uac_int = entry.attributes.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("userAccountControl"))
+                    .and_then(|(_, v)| v.first())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let enctype_int = entry.attributes.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("msDS-SupportedEncryptionTypes"))
+                    .and_then(|(_, v)| v.first())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let (enc_label, hc_fmt, etype_val) = if (enctype_int & 0x10) != 0 {
+                    ("AES-256 (etype 18)", "$krb5asrep$18$", 18)
+                } else if (enctype_int & 0x08) != 0 {
+                    ("AES-128 (etype 17)", "$krb5asrep$17$", 17)
+                } else {
+                    ("RC4-HMAC (etype 23)", "$krb5asrep$23$", 23)
+                };
+                out.push_str(",\n      \"asrep_roastable\": {\n");
+                out.push_str(&format!("        \"dont_req_preauth\": {},\n", (uac_int & 0x400000) != 0));
+                out.push_str(&format!("        \"encryption\": \"{}\",\n", enc_label));
+                out.push_str(&format!("        \"hashcat_format\": \"{}\",\n", hc_fmt));
+                out.push_str(&format!("        \"etype\": {},\n", etype_val));
+                out.push_str(&format!("        \"supported_encryption_types\": {}\n", enctype_int));
+                out.push_str("      }\n");
+            } else if entry.query_category.eq_ignore_ascii_case("rbcd") {
+                if let Some((_, vals)) = entry.attributes.iter().find(|(k, _)| k.eq_ignore_ascii_case("msds-allowedtoactonbehalfofotheridentity")) {
+                    if let Some(hex_val) = vals.first() {
+                        let mut raw_bytes = Vec::new();
+                        let mut chars = hex_val.chars();
+                        while let (Some(c1), Some(c2)) = (chars.next(), chars.next()) {
+                            if let Ok(b) = u8::from_str_radix(&format!("{}{}", c1, c2), 16) {
+                                raw_bytes.push(b);
+                            }
+                        }
+                        if let Ok(rbcd) = crate::pac::parse_rbcd_security_descriptor(&raw_bytes) {
+                            let sids_json = rbcd.allowed_trustee_sids.iter()
+                                .map(|s| format!("\"{}\"", escape_json(s)))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            out.push_str(",\n      \"rbcd_parsed\": {\n");
+                            out.push_str(&format!("        \"ace_count\": {},\n", rbcd.ace_count));
+                            out.push_str(&format!("        \"allowed_trustee_sids\": [{}]\n", sids_json));
+                            out.push_str("      }\n");
+                        } else {
+                            out.push('\n');
+                        }
+                    } else {
+                        out.push('\n');
+                    }
+                } else {
+                    out.push('\n');
+                }
+            } else {
+                out.push('\n');
+            }
             out.push_str("    }");
             if i + 1 < self.entries.len() {
                 out.push(',');
@@ -368,9 +477,10 @@ impl LdapReport {
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
 
-                let has_aes = (enctype_int & 0x18) != 0;
-                let (cipher_desc, enctype_desc) = if has_aes {
+                let (cipher_desc, enctype_desc) = if (enctype_int & 0x10) != 0 {
                     ("AES-256 (etype 18 · Hashcat: $krb5asrep$18$)", format!("0x{:x} (AES Supported)", enctype_int))
+                } else if (enctype_int & 0x08) != 0 {
+                    ("AES-128 (etype 17 · Hashcat: $krb5asrep$17$)", format!("0x{:x} (AES-128 Supported)", enctype_int))
                 } else {
                     ("RC4-HMAC (etype 23 · Hashcat: $krb5asrep$23$)", format!("0x{:x} (Default KDC Fallback: RC4-HMAC)", enctype_int))
                 };
@@ -393,6 +503,8 @@ impl LdapReport {
                             | "objectsid"
                             | "objectguid"
                             | "usercertificate"
+                            | "ntsecuritydescriptor"
+                            | "tokengroups"
                     );
                     if a_name.eq_ignore_ascii_case("msds-allowedtoactonbehalfofotheridentity") {
                         out.push_str(&format!("    ├─ {} (RBCD):\n", a_name));
@@ -554,6 +666,8 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
                         | "objectsid"
                         | "objectguid"
                         | "usercertificate"
+                        | "ntsecuritydescriptor"
+                        | "tokengroups"
                 );
 
                 let (_, vals_set, _) = match ber_decode_tlv(attr_seq, sub_off) {
@@ -570,6 +684,9 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
                     };
                     v_off = n_voff;
                     if is_binary {
+                        let hex_str: String = v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                        vals_list.push(hex_str);
+                    } else if attr_name.eq_ignore_ascii_case("msds-keycredentiallink") && !v_bytes.starts_with(b"B:") {
                         let hex_str: String = v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
                         vals_list.push(hex_str);
                     } else {
@@ -775,42 +892,51 @@ pub fn query_active_directory_ldap(
         };
     }
 
-    if n > 0 {
-        if let Ok((TAG_SEQUENCE, seq_val, _)) = ber_decode_tlv(&bind_buf[..n], 0) {
-            let mut off = 0;
-            if let Ok((TAG_INTEGER, _, next_off)) = ber_decode_tlv(seq_val, off) {
-                off = next_off;
-                if let Ok((LDAP_RESP_BIND, bind_val, _)) = ber_decode_tlv(seq_val, off) {
-                    if let Ok((TAG_ENUMERATED, res_bytes, next_res_off)) = ber_decode_tlv(bind_val, 0) {
+    let mut bind_succeeded = false;
+    let mut bind_err_detail: Option<String> = None;
+    if let Ok((TAG_SEQUENCE, seq_val, _)) = ber_decode_tlv(&bind_buf[..n], 0) {
+        let mut off = 0;
+        if let Ok((TAG_INTEGER, _, next_off)) = ber_decode_tlv(seq_val, off) {
+            off = next_off;
+            if let Ok((LDAP_RESP_BIND, bind_val, _)) = ber_decode_tlv(seq_val, off) {
+                if let Ok((b_tag, res_bytes, next_res_off)) = ber_decode_tlv(bind_val, 0) {
+                    if b_tag == TAG_ENUMERATED || b_tag == TAG_INTEGER {
                         let res_code = ber_decode_int(res_bytes);
-                        if res_code != 0 {
+                        if res_code == 0 {
+                            bind_succeeded = true;
+                        } else {
                             let mut diag_msg = String::new();
                             if let Ok((_, _, dn_off)) = ber_decode_tlv(bind_val, next_res_off) {
                                 if let Ok((_, diag_bytes, _)) = ber_decode_tlv(bind_val, dn_off) {
                                     diag_msg = ber_decode_string(diag_bytes).replace('\0', "").trim().to_string();
                                 }
                             }
-                            let err_detail = if diag_msg.is_empty() {
+                            bind_err_detail = Some(if diag_msg.is_empty() {
                                 format!("LDAP bind failed with result code {}", res_code)
                             } else {
                                 format!("LDAP bind failed with result code {} ({})", res_code, diag_msg)
-                            };
-                            return LdapReport {
-                                status: "BIND_FAILED".to_string(),
-                                host: host.to_string(),
-                                port,
-                                query_type: query_type.to_string(),
-                                base_dn: base_dn.to_string(),
-                                count: 0,
-                                entries: Vec::new(),
-                                message: Some(err_detail),
-                                error: None,
-                            };
+                            });
                         }
                     }
                 }
             }
         }
+    }
+
+    if !bind_succeeded {
+        return LdapReport {
+            status: "BIND_FAILED".to_string(),
+            host: host.to_string(),
+            port,
+            query_type: query_type.to_string(),
+            base_dn: base_dn.to_string(),
+            count: 0,
+            entries: Vec::new(),
+            message: Some(bind_err_detail.unwrap_or_else(|| {
+                "LDAP bind failed: unexpected or malformed bind response PDU".to_string()
+            })),
+            error: None,
+        };
     }
 
     // Execute queries
@@ -843,7 +969,7 @@ pub fn query_active_directory_ldap(
                 vec!["sAMAccountName", "msDS-KeyCredentialLink"],
             ),
             "unconstrained" => (
-                build_ldap_search_filter("userAccountControl", "*"),
+                build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "524288"),
                 vec!["sAMAccountName", "userAccountControl"],
             ),
             _ => (
@@ -861,6 +987,19 @@ pub fn query_active_directory_ldap(
             while let Ok(read_bytes) = stream.read(&mut temp_chunk) {
                 if read_bytes == 0 {
                     break;
+                }
+                if search_buf.len().saturating_add(read_bytes) > MAX_LDAP_PDU_SIZE {
+                    return LdapReport {
+                        status: "SEARCH_FAILED".to_string(),
+                        host: host.to_string(),
+                        port,
+                        query_type: query_type.to_string(),
+                        base_dn: base_dn.to_string(),
+                        count: 0,
+                        entries: Vec::new(),
+                        message: None,
+                        error: Some(format!("LDAP search response exceeds maximum allowed size ({})", MAX_LDAP_PDU_SIZE)),
+                    };
                 }
                 search_buf.extend_from_slice(&temp_chunk[..read_bytes]);
                 if is_search_done_received(&search_buf) {

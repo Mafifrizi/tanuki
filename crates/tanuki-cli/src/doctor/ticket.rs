@@ -72,12 +72,22 @@ fn read_principal(data: &[u8], cursor: &mut usize) -> Option<String> {
 }
 
 fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
-    if data.len() < 4 || data[0] != 0x05 || data[1] != 0x04 {
+    if data.len() < 2 {
         return None;
     }
 
-    let header_len = u16::from_be_bytes([data[2], data[3]]) as usize;
-    let mut cursor = 4 + header_len;
+    let mut cursor = if data[0] == 0x05 && data[1] == 0x04 {
+        if data.len() < 4 {
+            return None;
+        }
+        let header_len = u16::from_be_bytes([data[2], data[3]]) as usize;
+        4 + header_len
+    } else if data[0] == 0x05 && data[1] == 0x03 {
+        2
+    } else {
+        return None;
+    };
+
     if cursor >= data.len() {
         return None;
     }
@@ -171,6 +181,9 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             data[cursor + 3],
         ]) as usize;
         cursor += 4;
+        if addr_count > 1024 {
+            break;
+        }
         let mut addr_corrupt = false;
         for _ in 0..addr_count {
             if cursor + 6 > data.len() {
@@ -203,6 +216,9 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
             data[cursor + 3],
         ]) as usize;
         cursor += 4;
+        if ad_count > 1024 {
+            break;
+        }
         let mut ad_corrupt = false;
         for _ in 0..ad_count {
             if cursor + 6 > data.len() {

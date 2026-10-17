@@ -43,6 +43,95 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
     s
 }
 
+fn sha256_digest(data: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut msg = data.to_vec();
+    msg.push(0x80);
+    while (msg.len() % 64) != 56 {
+        msg.push(0x00);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in msg.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let mut a = h[0];
+        let mut b = h[1];
+        let mut c = h[2];
+        let mut d = h[3];
+        let mut e = h[4];
+        let mut f = h[5];
+        let mut g = h[6];
+        let mut hh = h[7];
+
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+
+    let mut out = [0u8; 32];
+    for (i, word) in h.iter().enumerate() {
+        let bytes = word.to_be_bytes();
+        out[i * 4..i * 4 + 4].copy_from_slice(&bytes);
+    }
+    out
+}
+
 pub fn parse_filetime_to_iso(ft: u64) -> Option<String> {
     const FILETIME_TO_UNIX_OFFSET: u64 = 116_444_736_000_000_000;
     if ft < FILETIME_TO_UNIX_OFFSET {
@@ -278,6 +367,8 @@ pub struct ShadowCredentialReport {
     pub last_logon_time: Option<String>,
     pub key_material: Option<KeyMaterialInfo>,
     pub custom_key_information: Option<CustomKeyInfo>,
+    pub integrity_valid: bool,
+    pub integrity_issues: Vec<String>,
     pub entries_count: usize,
     pub entries: Vec<ShadowEntry>,
 }
@@ -302,6 +393,7 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
     let mut creation_time = None;
     let mut last_logon_time = None;
     let mut key_material = None;
+    let mut raw_key_material_bytes: Option<Vec<u8>> = None;
     let mut custom_key_info = None;
 
     while offset < raw_bytes.len() {
@@ -333,26 +425,27 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
                 key_hash = Some(bytes_to_hex(val_bytes));
             }
             ID_KEY_MATERIAL => {
+                raw_key_material_bytes = Some(val_bytes.to_vec());
                 if let Ok(km) = parse_cng_public_key(val_bytes) {
                     key_material = Some(km);
                 }
             }
             ID_KEY_USAGE if !val_bytes.is_empty() => {
                 let usage_str = match val_bytes[0] {
-                    KEY_USAGE_NGC => "NGC",
-                    KEY_USAGE_FIDO => "FIDO",
-                    KEY_USAGE_FEK => "FEK",
-                    _ => "UNKNOWN",
+                    KEY_USAGE_NGC => "NGC".to_string(),
+                    KEY_USAGE_FIDO => "FIDO".to_string(),
+                    KEY_USAGE_FEK => "FEK".to_string(),
+                    b => format!("UNKNOWN_0x{:02x}", b),
                 };
-                key_usage = Some(usage_str.to_string());
+                key_usage = Some(usage_str);
             }
             ID_KEY_SOURCE if !val_bytes.is_empty() => {
                 let source_str = match val_bytes[0] {
-                    KEY_SOURCE_AD => "AD",
-                    KEY_SOURCE_AZURE_AD => "AzureAD",
-                    _ => "UNKNOWN",
+                    KEY_SOURCE_AD => "AD".to_string(),
+                    KEY_SOURCE_AZURE_AD => "AzureAD".to_string(),
+                    b => format!("UNKNOWN_0x{:02x}", b),
                 };
-                key_source = Some(source_str.to_string());
+                key_source = Some(source_str);
             }
             ID_DEVICE_ID if val_bytes.len() == 16 => {
                 if let Ok(dev) = parse_guid_bytes(val_bytes) {
@@ -382,6 +475,16 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
         offset = val_end;
     }
 
+    let mut integrity_valid = true;
+    let mut integrity_issues = Vec::new();
+    if let (Some(ref kid), Some(ref km_bytes)) = (&key_id, &raw_key_material_bytes) {
+        let computed_key_id = bytes_to_hex(&sha256_digest(km_bytes));
+        if !kid.eq_ignore_ascii_case(&computed_key_id) {
+            integrity_valid = false;
+            integrity_issues.push("KeyID does not match SHA-256 of KeyMaterial".to_string());
+        }
+    }
+
     Ok(ShadowCredentialReport {
         status: "SUCCESS".to_string(),
         version,
@@ -397,6 +500,8 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
         last_logon_time,
         key_material,
         custom_key_information: custom_key_info,
+        integrity_valid,
+        integrity_issues,
         entries_count: entries.len(),
         entries,
     })
@@ -404,27 +509,35 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
 
 pub fn parse_key_credential_link(input: &str) -> Result<ShadowCredentialReport, String> {
     let clean = input.trim();
-    if clean.len() < 260 && Path::new(clean).exists() {
-        let data = fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
-        return parse_key_credential_bytes(&data, None);
+    if clean.len() < 260 {
+        let p = Path::new(clean);
+        if let Ok(meta) = fs::symlink_metadata(p) {
+            if meta.file_type().is_symlink() {
+                return Err(format!("Refusing to read symlink '{}'", clean));
+            }
+            if meta.is_file() {
+                if meta.len() > 1_048_576 {
+                    return Err(format!("KeyCredentialLink file exceeds 1 MB limit: '{}'", clean));
+                }
+                let data = fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
+                return parse_key_credential_bytes(&data, None);
+            }
+        }
     }
 
     if clean.starts_with("B:") || clean.starts_with("b:") {
         let parts: Vec<&str> = clean.splitn(4, ':').collect();
         if parts.len() >= 4 {
             let char_count: usize = parts[1].parse().map_err(|_| "Invalid character count in DN-Binary".to_string())?;
-            let hex_slice = if parts[2].len() > char_count {
-                &parts[2][..char_count]
-            } else {
-                parts[2]
-            };
+            let hex_slice = parts[2].get(..char_count).unwrap_or(parts[2]);
+            if hex_slice.len() % 2 != 0 || !hex_slice.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err("Invalid hex in DN-Binary".to_string());
+            }
             let mut raw_bytes = Vec::new();
             for i in (0..hex_slice.len()).step_by(2) {
-                if i + 2 <= hex_slice.len() {
-                    let b = u8::from_str_radix(&hex_slice[i..i + 2], 16)
-                        .map_err(|_| "Invalid hex in DN-Binary".to_string())?;
-                    raw_bytes.push(b);
-                }
+                let b = u8::from_str_radix(&hex_slice[i..i + 2], 16)
+                    .map_err(|_| "Invalid hex in DN-Binary".to_string())?;
+                raw_bytes.push(b);
             }
             let target_dn = Some(parts[3].to_string());
             return parse_key_credential_bytes(&raw_bytes, target_dn);
@@ -499,6 +612,13 @@ pub fn format_shadow_report_terminal(report: &ShadowCredentialReport) -> String 
         }
     }
 
+    if !report.integrity_valid {
+        out.push_str("    [!] Integrity Warning:\n");
+        for issue in &report.integrity_issues {
+            out.push_str(&format!("        - {}\n", issue));
+        }
+    }
+
     out
 }
 
@@ -513,7 +633,7 @@ pub fn shadow_report_to_json(report: &ShadowCredentialReport) -> String {
     if let Some(ref dn) = report.target_dn {
         out.push_str(&format!("  \"target_dn\": \"{}\",\n", escape_json(dn)));
     } else {
-        out.push_str("  \"target_dn\": null,\n");
+        out.push_str("  \"target_dn\": \"\",\n");
     }
     if let Some(ref kid) = report.key_id {
         out.push_str(&format!("  \"key_id\": \"{}\",\n", escape_json(kid)));
@@ -563,6 +683,9 @@ pub fn shadow_report_to_json(report: &ShadowCredentialReport) -> String {
         if let Some(e) = km.public_exponent {
             out.push_str(&format!(",\n    \"public_exponent\": {}", e));
         }
+        if let Some(ml) = km.modulus_length {
+            out.push_str(&format!(",\n    \"modulus_length\": {}", ml));
+        }
         if let Some(ref mh) = km.modulus_hex {
             out.push_str(&format!(",\n    \"modulus_hex\": \"{}\"", escape_json(mh)));
         }
@@ -572,12 +695,59 @@ pub fn shadow_report_to_json(report: &ShadowCredentialReport) -> String {
         if let Some(ref c) = km.curve {
             out.push_str(&format!(",\n    \"curve\": \"{}\"", escape_json(c)));
         }
+        if let Some(cl) = km.coordinate_length {
+            out.push_str(&format!(",\n    \"coordinate_length\": {}", cl));
+        }
+        if let Some(ref xh) = km.x_hex {
+            out.push_str(&format!(",\n    \"x_hex\": \"{}\"", escape_json(xh)));
+        }
+        if let Some(ref yh) = km.y_hex {
+            out.push_str(&format!(",\n    \"y_hex\": \"{}\"", escape_json(yh)));
+        }
+        if let Some(ref rh) = km.raw_hex {
+            out.push_str(&format!(",\n    \"raw_hex\": \"{}\"", escape_json(rh)));
+        }
         out.push_str("\n  },\n");
     } else {
         out.push_str("  \"key_material\": null,\n");
     }
 
-    out.push_str(&format!("  \"entries_count\": {}\n", report.entries_count));
+    if let Some(ref cki) = report.custom_key_information {
+        out.push_str("  \"custom_key_information\": {\n");
+        out.push_str(&format!("    \"version\": {},\n", cki.version));
+        out.push_str(&format!("    \"flags_raw\": {},\n", cki.flags_raw));
+        out.push_str(&format!("    \"attestation\": {},\n", cki.attestation));
+        out.push_str(&format!("    \"mfa_not_used\": {}", cki.mfa_not_used));
+        if let Some(ref ext) = cki.extended_hex {
+            out.push_str(&format!(",\n    \"extended_hex\": \"{}\"", escape_json(ext)));
+        }
+        out.push_str("\n  },\n");
+    } else {
+        out.push_str("  \"custom_key_information\": null,\n");
+    }
+
+    out.push_str(&format!("  \"integrity_valid\": {},\n", report.integrity_valid));
+    let issues_json: Vec<String> = report
+        .integrity_issues
+        .iter()
+        .map(|s| format!("\"{}\"", escape_json(s)))
+        .collect();
+    out.push_str(&format!("  \"integrity_issues\": [{}],\n", issues_json.join(", ")));
+
+    out.push_str(&format!("  \"entries_count\": {},\n", report.entries_count));
+    out.push_str("  \"entries\": [\n");
+    for (idx, ent) in report.entries.iter().enumerate() {
+        let comma = if idx + 1 < report.entries.len() { "," } else { "" };
+        out.push_str(&format!(
+            "    {{\"identifier\": {}, \"identifier_name\": \"{}\", \"length\": {}, \"raw_hex\": \"{}\"}}{}\n",
+            ent.identifier,
+            escape_json(&ent.identifier_name),
+            ent.length,
+            escape_json(&ent.raw_hex),
+            comma
+        ));
+    }
+    out.push_str("  ]\n");
     out.push('}');
     out
 }

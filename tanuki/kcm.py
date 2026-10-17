@@ -55,6 +55,120 @@ def try_parse_default_principal(slice_bytes: bytes) -> Optional[str]:
     return f"{'/'.join(components)}@{realm}"
 
 
+def _skip_principal(slice_bytes: bytes, cursor: int) -> Optional[int]:
+    if cursor + 12 > len(slice_bytes):
+        return None
+    try:
+        (_name_type, num_components, realm_len) = struct.unpack(
+            ">III", slice_bytes[cursor : cursor + 12]
+        )
+    except struct.error:
+        return None
+    if num_components == 0 or num_components > 16 or realm_len == 0 or realm_len > 256:
+        return None
+    cursor += 12
+    if cursor + realm_len > len(slice_bytes):
+        return None
+    try:
+        slice_bytes[cursor : cursor + realm_len].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    cursor += realm_len
+    for _ in range(num_components):
+        if cursor + 4 > len(slice_bytes):
+            return None
+        (comp_len,) = struct.unpack(">I", slice_bytes[cursor : cursor + 4])
+        cursor += 4
+        if comp_len == 0 or comp_len > 256 or cursor + comp_len > len(slice_bytes):
+            return None
+        try:
+            slice_bytes[cursor : cursor + comp_len].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        cursor += comp_len
+    return cursor
+
+
+def _measure_ccache_body_len(body_slice: bytes) -> Optional[int]:
+    """Measure exact byte length of CCACHE v4 default principal + valid credentials."""
+    cursor = _skip_principal(body_slice, 0)
+    if cursor is None:
+        return None
+    last_valid_end = cursor
+
+    while cursor < len(body_slice):
+        next_cur = _skip_principal(body_slice, cursor)
+        if next_cur is None:
+            break
+        next_cur = _skip_principal(body_slice, next_cur)
+        if next_cur is None:
+            break
+        if next_cur + 4 > len(body_slice):
+            break
+        (_keytype, keylen) = struct.unpack(">HH", body_slice[next_cur : next_cur + 4])
+        next_cur += 4
+        if keylen > 4096 or next_cur + keylen + 21 > len(body_slice):
+            break
+        next_cur += keylen + 21  # times(16) + is_skey(1) + tktflags(4)
+
+        if next_cur + 4 > len(body_slice):
+            break
+        (num_addrs,) = struct.unpack(">I", body_slice[next_cur : next_cur + 4])
+        next_cur += 4
+        if num_addrs > 64:
+            break
+        addrs_ok = True
+        for _ in range(num_addrs):
+            if next_cur + 6 > len(body_slice):
+                addrs_ok = False
+                break
+            (_atype, alen) = struct.unpack(">HI", body_slice[next_cur : next_cur + 6])
+            next_cur += 6
+            if alen > 1024 or next_cur + alen > len(body_slice):
+                addrs_ok = False
+                break
+            next_cur += alen
+        if not addrs_ok:
+            break
+
+        if next_cur + 4 > len(body_slice):
+            break
+        (num_authdata,) = struct.unpack(">I", body_slice[next_cur : next_cur + 4])
+        next_cur += 4
+        if num_authdata > 64:
+            break
+        ad_ok = True
+        for _ in range(num_authdata):
+            if next_cur + 6 > len(body_slice):
+                ad_ok = False
+                break
+            (_adtype, adlen) = struct.unpack(">HI", body_slice[next_cur : next_cur + 6])
+            next_cur += 6
+            if adlen > 65536 or next_cur + adlen > len(body_slice):
+                ad_ok = False
+                break
+            next_cur += adlen
+        if not ad_ok:
+            break
+
+        if next_cur + 4 > len(body_slice):
+            break
+        (tkt_len,) = struct.unpack(">I", body_slice[next_cur : next_cur + 4])
+        next_cur += 4
+        if tkt_len > 65536 or next_cur + tkt_len + 4 > len(body_slice):
+            break
+        next_cur += tkt_len
+        (sec_tkt_len,) = struct.unpack(">I", body_slice[next_cur : next_cur + 4])
+        next_cur += 4
+        if sec_tkt_len > 65536 or next_cur + sec_tkt_len > len(body_slice):
+            break
+        next_cur += sec_tkt_len
+        cursor = next_cur
+        last_valid_end = cursor
+
+    return last_valid_end
+
+
 def scan_for_ccache_blobs(data: bytes) -> List[Dict[str, Any]]:
     """Scan raw binary data for valid CCACHE v4 streams."""
     results: List[Dict[str, Any]] = []
@@ -66,12 +180,17 @@ def scan_for_ccache_blobs(data: bytes) -> List[Dict[str, Any]]:
         if pos + 4 <= len(data):
             try:
                 (header_len,) = struct.unpack(">H", data[pos + 2 : pos + 4])
-                if pos + 4 + header_len <= len(data):
-                    end = min(pos + MAX_CANDIDATE_SIZE, len(data))
+                if header_len <= 1024 and pos + 4 + header_len <= len(data):
+                    max_end = min(pos + MAX_CANDIDATE_SIZE, len(data))
+                    body_start = pos + 4 + header_len
+                    body_slice = data[body_start:max_end]
+                    principal = try_parse_default_principal(body_slice)
+                    measured_len = _measure_ccache_body_len(body_slice)
+                    if measured_len is not None:
+                        end = body_start + measured_len
+                    else:
+                        end = max_end
                     blob = data[pos:end]
-                    principal = try_parse_default_principal(
-                        data[pos + 4 + header_len : end]
-                    )
                     results.append(
                         {
                             "offset": pos,
@@ -238,9 +357,27 @@ def inject_ticket_to_kcm(
         resp_len_hdr = sock.recv(4)
         if len(resp_len_hdr) == 4:
             (resp_len,) = struct.unpack(">I", resp_len_hdr)
-            resp_data = sock.recv(resp_len)
+            if resp_len > 10 * 1024 * 1024:
+                sock.close()
+                return {
+                    "status": "KCM_ERROR",
+                    "socket_path": socket_path,
+                    "message": f"KCM response length {resp_len} exceeds safety limit",
+                }
+            resp_data = bytearray()
+            while len(resp_data) < resp_len:
+                chunk = sock.recv(min(65536, resp_len - len(resp_data)))
+                if not chunk:
+                    break
+                resp_data.extend(chunk)
             sock.close()
-            status_code = struct.unpack(">I", resp_data[:4])[0] if len(resp_data) >= 4 else 0
+            if len(resp_data) < 4:
+                return {
+                    "status": "KCM_ERROR",
+                    "socket_path": socket_path,
+                    "message": "Truncated KCM daemon response (fewer than 4 status bytes)",
+                }
+            status_code = struct.unpack(">I", bytes(resp_data[:4]))[0]
             if status_code == 0:
                 return {
                     "status": "SUCCESS",

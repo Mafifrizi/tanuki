@@ -293,7 +293,21 @@ pub fn parse_krb_error_stime(data: &[u8]) -> Option<u64> {
         return None;
     }
 
-    // 1. Tag 0x18 GeneralizedTime
+    // 1. RFC 4120 KRB-ERROR [4] stime context tag 0xA4 wrapping GeneralizedTime 0x18
+    for i in 0..(data.len().saturating_sub(18)) {
+        if data[i] == 0xA4 && data[i + 2] == 0x18 {
+            let glen = data[i + 3] as usize;
+            if glen >= 15 && i + 4 + glen <= data.len() {
+                if let Ok(time_str) = std::str::from_utf8(&data[i + 4..i + 4 + 14]) {
+                    if let Some(epoch) = parse_ymd_hms(time_str) {
+                        return Some(epoch);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Tag 0x18 GeneralizedTime
     for i in 0..(data.len().saturating_sub(16)) {
         if data[i] == 0x18 {
             let glen = data[i + 1] as usize;
