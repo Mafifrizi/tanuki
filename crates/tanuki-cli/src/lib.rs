@@ -18,8 +18,8 @@ pub mod util;
 pub use adcs::{scan_adcs_source, AdcsFinding, AdcsReport};
 pub use blast::{
     blast_report_to_json, classify_identity_tier, evaluate_blast_radius,
-    format_blast_report_terminal, generate_ad_remediations, BlastReport, LateralPath,
-    RemediationRecipe, TierInfo,
+    extract_ad_account_name, format_blast_report_terminal, generate_ad_remediations,
+    BlastReport, LateralPath, RemediationRecipe, TierInfo,
 };
 pub use config::{discover_dc_via_srv, generate_krb5_conf};
 pub use doctor::{enctype::audit_enctype_kvno, run_doctor, CheckResult, DoctorOptions, DoctorReport};

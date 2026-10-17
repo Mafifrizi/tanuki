@@ -831,10 +831,10 @@ fn main() {
         "blast" => {
             let target_source = positional_args.first().or(file_opt.as_ref()).cloned();
             handle_blast(
-                target_source,
+                target_source.clone(),
                 ccache_opt,
                 keytab_opt.or(file_opt),
-                None,
+                target_source,
                 host_opt,
                 base_dn_opt,
                 username_opt,
@@ -2261,6 +2261,24 @@ fn handle_tgs(
     }
 
     let mut target_kdc_host = kdc_opt;
+    if target_kdc_host.is_none() {
+        let conf_env = env::var("KRB5_CONFIG").ok();
+        let to_check = krb5_conf_opt.as_deref().or(conf_env.as_deref()).unwrap_or("/etc/krb5.conf");
+        if let Ok(content) = fs::read_to_string(to_check) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("kdc") && trimmed.contains('=') {
+                    if let Some(val) = trimmed.split('=').nth(1) {
+                        let candidate = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("").split(':').next().unwrap_or("");
+                        if !candidate.is_empty() {
+                            target_kdc_host = Some(candidate.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
     if target_kdc_host.is_none() && spn.contains('@') {
         let realm = spn.split('@').last().unwrap_or("").trim();
         if let Some(discovered) = tanuki::config::discover_dc_via_srv(realm) {
@@ -2390,13 +2408,13 @@ fn handle_tgs(
 
 fn handle_blast(
     source_opt: Option<String>,
-    _ccache_opt: Option<String>,
+    ccache_opt: Option<String>,
     keytab_opt: Option<String>,
     pac_source_opt: Option<String>,
-    _host_opt: Option<String>,
-    _base_dn_opt: Option<String>,
-    _username_opt: Option<String>,
-    _password_opt: Option<String>,
+    host_opt: Option<String>,
+    base_dn_opt: Option<String>,
+    username_opt: Option<String>,
+    password_opt: Option<String>,
     spn_opt: Option<String>,
     json_output: bool,
 ) {
@@ -2409,6 +2427,17 @@ fn handle_blast(
 
     if let Some(ref s) = spn_opt {
         accessible_spns.push(s.clone());
+    }
+
+    // 0. Check explicit principal in source_opt
+    if let Some(ref src) = source_opt {
+        let s = src.trim();
+        if (s.contains('@') || s.contains('/')) && !s.ends_with(".keytab") && !s.ends_with(".bin") && !s.ends_with(".pac") {
+            principal = s.to_string();
+            if principal.contains('/') && !accessible_spns.contains(&principal) {
+                accessible_spns.push(principal.clone());
+            }
+        }
     }
 
     // 1. Check PAC
@@ -2468,7 +2497,22 @@ fn handle_blast(
         }
     }
 
-    // 3. Fallback accessible SPNs
+    // 3. Check Credential Cache
+    let target_cc = ccache_opt.or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()));
+    if let Some(ref cc_path) = target_cc {
+        if let Ok(bytes) = fs::read(cc_path) {
+            let candidates = scan_for_ccache_blobs(&bytes);
+            if let Some(c) = candidates.first() {
+                if let Some(ref p) = c.default_principal {
+                    if !p.is_empty() && principal == "unknown@CORP.LOCAL" {
+                        principal = p.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Default accessible SPNs if none discovered
     if accessible_spns.is_empty() {
         if principal.contains('/') {
             accessible_spns.push(principal.clone());
@@ -2478,7 +2522,40 @@ fn handle_blast(
         }
     }
 
-    let has_spn = accessible_spns.iter().any(|s| s.contains('/')) || principal.contains('/');
+    // 5. Query LDAP if host provided
+    let mut rbcd_target_count = 0;
+    if let Some(ref host) = host_opt {
+        let base_dn = base_dn_opt.unwrap_or_else(|| "DC=lab,DC=local".to_string());
+        let ldap_rep = query_active_directory_ldap(
+            host,
+            "all",
+            &base_dn,
+            389,
+            false,
+            3,
+            username_opt.as_deref(),
+            password_opt.as_deref(),
+        );
+        if ldap_rep.status == "SUCCESS" {
+            for entry in ldap_rep.entries {
+                if entry.query_category == "spn" {
+                    for (k, vals) in &entry.attributes {
+                        if k.eq_ignore_ascii_case("servicePrincipalName") {
+                            for spn in vals {
+                                if !accessible_spns.contains(spn) {
+                                    accessible_spns.push(spn.clone());
+                                }
+                            }
+                        }
+                    }
+                } else if entry.query_category == "rbcd" {
+                    rbcd_target_count += 1;
+                }
+            }
+        }
+    }
+
+    let has_spn = principal.contains('/');
     let is_dc = principal.ends_with("$@LAB.LOCAL") || principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
 
     let tier_info = classify_identity_tier(
@@ -2495,14 +2572,14 @@ fn handle_blast(
         &tier_info,
         &uac_flags,
         &accessible_spns,
-        0,
+        rbcd_target_count,
     );
 
     let remediation_recipes = generate_ad_remediations(
         &principal,
         &tier_info,
         &uac_flags,
-        0,
+        rbcd_target_count,
         &accessible_spns,
     );
 

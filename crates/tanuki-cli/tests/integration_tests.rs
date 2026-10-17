@@ -2,8 +2,8 @@ use tanuki::{
     audit_enctype_kvno, blast_report_to_json, build_ldap_bind_request,
     build_ldap_extensible_filter, build_ldap_search_filter, candidates_to_json,
     classify_identity_tier, entries_to_json, escape_json, evaluate_blast_radius,
-    find_error_resolution, format_blast_report_terminal, generate_ad_remediations,
-    generate_krb5_conf, ladder_to_json, parse_keytab_bytes,
+    extract_ad_account_name, find_error_resolution, format_blast_report_terminal,
+    generate_ad_remediations, generate_krb5_conf, ladder_to_json, parse_keytab_bytes,
     parse_rbcd_security_descriptor, parse_windows_sid, save_candidates,
     scan_for_ccache_blobs, BlastReport, KeytabError, LdapReport, LdapSearchEntry,
     DECISION_LADDER, ERROR_DICTIONARY,
@@ -498,6 +498,21 @@ fn test_blast_remediations_and_json_parity_rust() {
     assert!(!recipes.is_empty());
     assert!(recipes.iter().any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("AES128,AES256")));
     assert!(recipes.iter().any(|r| r.category == "DELEGATION_HARDENING" && r.powershell.contains("msDS-AllowedToActOnBehalfOfOtherIdentity")));
+
+    // Verify account extraction on SPN vs user
+    assert_eq!(extract_ad_account_name("HTTP/tanuki-app.lab.local@LAB.LOCAL"), "tanuki-app");
+    assert_eq!(extract_ad_account_name("cifs/DC01.lab.local@LAB.LOCAL"), "DC01");
+    assert_eq!(extract_ad_account_name("tanuki-nhi@LAB.LOCAL"), "tanuki-nhi");
+
+    let spn_recipes = generate_ad_remediations(
+        "HTTP/tanuki-app.lab.local@LAB.LOCAL",
+        &t1,
+        &[],
+        1,
+        &["HTTP/tanuki-app.lab.local".to_string()],
+    );
+    assert!(spn_recipes.iter().any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("tanuki-app") && !r.powershell.contains("\"HTTP\"")));
+    assert!(spn_recipes.iter().any(|r| r.category == "CREDENTIAL_MAINTENANCE" && r.powershell.contains("-mapuser tanuki-app")));
 
     let report = BlastReport {
         principal: "tanuki-nhi@LAB.LOCAL".to_string(),

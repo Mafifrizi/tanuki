@@ -115,6 +115,59 @@ class TestTgsEngine(unittest.TestCase):
             self.assertEqual(res["reason_code"], "KDC_UNREACHABLE")
             self.assertIn("192.168.56.254", res["message"])
 
+    def test_acquire_tgs_discovers_kdc_from_krb5_conf(self):
+        cc_path = os.path.join(self.temp_dir.name, "krb5cc_conf_test")
+        with open(cc_path, "wb") as f:
+            f.write(b"\x05\x04")
+
+        conf_path = os.path.join(self.temp_dir.name, "krb5.conf")
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.write("[realms]\n  LAB.LOCAL = {\n    kdc = 192.168.56.199:88\n  }\n")
+
+        with patch("tanuki.ldap.probe_tcp_port", return_value=(False, "Connection refused")) as mock_probe:
+            res = acquire_tgs(
+                spn="HTTP/srv01.lab.local@LAB.LOCAL",
+                ccache_path=cc_path,
+                krb5_conf=conf_path,
+            )
+            self.assertEqual(res["status"], "ERROR")
+            self.assertEqual(res["reason_code"], "KDC_UNREACHABLE")
+            mock_probe.assert_called_once_with("192.168.56.199", 88, timeout=0.8)
+
+    def test_acquire_tgs_via_ctypes_missing_library(self):
+        res = acquire_tgs_via_ctypes(
+            spn="HTTP/srv01.lab.local@LAB.LOCAL",
+            ccache_path="/tmp/fake_ccache",
+            lib_path="/nonexistent/libkrb5.so.3",
+        )
+        self.assertEqual(res["status"], "ERROR")
+        self.assertEqual(res["reason_code"], "MISSING_GSSAPI_LIBRARY")
+        self.assertEqual(res["exit_code"], 3)
+
+    def test_acquire_tgs_via_ctypes_mock_success(self):
+        fake_krb5 = MagicMock()
+        fake_krb5.krb5_init_context.return_value = 0
+        fake_krb5.krb5_cc_resolve.return_value = 0
+        fake_krb5.krb5_cc_get_principal.return_value = 0
+        fake_krb5.krb5_unparse_name.return_value = 0
+        fake_krb5.krb5_parse_name.return_value = 0
+        fake_krb5.krb5_get_credentials.return_value = 0
+
+        cc_path = os.path.join(self.temp_dir.name, "krb5cc_ctypes_test")
+        with open(cc_path, "wb") as f:
+            f.write(b"\x05\x04")
+
+        with patch("ctypes.CDLL", return_value=fake_krb5):
+            res = acquire_tgs_via_ctypes(
+                spn="HTTP/tanuki-app.lab.local@LAB.LOCAL",
+                ccache_path=cc_path,
+                lib_path="mock_krb5.so",
+            )
+            self.assertEqual(res["status"], "SUCCESS")
+            self.assertEqual(res["method"], "ctypes")
+            self.assertEqual(res["proof_of_access"], "VERIFIED_MUTUAL_AUTH")
+            self.assertEqual(res["telemetry"]["event_id"], 4769)
+
 
 class TestTgsCLI(unittest.TestCase):
     """CLI tests for tanuki tgs and tanuki auth --spn."""

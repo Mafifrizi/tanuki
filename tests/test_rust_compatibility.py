@@ -208,6 +208,7 @@ class TestRustCompatibility(unittest.TestCase):
         self.assertIn("pub fn classify_identity_tier", blast_content)
         self.assertIn("pub fn evaluate_blast_radius", blast_content)
         self.assertIn("pub fn generate_ad_remediations", blast_content)
+        self.assertIn("pub fn extract_ad_account_name", blast_content)
         self.assertIn("pub struct BlastReport", blast_content)
         self.assertIn("pub struct TierInfo", blast_content)
 
@@ -218,6 +219,7 @@ class TestRustCompatibility(unittest.TestCase):
         self.assertIn("BlastReport", lib_content)
         self.assertIn("classify_identity_tier", lib_content)
         self.assertIn("evaluate_blast_radius", lib_content)
+        self.assertIn("extract_ad_account_name", lib_content)
 
         main_rs = os.path.join(self.crates_dir, "src", "main.rs")
         with open(main_rs, "r", encoding="utf-8") as f:
