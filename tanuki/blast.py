@@ -157,6 +157,22 @@ def classify_identity_tier(
     }
 
 
+def extract_ad_account_name(principal: str) -> str:
+    """Extract the Active Directory sAMAccountName or host prefix from a Kerberos principal.
+
+    For standard user principals ('user@REALM'), returns 'user'.
+    For SPNs ('HTTP/tanuki-app.lab.local@REALM'), returns 'tanuki-app' by stripping
+    the service class prefix and domain suffixes.
+    """
+    clean = principal.split("@")[0]
+    if "/" in clean:
+        _, target = clean.split("/", 1)
+        target = target.split(":")[0]
+        account = target.split(".")[0]
+        return account if account else clean
+    return clean
+
+
 def evaluate_blast_radius(
     principal: str,
     tier_info: Dict[str, Any],
@@ -193,17 +209,39 @@ def evaluate_blast_radius(
             "prerequisite": "Service ticket acquisition with protocol transition",
         })
 
-    # 2. RBCD targets
+    # 2. RBCD targets with cycle detection and deduplication
+    clean_account = extract_ad_account_name(principal)
+    seen_rbcd = set()
     if rbcd:
-        score += min(len(rbcd) * 15, 30)
         for target in rbcd:
-            target_name = target.get("target_name") or target.get("sAMAccountName") or "Unknown"
-            lateral_paths.append({
-                "vector": "Resource-Based Constrained Delegation (RBCD) Pivot",
-                "risk": f"Identity SID matches DACL on {target_name} (msDS-AllowedToActOnBehalfOfOtherIdentity)",
-                "impact": f"Takeover of host {target_name} via S4U2Proxy impersonation",
-                "target": target_name,
-            })
+            raw_target = target.get("target_name") or target.get("sAMAccountName")
+            if isinstance(raw_target, list) and raw_target:
+                raw_target = raw_target[0]
+            target_name = str(raw_target or "Unknown")
+            clean_target = target_name.rstrip("$")
+            clean_target_lower = clean_target.lower()
+
+            if clean_target_lower in seen_rbcd:
+                continue
+            seen_rbcd.add(clean_target_lower)
+
+            is_self_loop = (clean_target_lower == clean_account.rstrip("$").lower())
+            if is_self_loop:
+                lateral_paths.append({
+                    "vector": "Cyclic / Self-Referential RBCD Delegation Loop",
+                    "risk": f"Identity {target_name} is configured to delegate to itself in msDS-AllowedToActOnBehalfOfOtherIdentity",
+                    "impact": "Self-Delegation Loop / Persistence",
+                    "target": target_name,
+                })
+            else:
+                lateral_paths.append({
+                    "vector": "Resource-Based Constrained Delegation (RBCD) Pivot",
+                    "risk": f"Identity SID matches DACL on {target_name} (msDS-AllowedToActOnBehalfOfOtherIdentity)",
+                    "impact": f"Takeover of host {target_name} via S4U2Proxy impersonation",
+                    "target": target_name,
+                })
+
+        score += min(len(seen_rbcd) * 15, 30)
 
     # 3. Accessible SPNs
     if spns:
@@ -247,13 +285,23 @@ def generate_ad_remediations(
     """Generate deterministic PowerShell hardening cmdlets for discovered identity reach."""
     recipes: List[Dict[str, Any]] = []
     flags = [f.upper() for f in (delegation_flags or [])]
-    clean_account = principal.split("@")[0].split("/")[0]
+    clean_account = extract_ad_account_name(principal)
 
     # Remediation 1: Revoke RBCD ACEs
+    seen_rbcd = set()
     if rbcd_targets:
         for t in rbcd_targets:
-            target_name = t.get("target_name") or t.get("sAMAccountName") or clean_account
+            raw_target = t.get("target_name") or t.get("sAMAccountName")
+            if isinstance(raw_target, list) and raw_target:
+                raw_target = raw_target[0]
+            target_name = str(raw_target or clean_account)
             clean_target = target_name.rstrip("$")
+            clean_target_lower = clean_target.lower()
+
+            if clean_target_lower in seen_rbcd:
+                continue
+            seen_rbcd.add(clean_target_lower)
+
             recipes.append({
                 "category": "DELEGATION_HARDENING",
                 "title": f"Revoke Unauthorized RBCD Access on {clean_target}",
@@ -365,6 +413,19 @@ def run_blast(
     accessible_spns = list(spns or [])
     rbcd_targets: List[Dict[str, Any]] = []
 
+    # 0. Route source parameter if provided
+    if source:
+        s_clean = source.strip()
+        if os.path.isfile(s_clean):
+            if s_clean.endswith(".keytab") and not keytab_path:
+                keytab_path = s_clean
+            elif not pac_source:
+                pac_source = s_clean
+        elif "@" in s_clean or "/" in s_clean:
+            principal = s_clean
+            if "/" in principal and principal not in accessible_spns:
+                accessible_spns.append(principal)
+
     # 1. Parse PAC if provided
     if pac_source:
         try:
@@ -419,7 +480,7 @@ def run_blast(
         else:
             accessible_spns.append(f"HTTP/tanuki-app.lab.local@{principal.split('@')[-1] if '@' in principal else 'LAB.LOCAL'}")
 
-    has_spn = any("/" in s for s in accessible_spns) or ("/" in principal)
+    has_spn = ("/" in principal)
 
     # 4. If LDAP host is configured, perform live Active Directory query
     if host:
@@ -433,11 +494,16 @@ def run_blast(
                 password=password,
             )
             if ldap_res.get("status") == "SUCCESS":
+                clean_acc = extract_ad_account_name(principal).lower()
                 for entry in ldap_res.get("entries", []):
                     cat = entry.get("query_category")
                     attrs = entry.get("attributes", {})
+                    sam_names = [str(x).lower().rstrip("$") for x in attrs.get("sAMAccountName", [])]
                     if cat == "spn":
-                        for spn_val in attrs.get("servicePrincipalName", []):
+                        spn_list = attrs.get("servicePrincipalName", [])
+                        if clean_acc in sam_names and spn_list:
+                            has_spn = True
+                        for spn_val in spn_list:
                             if isinstance(spn_val, str) and spn_val not in accessible_spns:
                                 accessible_spns.append(spn_val)
                     elif cat == "rbcd":

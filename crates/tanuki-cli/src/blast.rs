@@ -245,6 +245,21 @@ pub fn evaluate_blast_radius(
     (score, severity.to_string(), lateral_paths)
 }
 
+pub fn extract_ad_account_name(principal: &str) -> String {
+    let clean = principal.split('@').next().unwrap_or(principal);
+    if clean.contains('/') {
+        let mut parts = clean.splitn(2, '/');
+        let _service = parts.next();
+        let target = parts.next().unwrap_or(clean);
+        let host_or_account = target.split(':').next().unwrap_or(target);
+        let netbios = host_or_account.split('.').next().unwrap_or(host_or_account);
+        if !netbios.is_empty() {
+            return netbios.to_string();
+        }
+    }
+    clean.to_string()
+}
+
 pub fn generate_ad_remediations(
     principal: &str,
     tier_info: &TierInfo,
@@ -254,14 +269,14 @@ pub fn generate_ad_remediations(
 ) -> Vec<RemediationRecipe> {
     let mut recipes = Vec::new();
     let upper_flags: Vec<String> = delegation_flags.iter().map(|f| f.to_ascii_uppercase()).collect();
-    let clean_account = principal.split('@').next().unwrap_or(principal).split('/').next().unwrap_or(principal);
+    let clean_account = extract_ad_account_name(principal);
 
     if rbcd_target_count > 0 {
         recipes.push(RemediationRecipe {
             category: "DELEGATION_HARDENING".to_string(),
-            title: format!("Revoke Unauthorized RBCD Access on {}", clean_account),
+            title: format!("Revoke Unauthorized RBCD Access on target computers ({})", clean_account),
             description: "Clear msDS-AllowedToActOnBehalfOfOtherIdentity attribute to block S4U2Proxy lateral pivot.".to_string(),
-            powershell: format!("Set-ADComputer -Identity \"{}\" -Clear \"msDS-AllowedToActOnBehalfOfOtherIdentity\"", clean_account),
+            powershell: "Set-ADComputer -Identity \"<TARGET_COMPUTER>\" -Clear \"msDS-AllowedToActOnBehalfOfOtherIdentity\"".to_string(),
         });
     }
 

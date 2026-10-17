@@ -11,6 +11,7 @@ import tanuki
 from tanuki.blast import (
     classify_identity_tier,
     evaluate_blast_radius,
+    extract_ad_account_name,
     format_blast_report_terminal,
     generate_ad_remediations,
     get_event_4769_telemetry,
@@ -150,6 +151,68 @@ class TestBlastRadiusEvaluation(unittest.TestCase):
         rbcd_recipe = next((r for r in recipes if r["category"] == "DELEGATION_HARDENING"), None)
         self.assertIsNotNone(rbcd_recipe)
         self.assertIn("msDS-AllowedToActOnBehalfOfOtherIdentity", rbcd_recipe["powershell"])
+        self.assertIn('Identity "FS01"', rbcd_recipe["powershell"])
+
+    def test_extract_ad_account_name_accuracy(self):
+        self.assertEqual(extract_ad_account_name("HTTP/tanuki-app.lab.local@LAB.LOCAL"), "tanuki-app")
+        self.assertEqual(extract_ad_account_name("cifs/DC01.lab.local@LAB.LOCAL"), "DC01")
+        self.assertEqual(extract_ad_account_name("MSSQLSvc/sql01.corp.local:1433@CORP.LOCAL"), "sql01")
+        self.assertEqual(extract_ad_account_name("tanuki-nhi@LAB.LOCAL"), "tanuki-nhi")
+        self.assertEqual(extract_ad_account_name("DC01$@LAB.LOCAL"), "DC01$")
+
+    def test_run_blast_standard_user_classified_as_tier_2(self):
+        rep = run_blast(source="jdoe@LAB.LOCAL")
+        self.assertEqual(rep["tier"], 2)
+        self.assertEqual(rep["tier_label"], "Tier 2 (Workstation & User Endpoints)")
+        self.assertEqual(rep["severity"], "LOW")
+        self.assertEqual(rep["blast_score"], 25)
+        self.assertIn("Standard domain user", rep["tier_details"]["matched_rules"][0])
+
+    def test_run_blast_service_principal_clean_cmdlet_targeting(self):
+        rep = run_blast(source="HTTP/tanuki-app.lab.local@LAB.LOCAL")
+        self.assertEqual(rep["tier"], 1)
+        self.assertEqual(rep["tier_label"], "Tier 1 (Server & Operator Infrastructure)")
+        self.assertIn("Registered Service Principal Name", rep["tier_details"]["matched_rules"][0])
+        # Verify PowerShell cmdlets target tanuki-app and NOT HTTP
+        powershell_cmds = [r["powershell"] for r in rep["remediation_recipes"]]
+        self.assertTrue(any('Set-ADUser -Identity "tanuki-app"' in cmd for cmd in powershell_cmds))
+        self.assertTrue(any('-mapuser tanuki-app' in cmd for cmd in powershell_cmds))
+        self.assertFalse(any('Identity "HTTP"' in cmd for cmd in powershell_cmds))
+        self.assertFalse(any('-mapuser HTTP' in cmd for cmd in powershell_cmds))
+
+    def test_cyclic_and_duplicate_rbcd_handling(self):
+        tier_info = classify_identity_tier("tanuki-app$@LAB.LOCAL", has_spn=True)
+        blast = evaluate_blast_radius(
+            principal="tanuki-app$@LAB.LOCAL",
+            tier_info=tier_info,
+            rbcd_targets=[
+                {"target_name": "tanuki-app$"},
+                {"target_name": "FS01$"},
+                {"target_name": "FS01$"},
+            ],
+        )
+        self.assertEqual(blast["score"], 95)
+        vectors = [p["vector"] for p in blast["lateral_paths"]]
+        self.assertIn("Cyclic / Self-Referential RBCD Delegation Loop", vectors)
+        # Verify FS01 is only in lateral paths once (deduplicated)
+        fs01_paths = [p for p in blast["lateral_paths"] if p.get("target") == "FS01$"]
+        self.assertEqual(len(fs01_paths), 1)
+
+        recipes = generate_ad_remediations(
+            principal="tanuki-app$@LAB.LOCAL",
+            tier_info=tier_info,
+            rbcd_targets=[
+                {"target_name": "tanuki-app$"},
+                {"target_name": "FS01$"},
+                {"target_name": "FS01$"},
+            ],
+        )
+        rbcd_rems = [r for r in recipes if r["category"] == "DELEGATION_HARDENING"]
+        # Only two unique RBCD remediations (tanuki-app and FS01)
+        self.assertEqual(len(rbcd_rems), 2)
+        cmdlets = [r["powershell"] for r in rbcd_rems]
+        self.assertTrue(any('Identity "tanuki-app"' in cmd for cmd in cmdlets))
+        self.assertTrue(any('Identity "FS01"' in cmd for cmd in cmdlets))
 
     def test_event_4769_telemetry_schema(self):
         telem = get_event_4769_telemetry(spn="HTTP/tanuki-app.lab.local", client="tanuki-nhi@LAB.LOCAL")

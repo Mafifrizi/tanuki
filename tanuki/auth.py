@@ -715,13 +715,14 @@ class _Krb5CredsStructure(ctypes.Structure):
         ("magic", ctypes.c_int32),
         ("client", ctypes.c_void_p),
         ("server", ctypes.c_void_p),
+        ("keyblock_magic", ctypes.c_int32),
         ("keyblock_enctype", ctypes.c_int32),
         ("keyblock_length", ctypes.c_uint32),
         ("keyblock_contents", ctypes.c_void_p),
-        ("times_authtime", ctypes.c_int64),
-        ("times_starttime", ctypes.c_int64),
-        ("times_endtime", ctypes.c_int64),
-        ("times_renew_till", ctypes.c_int64),
+        ("times_authtime", ctypes.c_int32),
+        ("times_starttime", ctypes.c_int32),
+        ("times_endtime", ctypes.c_int32),
+        ("times_renew_till", ctypes.c_int32),
         ("is_skey", ctypes.c_uint32),
         ("ticket_flags", ctypes.c_uint32),
         ("addresses", ctypes.c_void_p),
@@ -1020,8 +1021,20 @@ def acquire_tgs(
             "target": abs_cc,
         }
 
-    # Fast KDC probe if KDC is provided or discovered
+    # Fast KDC probe if KDC is provided, configured, or discovered
     target_kdc_host = kdc.split(",")[0].strip().split(":")[0].strip() if kdc else None
+    if not target_kdc_host:
+        conf_to_check = krb5_conf or os.environ.get("KRB5_CONFIG") or "/etc/krb5.conf"
+        if os.path.isfile(conf_to_check):
+            try:
+                with open(conf_to_check, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line_s = line.strip()
+                        if line_s.startswith("kdc") and "=" in line_s:
+                            target_kdc_host = line_s.split("=")[1].strip().split()[0].split(",")[0].split(":")[0]
+                            break
+            except OSError:
+                pass
     if not target_kdc_host and "@" in clean_spn:
         realm = clean_spn.split("@")[-1].strip()
         try:
