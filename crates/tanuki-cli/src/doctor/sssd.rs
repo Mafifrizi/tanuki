@@ -70,7 +70,7 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -
     }
 
     let target_secrets = secrets_path.unwrap_or("/var/lib/sss/secrets/secrets.ldb");
-    let (secrets_status, secrets_error) = match fs::read(target_secrets) {
+    let (secrets_status, secrets_error) = match fs::File::open(target_secrets) {
         Ok(_) => ("READABLE".to_string(), None),
         Err(e) => {
             if e.kind() == std::io::ErrorKind::PermissionDenied {

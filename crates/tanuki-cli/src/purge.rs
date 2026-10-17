@@ -121,7 +121,7 @@ pub fn shred_file(path: &str) -> ShredResult {
         };
     }
 
-    let meta = match fs::metadata(p) {
+    let meta = match fs::symlink_metadata(p) {
         Ok(m) => m,
         Err(_) => {
             return ShredResult {
@@ -131,6 +131,19 @@ pub fn shred_file(path: &str) -> ShredResult {
             };
         }
     };
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let current_uid = crate::util::resolve_current_uid();
+        if current_uid != 0 && meta.uid() != current_uid {
+            return ShredResult {
+                path: path.to_string(),
+                status: "ERROR".to_string(),
+                bytes_shredded: 0,
+            };
+        }
+    }
 
     let len = meta.len();
     if len > 0 {
@@ -143,52 +156,96 @@ pub fn shred_file(path: &str) -> ShredResult {
                 opts.custom_flags(O_NOFOLLOW);
             }
         }
-        if let Ok(mut file) = opts.open(p) {
-            let chunk_size = 4096;
+        let mut file = match opts.open(p) {
+            Ok(f) => f,
+            Err(_) => {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
+        };
 
-            // Pass 1: Overwrite with pseudorandom stream
-            let mut seed_bytes = [0u8; 8];
-            crate::util::fill_dynamic_entropy(&mut seed_bytes);
-            let mut seed = u64::from_le_bytes(seed_bytes);
-            if seed == 0 {
-                seed = 0x8543_2911_DEAD_BEEF;
-            }
-            let mut remaining = len;
-            while remaining > 0 {
-                let this_chunk = remaining.min(chunk_size as u64) as usize;
-                let mut buf = vec![0u8; this_chunk];
-                for b in buf.iter_mut() {
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    *b = (seed >> 32) as u8;
-                }
-                let _ = file.write_all(&buf);
-                buf.fill(0);
-                remaining -= this_chunk as u64;
-            }
-            let _ = file.sync_all();
+        let chunk_size = 4096;
 
-            // Pass 2: Overwrite with 0xFF (all ones)
-            let _ = file.seek(std::io::SeekFrom::Start(0));
-            remaining = len;
-            let ff_chunk = vec![0xffu8; chunk_size];
-            while remaining > 0 {
-                let this_chunk = remaining.min(chunk_size as u64) as usize;
-                let _ = file.write_all(&ff_chunk[..this_chunk]);
-                remaining -= this_chunk as u64;
+        let mut remaining = len;
+        while remaining > 0 {
+            let this_chunk = remaining.min(chunk_size as u64) as usize;
+            let mut buf = vec![0u8; this_chunk];
+            crate::util::fill_dynamic_entropy(&mut buf);
+            if file.write_all(&buf).is_err() {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
             }
-            let _ = file.sync_all();
+            buf.fill(0);
+            remaining -= this_chunk as u64;
+        }
+        let _ = file.sync_all();
 
-            // Pass 3: Overwrite with zeros
-            let _ = file.seek(std::io::SeekFrom::Start(0));
-            remaining = len;
-            let zero_chunk = vec![0u8; chunk_size];
-            while remaining > 0 {
-                let this_chunk = remaining.min(chunk_size as u64) as usize;
-                let _ = file.write_all(&zero_chunk[..this_chunk]);
-                remaining -= this_chunk as u64;
+        if file.seek(std::io::SeekFrom::Start(0)).is_err() {
+            return ShredResult {
+                path: path.to_string(),
+                status: "ERROR".to_string(),
+                bytes_shredded: 0,
+            };
+        }
+        remaining = len;
+        let ff_chunk = vec![0xffu8; chunk_size];
+        while remaining > 0 {
+            let this_chunk = remaining.min(chunk_size as u64) as usize;
+            if file.write_all(&ff_chunk[..this_chunk]).is_err() {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
             }
-            let _ = file.sync_all();
-            let _ = file.set_len(0);
+            remaining -= this_chunk as u64;
+        }
+        let _ = file.sync_all();
+
+        if file.seek(std::io::SeekFrom::Start(0)).is_err() {
+            return ShredResult {
+                path: path.to_string(),
+                status: "ERROR".to_string(),
+                bytes_shredded: 0,
+            };
+        }
+        remaining = len;
+        let zero_chunk = vec![0u8; chunk_size];
+        while remaining > 0 {
+            let this_chunk = remaining.min(chunk_size as u64) as usize;
+            if file.write_all(&zero_chunk[..this_chunk]).is_err() {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
+            remaining -= this_chunk as u64;
+        }
+        let _ = file.sync_all();
+        let _ = file.set_len(0);
+    } else {
+        let mut opts = OpenOptions::new();
+        opts.write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            if O_NOFOLLOW != 0 {
+                opts.custom_flags(O_NOFOLLOW);
+            }
+        }
+        if opts.open(p).is_err() {
+            return ShredResult {
+                path: path.to_string(),
+                status: "ERROR".to_string(),
+                bytes_shredded: 0,
+            };
         }
     }
 
@@ -236,10 +293,12 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
             }
         }
 
+        let current_uid = crate::util::resolve_current_uid();
+        let uid_prefix = format!("krb5cc_{}", current_uid);
         if let Ok(entries) = fs::read_dir("/tmp") {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with("krb5cc_") {
+                    if (current_uid == 0 && name.starts_with("krb5cc_")) || name.starts_with(&uid_prefix) {
                         if let Some(s) = entry.path().to_str() {
                             targets.push(s.to_string());
                         }

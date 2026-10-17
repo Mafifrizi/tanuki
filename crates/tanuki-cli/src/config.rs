@@ -1,3 +1,19 @@
+fn validate_krb5_conf_token(value: &str, field_name: &str) -> Result<(), String> {
+    if value.contains('\n') || value.contains('\r') {
+        return Err(format!("{} cannot contain newline characters", field_name));
+    }
+    if value
+        .chars()
+        .any(|c| matches!(c, '\0' | ';' | '#' | '{' | '}' | '[' | ']' | '='))
+    {
+        return Err(format!(
+            "{} contains forbidden configuration syntax characters",
+            field_name
+        ));
+    }
+    Ok(())
+}
+
 pub fn generate_krb5_conf(
     realm: &str,
     kdc: &str,
@@ -10,23 +26,21 @@ pub fn generate_krb5_conf(
     if realm.contains('\n') || realm.contains('\r') {
         return Err("Realm cannot contain newline characters".to_string());
     }
-    if kdc.contains('\n') || kdc.contains('\r') {
-        return Err("KDC cannot contain newline characters".to_string());
-    }
+    validate_krb5_conf_token(realm, "Realm")?;
+    validate_krb5_conf_token(kdc, "KDC")?;
     if let Some(admin) = admin_server {
-        if admin.contains('\n') || admin.contains('\r') {
-            return Err("Admin server cannot contain newline characters".to_string());
-        }
+        validate_krb5_conf_token(admin, "Admin server")?;
     }
     if let Some(armor) = armor_cache {
-        if armor.contains('\n') || armor.contains('\r') {
-            return Err("Armor cache cannot contain newline characters".to_string());
-        }
+        validate_krb5_conf_token(armor, "Armor cache")?;
     }
 
     let clean_realm = realm.trim().to_uppercase();
     if clean_realm.is_empty() {
         return Err("Realm cannot be empty".to_string());
+    }
+    if clean_realm.chars().any(|c| c.is_whitespace()) {
+        return Err("Realm cannot contain whitespace".to_string());
     }
     let kdc_raw = kdc.trim();
     if kdc_raw.is_empty() {
@@ -62,7 +76,15 @@ pub fn generate_krb5_conf(
         libdefaults.push_str("    permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n");
     }
 
-    if fast {
+    let mut has_armor = false;
+    if let Some(armor) = armor_cache {
+        let trimmed_armor = armor.trim();
+        if !trimmed_armor.is_empty() {
+            has_armor = true;
+        }
+    }
+
+    if fast || has_armor {
         libdefaults.push_str("    fast_req_armoring = true\n");
     }
 
@@ -133,9 +155,18 @@ fn parse_dns_name(data: &[u8], mut offset: usize) -> Option<(String, usize)> {
     }
 }
 
+fn is_valid_dns_hostname(hostname: &str) -> bool {
+    let clean = hostname.trim_matches('.');
+    !clean.is_empty()
+        && clean.len() <= 253
+        && clean
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
 pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
     let clean = realm.trim().to_lowercase();
-    if clean.is_empty() {
+    if clean.is_empty() || !is_valid_dns_hostname(&clean) {
         return None;
     }
 
@@ -155,7 +186,7 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
         let mut packet = Vec::new();
         packet.extend_from_slice(&[txid[0], txid[1], 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         for label in srv_qname.split('.') {
-            if !label.is_empty() {
+            if !label.is_empty() && label.len() <= 63 {
                 packet.push(label.len() as u8);
                 packet.extend_from_slice(label.as_bytes());
             }
@@ -191,7 +222,7 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
                                             if rtype == 33 && rdlength >= 6 && rdata_start + 6 < len {
                                                 if let Some((target, _)) = parse_dns_name(&buf[..len], rdata_start + 6) {
                                                     let trimmed_target = target.trim_end_matches('.');
-                                                    if !trimmed_target.is_empty() {
+                                                    if is_valid_dns_hostname(trimmed_target) {
                                                         return Some(trimmed_target.to_string());
                                                     }
                                                 }
@@ -204,7 +235,6 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
                                     }
                                     break;
                                 }
-                                return Some(format!("dc.{}", clean));
                             }
                         }
                     }

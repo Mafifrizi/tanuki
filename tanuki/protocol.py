@@ -232,7 +232,25 @@ def parse_krb_error_stime(payload: Union[bytes, bytearray, str]) -> Optional[int
     else:
         data = bytes(payload)
 
-    # Search for ASN.1 GeneralizedTime tag 0x18
+    # 1. Search for RFC 4120 KRB-ERROR [4] stime context tag 0xA4 wrapping GeneralizedTime 0x18
+    for i in range(len(data) - 18):
+        if data[i] == 0xA4 and data[i + 2] == 0x18:
+            glen = data[i + 3]
+            if glen >= 15 and i + 4 + glen <= len(data):
+                time_str = data[i + 4 : i + 4 + 15].decode("ascii", errors="ignore")
+                if len(time_str) >= 15 and time_str[:14].isdigit():
+                    try:
+                        y = int(time_str[0:4])
+                        m = int(time_str[4:6])
+                        d = int(time_str[6:8])
+                        h = int(time_str[8:10])
+                        mn = int(time_str[10:12])
+                        s = int(time_str[12:14])
+                        return calendar.timegm((y, m, d, h, mn, s, 0, 0, 0))
+                    except Exception:
+                        pass
+
+    # 2. Search for ASN.1 GeneralizedTime tag 0x18
     for i in range(len(data) - 16):
         if data[i] == 0x18:
             glen = data[i + 1]

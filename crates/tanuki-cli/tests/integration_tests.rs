@@ -536,3 +536,30 @@ fn test_blast_remediations_and_json_parity_rust() {
     assert!(!terminal_text.contains('\u{2014}'));
 }
 
+#[test]
+fn test_security_audit_rust_regressions() {
+    for bad in ["CORP=LOCAL", "CORP{LOCAL}", "CORP[LOCAL]", "CORP;LOCAL", "CORP#LOCAL", "CORP LOCAL"] {
+        assert!(generate_krb5_conf(bad, "10.0.0.1", None, None, false, false, None).is_err());
+    }
+    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1;evil=1", None, None, false, false, None).is_err());
+
+    let mut pac_blob = Vec::new();
+    pac_blob.extend_from_slice(&1u32.to_le_bytes());
+    pac_blob.extend_from_slice(&0u32.to_le_bytes());
+    pac_blob.extend_from_slice(&10u32.to_le_bytes());
+    pac_blob.extend_from_slice(&8u32.to_le_bytes());
+    pac_blob.extend_from_slice(&((1u64 << 32) + 24).to_le_bytes());
+    pac_blob.extend_from_slice(&[0u8; 32]);
+    let pac_res = tanuki::pac::parse_pac_bytes(&pac_blob);
+    assert!(pac_res.is_err());
+
+    let mut krb_err = vec![0x7E, 0x28, 0x30, 0x26];
+    krb_err.extend_from_slice(b"\xa1\x11\x18\x0f20200101000000Z");
+    krb_err.extend_from_slice(b"\xa4\x11\x18\x0f20261017120000Z");
+    let stime = tanuki::protocol::kerberos::parse_krb_error_stime(&krb_err).expect("Parsed stime");
+    assert_eq!(stime, 1792238400);
+}
+
+
+
+

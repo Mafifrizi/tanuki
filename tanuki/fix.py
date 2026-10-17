@@ -105,6 +105,23 @@ class FixReport:
         return "\n".join(lines)
 
 
+def _extract_unrelated_krb5_sections(content: str) -> str:
+    """Extract INI sections other than [libdefaults], [realms], and [domain_realm]."""
+    managed = {"libdefaults", "realms", "domain_realm"}
+    preserved: List[str] = []
+    in_preserved = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]") and len(stripped) > 2:
+            sec_name = stripped[1:-1].strip().lower()
+            in_preserved = sec_name not in managed
+        if in_preserved:
+            preserved.append(line)
+    while preserved and not preserved[-1].strip():
+        preserved.pop()
+    return "\n".join(preserved)
+
+
 def run_fix(
     keytab_path: Optional[str] = None,
     realm: Optional[str] = None,
@@ -128,7 +145,14 @@ def run_fix(
                 break
 
     # Action 1: Keytab Permissions
-    if resolved_keytab and os.path.exists(resolved_keytab):
+    if resolved_keytab and os.path.islink(resolved_keytab):
+        actions.append({
+            "action": "keytab_permissions",
+            "target": resolved_keytab,
+            "status": "ERROR",
+            "details": f"Refusing to modify symbolic link keytab: {resolved_keytab}",
+        })
+    elif resolved_keytab and os.path.exists(resolved_keytab):
         try:
             st = os.stat(resolved_keytab)
             mode = stat.S_IMODE(st.st_mode)
@@ -229,14 +253,19 @@ def run_fix(
         )
 
         existing_content = None
-        if os.path.isfile(resolved_config_path):
+        if not os.path.islink(resolved_config_path) and os.path.isfile(resolved_config_path):
             try:
                 with open(resolved_config_path, "r", encoding="utf-8", errors="replace") as f:
                     existing_content = f.read()
             except OSError:
                 pass
 
-        if existing_content == optimal_conf:
+        if existing_content:
+            extra_sections = _extract_unrelated_krb5_sections(existing_content)
+            if extra_sections:
+                optimal_conf = optimal_conf.rstrip("\n") + "\n\n" + extra_sections + "\n"
+
+        if existing_content == optimal_conf and not os.path.islink(resolved_config_path):
             actions.append({
                 "action": "krb5_configuration",
                 "target": resolved_config_path,
@@ -245,7 +274,7 @@ def run_fix(
             })
         else:
             if os.path.islink(resolved_config_path):
-                if existing_content is not None and not dry_run:
+                if not dry_run:
                     actions.append({
                         "action": "backup_preservation",
                         "target": resolved_config_path,
@@ -292,6 +321,8 @@ def run_fix(
                     if p_dir and not os.path.exists(p_dir):
                         os.makedirs(p_dir, exist_ok=True)
                     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                    if hasattr(os, "O_NOFOLLOW"):
+                        flags |= os.O_NOFOLLOW
                     fd = os.open(resolved_config_path, flags, 0o644)
                     with os.fdopen(fd, "w", encoding="utf-8") as f:
                         f.write(optimal_conf)

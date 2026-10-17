@@ -50,11 +50,16 @@ pub fn scan_for_ccache_blobs(data: &[u8]) -> Vec<CcacheCandidate> {
             if abs_pos + 4 <= data.len() {
                 let header_len =
                     u16::from_be_bytes([data[abs_pos + 2], data[abs_pos + 3]]) as usize;
-                if abs_pos + 4 + header_len <= data.len() {
-                    let end = (abs_pos + MAX_CANDIDATE_SIZE).min(data.len());
+                if header_len <= 1024 && abs_pos + 4 + header_len <= data.len() {
+                    let max_end = (abs_pos + MAX_CANDIDATE_SIZE).min(data.len());
+                    let body_start = abs_pos + 4 + header_len;
+                    let body_slice = &data[body_start..max_end];
+                    let principal = try_parse_default_principal(body_slice);
+                    let end = match measure_ccache_body_len(body_slice) {
+                        Some(m_len) => body_start + m_len,
+                        None => max_end,
+                    };
                     let blob = data[abs_pos..end].to_vec();
-                    let principal =
-                        try_parse_default_principal(&data[abs_pos + 4 + header_len..end]);
 
                     results.push(CcacheCandidate {
                         offset: abs_pos,
@@ -78,6 +83,186 @@ fn find_magic(slice: &[u8]) -> Option<usize> {
     slice
         .windows(2)
         .position(|w| w == CCACHE_MAGIC_V4)
+}
+
+fn skip_principal(slice: &[u8], mut cursor: usize) -> Option<usize> {
+    if cursor + 12 > slice.len() {
+        return None;
+    }
+    let _name_type = u32::from_be_bytes([
+        slice[cursor],
+        slice[cursor + 1],
+        slice[cursor + 2],
+        slice[cursor + 3],
+    ]);
+    let num_components = u32::from_be_bytes([
+        slice[cursor + 4],
+        slice[cursor + 5],
+        slice[cursor + 6],
+        slice[cursor + 7],
+    ]) as usize;
+    let realm_len = u32::from_be_bytes([
+        slice[cursor + 8],
+        slice[cursor + 9],
+        slice[cursor + 10],
+        slice[cursor + 11],
+    ]) as usize;
+
+    if num_components == 0 || num_components > 16 || realm_len == 0 || realm_len > 256 {
+        return None;
+    }
+    cursor += 12;
+    if cursor + realm_len > slice.len() {
+        return None;
+    }
+    std::str::from_utf8(&slice[cursor..cursor + realm_len]).ok()?;
+    cursor += realm_len;
+
+    for _ in 0..num_components {
+        if cursor + 4 > slice.len() {
+            return None;
+        }
+        let comp_len = u32::from_be_bytes([
+            slice[cursor],
+            slice[cursor + 1],
+            slice[cursor + 2],
+            slice[cursor + 3],
+        ]) as usize;
+        cursor += 4;
+        if comp_len == 0 || comp_len > 256 || cursor + comp_len > slice.len() {
+            return None;
+        }
+        std::str::from_utf8(&slice[cursor..cursor + comp_len]).ok()?;
+        cursor += comp_len;
+    }
+    Some(cursor)
+}
+
+fn measure_ccache_body_len(body_slice: &[u8]) -> Option<usize> {
+    let mut cursor = skip_principal(body_slice, 0)?;
+    let mut last_valid_end = cursor;
+
+    while cursor < body_slice.len() {
+        let mut next_cur = match skip_principal(body_slice, cursor) {
+            Some(c) => c,
+            None => break,
+        };
+        next_cur = match skip_principal(body_slice, next_cur) {
+            Some(c) => c,
+            None => break,
+        };
+        if next_cur + 4 > body_slice.len() {
+            break;
+        }
+        let keylen = u16::from_be_bytes([body_slice[next_cur + 2], body_slice[next_cur + 3]]) as usize;
+        next_cur += 4;
+        if keylen > 4096 || next_cur + keylen + 21 > body_slice.len() {
+            break;
+        }
+        next_cur += keylen + 21;
+
+        if next_cur + 4 > body_slice.len() {
+            break;
+        }
+        let num_addrs = u32::from_be_bytes([
+            body_slice[next_cur],
+            body_slice[next_cur + 1],
+            body_slice[next_cur + 2],
+            body_slice[next_cur + 3],
+        ]) as usize;
+        next_cur += 4;
+        if num_addrs > 64 {
+            break;
+        }
+        let mut addrs_ok = true;
+        for _ in 0..num_addrs {
+            if next_cur + 6 > body_slice.len() {
+                addrs_ok = false;
+                break;
+            }
+            let alen = u32::from_be_bytes([
+                body_slice[next_cur + 2],
+                body_slice[next_cur + 3],
+                body_slice[next_cur + 4],
+                body_slice[next_cur + 5],
+            ]) as usize;
+            next_cur += 6;
+            if alen > 1024 || next_cur + alen > body_slice.len() {
+                addrs_ok = false;
+                break;
+            }
+            next_cur += alen;
+        }
+        if !addrs_ok {
+            break;
+        }
+
+        if next_cur + 4 > body_slice.len() {
+            break;
+        }
+        let num_authdata = u32::from_be_bytes([
+            body_slice[next_cur],
+            body_slice[next_cur + 1],
+            body_slice[next_cur + 2],
+            body_slice[next_cur + 3],
+        ]) as usize;
+        next_cur += 4;
+        if num_authdata > 64 {
+            break;
+        }
+        let mut ad_ok = true;
+        for _ in 0..num_authdata {
+            if next_cur + 6 > body_slice.len() {
+                ad_ok = false;
+                break;
+            }
+            let adlen = u32::from_be_bytes([
+                body_slice[next_cur + 2],
+                body_slice[next_cur + 3],
+                body_slice[next_cur + 4],
+                body_slice[next_cur + 5],
+            ]) as usize;
+            next_cur += 6;
+            if adlen > 65536 || next_cur + adlen > body_slice.len() {
+                ad_ok = false;
+                break;
+            }
+            next_cur += adlen;
+        }
+        if !ad_ok {
+            break;
+        }
+
+        if next_cur + 4 > body_slice.len() {
+            break;
+        }
+        let tkt_len = u32::from_be_bytes([
+            body_slice[next_cur],
+            body_slice[next_cur + 1],
+            body_slice[next_cur + 2],
+            body_slice[next_cur + 3],
+        ]) as usize;
+        next_cur += 4;
+        if tkt_len > 65536 || next_cur + tkt_len + 4 > body_slice.len() {
+            break;
+        }
+        next_cur += tkt_len;
+        let sec_tkt_len = u32::from_be_bytes([
+            body_slice[next_cur],
+            body_slice[next_cur + 1],
+            body_slice[next_cur + 2],
+            body_slice[next_cur + 3],
+        ]) as usize;
+        next_cur += 4;
+        if sec_tkt_len > 65536 || next_cur + sec_tkt_len > body_slice.len() {
+            break;
+        }
+        next_cur += sec_tkt_len;
+        cursor = next_cur;
+        last_valid_end = cursor;
+    }
+
+    Some(last_valid_end)
 }
 
 fn try_parse_default_principal(slice: &[u8]) -> Option<String> {
@@ -140,6 +325,14 @@ pub fn save_candidates(
             format!("{}_recovered_{}.ccache", prefix, idx + 1)
         };
         let path = out_dir.join(file_name);
+        if let Ok(meta) = std::fs::symlink_metadata(&path) {
+            if meta.file_type().is_symlink() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Refusing to write to symlink target: {}", path.display()),
+                ));
+            }
+        }
         let mut opts = std::fs::OpenOptions::new();
         opts.create(true).write(true).truncate(true);
         #[cfg(unix)]

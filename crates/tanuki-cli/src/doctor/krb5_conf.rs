@@ -45,6 +45,7 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
     let mut default_realm: Option<String> = None;
     let mut realms_seen: Vec<String> = Vec::new();
     let mut lowercase_realms: Vec<String> = Vec::new();
+    let mut allow_weak_crypto = false;
 
     for line in content.lines() {
         let clean = line.split('#').next().unwrap_or("").split(';').next().unwrap_or("").trim();
@@ -62,14 +63,20 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
         match current_section.as_deref() {
             Some("libdefaults") => {
                 if let Some((k, v)) = clean.split_once('=') {
-                    if k.trim() == "default_realm" {
-                        let val = v.trim().to_string();
+                    let key_trimmed = k.trim();
+                    let val_trimmed = v.trim();
+                    if key_trimmed == "default_realm" {
+                        let val = val_trimmed.to_string();
                         if val.chars().any(|c| c.is_ascii_lowercase())
                             && !lowercase_realms.contains(&val)
                         {
                             lowercase_realms.push(val.clone());
                         }
                         default_realm = Some(val);
+                    } else if key_trimmed == "allow_weak_crypto"
+                        && matches!(val_trimmed.to_ascii_lowercase().as_str(), "true" | "1" | "yes")
+                    {
+                        allow_weak_crypto = true;
                     }
                 }
             }
@@ -154,6 +161,27 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                 ("is_realm_uppercase".to_string(), "false".to_string()),
                 ("realms".to_string(), realms_json),
                 ("lowercase_realms".to_string(), lowercase_json),
+                ("allow_weak_crypto".to_string(), allow_weak_crypto.to_string()),
+            ],
+        }
+    } else if allow_weak_crypto {
+        CheckResult {
+            name: "realm_capitalization".to_string(),
+            status: "FAIL".to_string(),
+            details: "Insecure allow_weak_crypto = true detected in [libdefaults]".to_string(),
+            recommendation: Some(format!(
+                "Set allow_weak_crypto = false in {} to enforce AES encryption",
+                krb5_conf_path
+            )),
+            remaining_seconds: None,
+            extra_fields: vec![
+                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                ("exists".to_string(), "true".to_string()),
+                ("default_realm".to_string(), default_realm_json),
+                ("is_realm_uppercase".to_string(), "true".to_string()),
+                ("realms".to_string(), realms_json),
+                ("lowercase_realms".to_string(), lowercase_json),
+                ("allow_weak_crypto".to_string(), "true".to_string()),
             ],
         }
     } else if let Some(def) = default_realm {
@@ -170,6 +198,7 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                 ("is_realm_uppercase".to_string(), "true".to_string()),
                 ("realms".to_string(), realms_json),
                 ("lowercase_realms".to_string(), lowercase_json),
+                ("allow_weak_crypto".to_string(), "false".to_string()),
             ],
         }
     } else if !realms_seen.is_empty() {
@@ -186,6 +215,7 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                 ("is_realm_uppercase".to_string(), "true".to_string()),
                 ("realms".to_string(), realms_json),
                 ("lowercase_realms".to_string(), lowercase_json),
+                ("allow_weak_crypto".to_string(), "false".to_string()),
             ],
         }
     } else {
@@ -202,6 +232,7 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                 ("is_realm_uppercase".to_string(), "true".to_string()),
                 ("realms".to_string(), realms_json),
                 ("lowercase_realms".to_string(), lowercase_json),
+                ("allow_weak_crypto".to_string(), "false".to_string()),
             ],
         }
     }

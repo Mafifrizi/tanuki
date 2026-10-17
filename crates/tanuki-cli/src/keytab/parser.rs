@@ -2,6 +2,7 @@ use super::types::{enctype_name, KeytabEntry};
 use std::fmt;
 
 const MAX_COMPONENTS: i16 = 256;
+const MAX_ENTRY_SIZE: usize = 65536;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum KeytabError {
@@ -54,11 +55,21 @@ pub fn parse_keytab_bytes(data: &[u8]) -> Result<Vec<KeytabEntry>, KeytabError> 
             if cursor + skip_len > data.len() {
                 return Err(KeytabError::UnexpectedEof);
             }
+            if skip_len > MAX_ENTRY_SIZE {
+                return Err(KeytabError::MalformedEntry(
+                    "Keytab hole skip size exceeds safety limit".into(),
+                ));
+            }
             cursor += skip_len;
             continue;
         }
 
         let entry_len = entry_size as usize;
+        if entry_len > MAX_ENTRY_SIZE {
+            return Err(KeytabError::MalformedEntry(
+                "Entry size exceeds maximum limit".into(),
+            ));
+        }
         if cursor + entry_len > data.len() {
             return Err(KeytabError::UnexpectedEof);
         }
@@ -186,16 +197,9 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
         if vno32 != 0 {
             vno = vno32;
         }
-        offset += 4;
     } else if offset < entry.len() {
         return Err(KeytabError::MalformedEntry(
             "Incomplete 32-bit KVNO field".into(),
-        ));
-    }
-
-    if offset < entry.len() {
-        return Err(KeytabError::MalformedEntry(
-            "Extraneous bytes in keytab entry".into(),
         ));
     }
 

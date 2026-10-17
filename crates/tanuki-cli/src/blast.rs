@@ -17,6 +17,7 @@ pub const RID_BACKUP_OPERATORS: u32 = 551;
 pub const RID_REPLICATORS: u32 = 552;
 pub const RID_REMOTE_DESKTOP_USERS: u32 = 555;
 pub const RID_NETWORK_CONFIGURATION_OPS: u32 = 556;
+pub const RID_INCOMING_FOREST_TRUST_BUILDERS: u32 = 557;
 pub const RID_CRYPTOGRAPHIC_OPERATORS: u32 = 571;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +130,7 @@ pub fn classify_identity_tier(
         (RID_REPLICATORS, "Replicators"),
         (RID_REMOTE_DESKTOP_USERS, "Remote Desktop Users"),
         (RID_NETWORK_CONFIGURATION_OPS, "Network Configuration Operators"),
+        (RID_INCOMING_FOREST_TRUST_BUILDERS, "Incoming Forest Trust Builders"),
         (RID_CRYPTOGRAPHIC_OPERATORS, "Cryptographic Operators"),
     ];
 
@@ -246,18 +248,25 @@ pub fn evaluate_blast_radius(
 }
 
 pub fn extract_ad_account_name(principal: &str) -> String {
-    let clean = principal.split('@').next().unwrap_or(principal);
-    if clean.contains('/') {
-        let mut parts = clean.splitn(2, '/');
+    let raw = principal.split('@').next().unwrap_or(principal);
+    let candidate = if raw.contains('/') {
+        let mut parts = raw.splitn(2, '/');
         let _service = parts.next();
-        let target = parts.next().unwrap_or(clean);
+        let target = parts.next().unwrap_or(raw);
         let host_or_account = target.split(':').next().unwrap_or(target);
         let netbios = host_or_account.split('.').next().unwrap_or(host_or_account);
         if !netbios.is_empty() {
-            return netbios.to_string();
+            netbios
+        } else {
+            raw
         }
-    }
-    clean.to_string()
+    } else {
+        raw
+    };
+    candidate
+        .chars()
+        .filter(|&c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '$'))
+        .collect()
 }
 
 pub fn generate_ad_remediations(

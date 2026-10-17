@@ -8,6 +8,7 @@ use super::types::{
 pub enum JsonValue {
     Null,
     Bool(bool),
+    Integer(i64),
     Number(f64),
     String(String),
     Array(Vec<JsonValue>),
@@ -38,6 +39,7 @@ impl JsonValue {
 
     pub fn as_i64(&self) -> Option<i64> {
         match self {
+            JsonValue::Integer(i) => Some(*i),
             JsonValue::Number(n) => Some(*n as i64),
             _ => None,
         }
@@ -88,6 +90,9 @@ impl<'a> JsonParser<'a> {
         self.skip_whitespace();
         let val = self.parse_value()?;
         self.skip_whitespace();
+        if self.pos < self.input.len() {
+            return Err("Unexpected trailing characters after JSON root value".to_string());
+        }
         Ok(val)
     }
 
@@ -99,7 +104,7 @@ impl<'a> JsonParser<'a> {
             Some('[') => self.parse_array().map(JsonValue::Array),
             Some('t') | Some('f') => self.parse_bool().map(JsonValue::Bool),
             Some('n') => self.parse_null().map(|_| JsonValue::Null),
-            Some(c) if c.is_ascii_digit() || c == '-' => self.parse_number().map(JsonValue::Number),
+            Some(c) if c.is_ascii_digit() || c == '-' => self.parse_number_value(),
             Some(other) => Err(format!("Unexpected character in JSON: '{}'", other)),
             None => Err("Unexpected end of JSON input".to_string()),
         }
@@ -234,21 +239,31 @@ impl<'a> JsonParser<'a> {
         }
     }
 
-    fn parse_number(&mut self) -> Result<f64, String> {
+    fn parse_number_value(&mut self) -> Result<JsonValue, String> {
         let start = self.pos;
+        let mut is_float = false;
         if self.peek() == Some('-') {
             self.advance();
         }
         while let Some(c) = self.peek() {
-            if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-' {
+            if c.is_ascii_digit() {
+                self.advance();
+            } else if c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-' {
+                is_float = true;
                 self.advance();
             } else {
                 break;
             }
         }
         let num_str = &self.input[start..self.pos];
+        if !is_float {
+            if let Ok(i) = num_str.parse::<i64>() {
+                return Ok(JsonValue::Integer(i));
+            }
+        }
         num_str
             .parse::<f64>()
+            .map(JsonValue::Number)
             .map_err(|e| format!("Invalid number '{}': {}", num_str, e))
     }
 }
@@ -257,6 +272,14 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
     let mut parser = JsonParser::new(input);
     parser.parse()
 }
+
+pub const KNOWN_JWT_ALGORITHMS: &[&str] = &[
+    "RS256", "RS384", "RS512",
+    "ES256", "ES384", "ES512",
+    "PS256", "PS384", "PS512",
+    "EdDSA",
+    "HS256", "HS384", "HS512",
+];
 
 pub fn b64url_decode(input: &str) -> Result<Vec<u8>, String> {
     let clean_str = input.trim().trim_end_matches('=');
@@ -336,17 +359,25 @@ pub fn parse_and_validate_jwt(
     let header_str = String::from_utf8(header_bytes)
         .map_err(|e| format!("Header is not valid UTF-8: {}", e))?;
     let header_json = parse_json(&header_str)?;
+    if !matches!(header_json, JsonValue::Object(_)) {
+        return Err("Decoded JWT segment must be a JSON object".to_string());
+    }
 
     let payload_bytes = b64url_decode(parts[1])?;
     let payload_str = String::from_utf8(payload_bytes)
         .map_err(|e| format!("Payload is not valid UTF-8: {}", e))?;
     let payload_json = parse_json(&payload_str)?;
+    if !matches!(payload_json, JsonValue::Object(_)) {
+        return Err("Decoded JWT segment must be a JSON object".to_string());
+    }
 
-    let alg = header_json
-        .get("alg")
-        .and_then(|v| v.as_str())
-        .unwrap_or("none")
-        .to_string();
+    let sig_raw = parts[2].trim();
+    if !sig_raw.is_empty() {
+        b64url_decode(sig_raw)?;
+    }
+
+    let alg_opt = header_json.get("alg").and_then(|v| v.as_str()).map(|s| s.trim());
+    let alg = alg_opt.unwrap_or("none").to_string();
     let typ = header_json
         .get("typ")
         .and_then(|v| v.as_str())
@@ -552,9 +583,18 @@ pub fn parse_and_validate_jwt(
     }
 
     let mut insecure_algorithm = false;
-    if alg.eq_ignore_ascii_case("none") {
+    if alg.is_empty() || alg.eq_ignore_ascii_case("none") {
         insecure_algorithm = true;
-        let msg = "Unsecured JWT (alg=none) detected".to_string();
+        let msg = "Unsecured JWT (alg=none or missing) detected".to_string();
+        findings.push(Finding {
+            severity: "CRITICAL".to_string(),
+            code: "INSECURE_ALGORITHM".to_string(),
+            message: msg.clone(),
+        });
+        security_warnings.push(format!("INSECURE_ALGORITHM: {}", msg));
+    } else if !KNOWN_JWT_ALGORITHMS.contains(&alg.as_str()) {
+        insecure_algorithm = true;
+        let msg = format!("Unrecognized or unsupported JWT algorithm '{}'", alg);
         findings.push(Finding {
             severity: "CRITICAL".to_string(),
             code: "INSECURE_ALGORITHM".to_string(),
@@ -569,6 +609,17 @@ pub fn parse_and_validate_jwt(
             message: msg.clone(),
         });
         security_warnings.push(format!("SYMMETRIC_ALGORITHM: {}", msg));
+    }
+
+    if !insecure_algorithm && sig_raw.is_empty() {
+        insecure_algorithm = true;
+        let msg = format!("Missing JWT signature segment for algorithm '{}'", alg);
+        findings.push(Finding {
+            severity: "CRITICAL".to_string(),
+            code: "INSECURE_ALGORITHM".to_string(),
+            message: msg.clone(),
+        });
+        security_warnings.push(format!("INSECURE_ALGORITHM: {}", msg));
     }
 
     if exp.is_none() {

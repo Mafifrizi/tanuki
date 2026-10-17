@@ -119,6 +119,45 @@ def ber_encode_sequence(elements: List[bytes]) -> bytes:
     return ber_encode_tlv(TAG_SEQUENCE, b"".join(elements))
 
 
+MAX_LDAP_PDU_SIZE = 10 * 1024 * 1024
+
+
+def escape_ldap_filter_value(value: str) -> str:
+    """Escape special characters in an LDAP filter assertion value per RFC 4515."""
+    out: List[str] = []
+    for ch in value:
+        if ch == "\\":
+            out.append("\\5c")
+        elif ch == "*":
+            out.append("\\2a")
+        elif ch == "(":
+            out.append("\\28")
+        elif ch == ")":
+            out.append("\\29")
+        elif ch == "\x00":
+            out.append("\\00")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def unescape_ldap_filter_value(value: str) -> bytes:
+    """Decode RFC 4515 hex escapes (\\XX) in an LDAP filter assertion string into raw bytes."""
+    raw = bytearray()
+    i = 0
+    n = len(value)
+    while i < n:
+        if value[i] == "\\" and i + 2 < n:
+            hex_part = value[i + 1 : i + 3]
+            if all(c in "0123456789abcdefABCDEF" for c in hex_part):
+                raw.append(int(hex_part, 16))
+                i += 3
+                continue
+        raw.extend(value[i].encode("utf-8"))
+        i += 1
+    return bytes(raw)
+
+
 def ber_decode_tlv(data: bytes, offset: int = 0) -> Tuple[int, bytes, int]:
     """Decode single BER TLV element with strict bounds checking.
 
@@ -139,10 +178,13 @@ def ber_decode_tlv(data: bytes, offset: int = 0) -> Tuple[int, bytes, int]:
         length = len_byte
     else:
         num_len_bytes = len_byte & 0x7F
-        if num_len_bytes == 0 or offset + num_len_bytes > len(data):
+        if num_len_bytes == 0 or num_len_bytes > 8 or offset + num_len_bytes > len(data):
             raise LdapError(f"Invalid BER multi-byte length at offset {offset}")
         length = int.from_bytes(data[offset : offset + num_len_bytes], byteorder="big")
         offset += num_len_bytes
+
+    if length > MAX_LDAP_PDU_SIZE:
+        raise LdapError(f"BER length {length} exceeds maximum allowed PDU size ({MAX_LDAP_PDU_SIZE})")
 
     if offset + length > len(data):
         raise LdapError(f"BER value out of bounds: length {length} > remaining {len(data) - offset}")
@@ -202,7 +244,8 @@ def build_ldap_search_filter(attribute: str, value: str = "*") -> bytes:
         return ber_encode_tlv(FILTER_PRESENT, attribute.encode("utf-8"))
     else:
         # Equality filter: [0xA3] SEQUENCE { attributeDesc OCTET STRING, assertionValue OCTET STRING }
-        eq_payload = ber_encode_string(attribute) + ber_encode_string(value)
+        val_bytes = unescape_ldap_filter_value(value) if "\\" in value else value.encode("utf-8")
+        eq_payload = ber_encode_string(attribute) + ber_encode_tlv(TAG_OCTET_STRING, val_bytes)
         return ber_encode_tlv(FILTER_EQUALITY, eq_payload)
 
 
@@ -446,11 +489,15 @@ class LdapClient:
 
         self.sock.sendall(req_bytes)
         chunks = []
+        total_len = 0
         try:
             while True:
                 data = self.sock.recv(4096)
                 if not data:
                     break
+                total_len += len(data)
+                if total_len > MAX_LDAP_PDU_SIZE:
+                    raise LdapError(f"LDAP response stream exceeds maximum allowed size ({MAX_LDAP_PDU_SIZE})")
                 chunks.append(data)
                 joined = b"".join(chunks)
                 if is_ldap_message_done(joined):
@@ -625,7 +672,7 @@ def query_active_directory_ldap(
             elif q == "shadow":
                 f_bytes = build_ldap_search_filter("msDS-KeyCredentialLink", "*")
             elif q == "unconstrained":
-                f_bytes = build_ldap_search_filter("userAccountControl", "*")
+                f_bytes = build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "524288")
 
             entries = client.search(base_dn=base_dn, filter_bytes=f_bytes, attributes=attrs)
             for e in entries:
@@ -642,12 +689,24 @@ def query_active_directory_ldap(
                     except (ValueError, TypeError):
                         enctype_num = 0
 
-                    has_aes = bool(enctype_num & 0x18)
+                    if enctype_num & 0x10:
+                        enc_label = "AES-256 (etype 18)"
+                        hc_fmt = "$krb5asrep$18$"
+                        etype_val = 18
+                    elif enctype_num & 0x08:
+                        enc_label = "AES-128 (etype 17)"
+                        hc_fmt = "$krb5asrep$17$"
+                        etype_val = 17
+                    else:
+                        enc_label = "RC4-HMAC (etype 23)"
+                        hc_fmt = "$krb5asrep$23$"
+                        etype_val = 23
+
                     e["asrep_roastable"] = {
                         "dont_req_preauth": bool(uac_num & 0x400000),
-                        "encryption": "AES-256 (etype 18)" if has_aes else "RC4-HMAC (etype 23)",
-                        "hashcat_format": "$krb5asrep$18$" if has_aes else "$krb5asrep$23$",
-                        "etype": 18 if has_aes else 23,
+                        "encryption": enc_label,
+                        "hashcat_format": hc_fmt,
+                        "etype": etype_val,
                         "supported_encryption_types": enctype_num,
                     }
                 elif q == "rbcd":
@@ -743,10 +802,12 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
             except (ValueError, TypeError):
                 enctype_int = 0
 
-            has_aes = bool(enctype_int & 0x18)
-            if has_aes:
+            if enctype_int & 0x10:
                 cipher_desc = "AES-256 (etype 18 · Hashcat: $krb5asrep$18$)"
                 enctype_desc = f"0x{enctype_int:x} (AES Supported)"
+            elif enctype_int & 0x08:
+                cipher_desc = "AES-128 (etype 17 · Hashcat: $krb5asrep$17$)"
+                enctype_desc = f"0x{enctype_int:x} (AES-128 Supported)"
             else:
                 cipher_desc = "RC4-HMAC (etype 23 · Hashcat: $krb5asrep$23$)"
                 enctype_desc = f"0x{enctype_int:x} (Default KDC Fallback: RC4-HMAC)"

@@ -105,6 +105,18 @@ fn extract_json_u32(obj_str: &str, key: &str) -> Option<u32> {
     let pos = obj_str.find(&pattern)?;
     let colon_pos = obj_str[pos + pattern.len()..].find(':')? + pos + pattern.len();
     let slice = obj_str[colon_pos + 1..].trim_start();
+    if let Some(stripped) = slice.strip_prefix('"') {
+        let str_val: String = stripped.chars().take_while(|&c| c != '"').collect();
+        let clean = str_val.trim();
+        if let Some(hex_part) = clean.strip_prefix("0x").or_else(|| clean.strip_prefix("0X")) {
+            return u32::from_str_radix(hex_part, 16).ok();
+        }
+        return clean.parse::<u32>().ok();
+    }
+    if let Some(hex_part) = slice.strip_prefix("0x").or_else(|| slice.strip_prefix("0X")) {
+        let hex_str: String = hex_part.chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+        return u32::from_str_radix(&hex_str, 16).ok();
+    }
     let num_str: String = slice.chars().take_while(|c| c.is_ascii_digit()).collect();
     num_str.parse::<u32>().ok()
 }
@@ -155,6 +167,23 @@ fn extract_json_str_array(obj_str: &str, key: &str) -> Vec<String> {
 }
 
 fn split_json_objects(text: &str) -> Vec<&str> {
+    let trimmed = text.trim();
+    if trimmed.starts_with('{') {
+        if let Some(tmpl_pos) = trimmed.find("\"templates\"") {
+            if let Some(arr_start) = trimmed[tmpl_pos..].find('[') {
+                let abs_arr_start = tmpl_pos + arr_start;
+                if let Some(arr_end) = trimmed.rfind(']') {
+                    if arr_end > abs_arr_start {
+                        return split_json_objects_inner(&trimmed[abs_arr_start + 1..arr_end]);
+                    }
+                }
+            }
+        }
+    }
+    split_json_objects_inner(text)
+}
+
+fn split_json_objects_inner(text: &str) -> Vec<&str> {
     let mut objects = Vec::new();
     let mut depth = 0;
     let mut start_idx = None;
@@ -197,6 +226,41 @@ fn split_json_objects(text: &str) -> Vec<&str> {
     objects
 }
 
+fn encode_oid_to_der_bytes(oid_str: &str) -> Vec<u8> {
+    let parts: Vec<u64> = oid_str
+        .trim()
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .filter_map(|p| p.parse::<u64>().ok())
+        .collect();
+    if parts.len() < 2 {
+        return Vec::new();
+    }
+    let mut body = Vec::new();
+    body.push((parts[0] * 40 + parts[1]) as u8);
+    for &val in &parts[2..] {
+        if val == 0 {
+            body.push(0);
+        } else {
+            let mut vlq = Vec::new();
+            let mut v = val;
+            while v > 0 {
+                vlq.push((v & 0x7F) as u8);
+                v >>= 7;
+            }
+            vlq.reverse();
+            let vlen = vlq.len();
+            for item in vlq.iter_mut().take(vlen - 1) {
+                *item |= 0x80;
+            }
+            body.extend_from_slice(&vlq);
+        }
+    }
+    let mut out = vec![0x06, body.len() as u8];
+    out.extend_from_slice(&body);
+    out
+}
+
 pub fn evaluate_template(
     name: &str,
     name_flags: u32,
@@ -210,14 +274,26 @@ pub fn evaluate_template(
     let enrollee_supplies_subject = (name_flags & CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT) != 0;
     let requires_manager_approval = (enrollment_flags & CT_FLAG_PEND_ALL_REQUESTS) != 0;
 
-    let has_client_auth = ekus.iter().any(|e| {
+    let has_client_auth = ekus.iter().any(|raw_e| {
+        let e = raw_e.trim();
+        let low = e.to_lowercase();
         e == OID_CLIENT_AUTH
             || e == OID_SMARTCARD_LOGON
             || e == OID_PKINIT_CLIENT_AUTH
-            || e.to_lowercase().contains("client auth")
+            || low.contains("client auth")
+            || low.contains("smart card")
+            || low.contains("pkinit")
     });
-    let has_any_purpose = ekus.is_empty() || ekus.iter().any(|e| e == OID_ANY_PURPOSE || e.to_lowercase().contains("any purpose"));
-    let has_enrollment_agent = ekus.iter().any(|e| e == OID_CERT_REQUEST_AGENT || e.to_lowercase().contains("enrollment agent"));
+    let has_any_purpose = ekus.is_empty()
+        || ekus.iter().any(|raw_e| {
+            let e = raw_e.trim();
+            e == OID_ANY_PURPOSE || e.to_lowercase().contains("any purpose")
+        });
+    let has_enrollment_agent = ekus.iter().any(|raw_e| {
+        let e = raw_e.trim();
+        let low = e.to_lowercase();
+        e == OID_CERT_REQUEST_AGENT || low.contains("enrollment agent") || low.contains("request agent")
+    });
 
     // ESC1
     if enrollee_supplies_subject && (has_client_auth || has_any_purpose) && !requires_manager_approval && ra_signatures == 0 {
@@ -354,28 +430,47 @@ pub fn evaluate_ca(
     findings
 }
 
+fn scan_der_cert_for_client_auth(der_bytes: &[u8]) -> bool {
+    let oids = [OID_CLIENT_AUTH, OID_SMARTCARD_LOGON, OID_PKINIT_CLIENT_AUTH, OID_ANY_PURPOSE];
+    for oid in &oids {
+        let der_pat = encode_oid_to_der_bytes(oid);
+        if !der_pat.is_empty() && der_bytes.windows(der_pat.len()).any(|w| w == der_pat.as_slice()) {
+            return true;
+        }
+        if der_pat.len() > 2 && der_bytes.windows(der_pat.len() - 2).any(|w| w == &der_pat[2..]) {
+            return true;
+        }
+        let ascii_bytes = oid.as_bytes();
+        if der_bytes.windows(ascii_bytes.len()).any(|w| w == ascii_bytes) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
     let p = Path::new(source);
+    if let Ok(meta) = fs::symlink_metadata(p) {
+        if meta.file_type().is_symlink() {
+            return Err(format!("Refusing to read symbolic link: {}", source));
+        }
+    }
     if !p.exists() {
         return Err(format!("AD CS source file not found: {}", source));
     }
 
-    let content = fs::read_to_string(p).map_err(|e| format!("Failed to read file '{}': {}", source, e))?;
+    let raw_bytes = fs::read(p).map_err(|e| format!("Failed to read file '{}': {}", source, e))?;
+    if raw_bytes.len() > 10 * 1024 * 1024 {
+        return Err("AD CS source file exceeds 10MB safety limit".to_string());
+    }
 
     let mut all_findings = Vec::new();
     let mut scanned_count = 0;
 
-    if content.contains("-----BEGIN CERTIFICATE-----") {
+    // Check raw binary DER certificate first
+    if raw_bytes.len() >= 4 && raw_bytes[0] == 0x30 && (raw_bytes[1] == 0x82 || raw_bytes[1] == 0x81) {
         scanned_count = 1;
-        let mut has_client = false;
-        let oids = [OID_CLIENT_AUTH, OID_SMARTCARD_LOGON, OID_PKINIT_CLIENT_AUTH];
-        for oid in &oids {
-            if content.contains(oid) {
-                has_client = true;
-                break;
-            }
-        }
-        if has_client {
+        if scan_der_cert_for_client_auth(&raw_bytes) {
             all_findings.push(AdcsFinding {
                 vector: "CERT_CLIENT_AUTH".to_string(),
                 severity: "INFO".to_string(),
@@ -386,61 +481,133 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
             });
         }
     } else {
-        let objects = split_json_objects(&content);
-        if !objects.is_empty() {
-            for obj in objects {
-                let editf = extract_json_bool(obj, "EDITF_ATTRIBUTESUBJECTALTNAME2")
-                    .or_else(|| extract_json_bool(obj, "editf_san2"))
-                    .unwrap_or(false);
-                let http_en = extract_json_bool(obj, "http_enrollment_enabled").unwrap_or(false);
-
-                if editf || http_en {
-                    let ca_name = extract_json_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
-                    let epa = extract_json_bool(obj, "extended_protection_enabled").unwrap_or(false);
-                    let https = extract_json_bool(obj, "https_enforced").unwrap_or(false);
+        let content = String::from_utf8_lossy(&raw_bytes);
+        if content.contains("-----BEGIN CERTIFICATE-----") {
+            scanned_count = 1;
+            let mut has_client = false;
+            if let (Some(start), Some(end)) = (
+                content.find("-----BEGIN CERTIFICATE-----"),
+                content.find("-----END CERTIFICATE-----"),
+            ) {
+                let b64_body = &content[start + 27..end];
+                if let Ok(der_bytes) = crate::nhi::b64url_decode(b64_body) {
+                    if scan_der_cert_for_client_auth(&der_bytes) {
+                        has_client = true;
+                    }
+                }
+            }
+            if !has_client {
+                let oids = [OID_CLIENT_AUTH, OID_SMARTCARD_LOGON, OID_PKINIT_CLIENT_AUTH, OID_ANY_PURPOSE];
+                for oid in &oids {
+                    if content.contains(oid) {
+                        has_client = true;
+                        break;
+                    }
+                }
+            }
+            if has_client {
+                all_findings.push(AdcsFinding {
+                    vector: "CERT_CLIENT_AUTH".to_string(),
+                    severity: "INFO".to_string(),
+                    template: "X509Certificate".to_string(),
+                    title: "Certificate Contains Client Authentication EKU".to_string(),
+                    description: "X.509 certificate specifies Client Authentication EKUs.".to_string(),
+                    remediation: "Review certificate issuance and usage constraints.".to_string(),
+                });
+            }
+        } else {
+            let objects = split_json_objects(&content);
+            if !objects.is_empty() {
+                for obj in objects {
+                    let editf = extract_json_bool(obj, "EDITF_ATTRIBUTESUBJECTALTNAME2")
+                        .or_else(|| extract_json_bool(obj, "editf_san2"))
+                        .unwrap_or(false);
+                    let http_en = extract_json_bool(obj, "http_enrollment_enabled").unwrap_or(false);
                     let rpc_no_priv = extract_json_bool(obj, "rpc_enrollment_without_packet_privacy").unwrap_or(false);
                     let cert_map = extract_json_u32(obj, "CertificateMappingMethods");
                     let low_mgrs = extract_json_str_array(obj, "low_privileged_ca_managers");
-                    let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, http_en, epa, https, cert_map, rpc_no_priv);
-                    all_findings.extend(ca_f);
-                } else {
-                    scanned_count += 1;
-                    let name = extract_json_str(obj, "name")
-                        .or_else(|| extract_json_str(obj, "template_name"))
-                        .or_else(|| extract_json_str(obj, "TemplateName"))
-                        .unwrap_or_else(|| format!("Template-{}", scanned_count));
-                    let name_flags = extract_json_u32(obj, "msPKI-Certificate-Name-Flag")
-                        .or_else(|| extract_json_u32(obj, "name_flags"))
-                        .unwrap_or(0);
-                    let enroll_flags = extract_json_u32(obj, "msPKI-Enrollment-Flag")
-                        .or_else(|| extract_json_u32(obj, "enrollment_flags"))
-                        .unwrap_or(0);
-                    let ra_sigs = extract_json_u32(obj, "msPKI-RA-Signature")
-                        .or_else(|| extract_json_u32(obj, "authorized_signatures"))
-                        .or_else(|| extract_json_u32(obj, "ra_signatures"))
-                        .unwrap_or(0);
-                    let ekus = extract_json_str_array(obj, "pKIExtendedKeyUsage");
-                    let writers = extract_json_str_array(obj, "low_privileged_writers");
-                    let f = evaluate_template(&name, name_flags, enroll_flags, ra_sigs, &ekus, &writers);
-                    all_findings.extend(f);
+                    let mut pki_writers = extract_json_str_array(obj, "low_privileged_pki_writers");
+                    if pki_writers.is_empty() {
+                        pki_writers = extract_json_str_array(obj, "low_privileged_ca_writers");
+                    }
+                    let vuln_pki_acl = extract_json_bool(obj, "vulnerable_pki_acl").unwrap_or(false);
+                    let has_ca_keys = editf
+                        || http_en
+                        || rpc_no_priv
+                        || cert_map.is_some()
+                        || !low_mgrs.is_empty()
+                        || !pki_writers.is_empty()
+                        || vuln_pki_acl
+                        || extract_json_str(obj, "ca_name").is_some();
+
+                    let has_template_keys = obj.contains("\"msPKI-Certificate-Name-Flag\"")
+                        || obj.contains("\"msPKI-Enrollment-Flag\"")
+                        || obj.contains("\"pKIExtendedKeyUsage\"")
+                        || obj.contains("\"name_flags\"")
+                        || obj.contains("\"enrollment_flags\"");
+
+                    if has_ca_keys && !has_template_keys {
+                        let ca_name = extract_json_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
+                        if !pki_writers.is_empty() || vuln_pki_acl {
+                            let writers_str = if pki_writers.is_empty() {
+                                "low-privileged principals".to_string()
+                            } else {
+                                pki_writers.join(", ")
+                            };
+                            all_findings.push(AdcsFinding {
+                                vector: "ESC5".to_string(),
+                                severity: "CRITICAL".to_string(),
+                                template: ca_name.clone(),
+                                title: "Vulnerable PKI Object or Container ACL Permissions".to_string(),
+                                description: format!("PKI architecture or CA object '{}' grants write/modify ACL permissions on PKI containers to {}.", ca_name, writers_str),
+                                remediation: "Restrict write/owner permissions on CN=Public Key Services and CA objects to Enterprise/Domain Admins.".to_string(),
+                            });
+                        }
+                        let epa = extract_json_bool(obj, "extended_protection_enabled").unwrap_or(false);
+                        let https = extract_json_bool(obj, "https_enforced").unwrap_or(false);
+                        let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, http_en, epa, https, cert_map, rpc_no_priv);
+                        all_findings.extend(ca_f);
+                    } else {
+                        scanned_count += 1;
+                        let name = extract_json_str(obj, "cn")
+                            .or_else(|| extract_json_str(obj, "displayName"))
+                            .or_else(|| extract_json_str(obj, "name"))
+                            .or_else(|| extract_json_str(obj, "template_name"))
+                            .or_else(|| extract_json_str(obj, "TemplateName"))
+                            .unwrap_or_else(|| format!("Template-{}", scanned_count));
+                        let name_flags = extract_json_u32(obj, "msPKI-Certificate-Name-Flag")
+                            .or_else(|| extract_json_u32(obj, "name_flags"))
+                            .unwrap_or(0);
+                        let enroll_flags = extract_json_u32(obj, "msPKI-Enrollment-Flag")
+                            .or_else(|| extract_json_u32(obj, "enrollment_flags"))
+                            .unwrap_or(0);
+                        let ra_sigs = extract_json_u32(obj, "msPKI-RA-Signature")
+                            .or_else(|| extract_json_u32(obj, "authorized_signatures"))
+                            .or_else(|| extract_json_u32(obj, "ra_signatures"))
+                            .unwrap_or(0);
+                        let ekus = extract_json_str_array(obj, "pKIExtendedKeyUsage");
+                        let writers = extract_json_str_array(obj, "low_privileged_writers");
+                        let f = evaluate_template(&name, name_flags, enroll_flags, ra_sigs, &ekus, &writers);
+                        all_findings.extend(f);
+                    }
                 }
+            } else {
+                scanned_count = 1;
+                let mut name_flags = 0;
+                if content.contains("CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT") {
+                    name_flags |= CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT;
+                }
+                let mut enroll_flags = 0;
+                if content.contains("CT_FLAG_NO_SECURITY_EXTENSION") {
+                    enroll_flags |= CT_FLAG_NO_SECURITY_EXTENSION;
+                }
+                let mut ekus = Vec::new();
+                if content.contains(OID_CLIENT_AUTH) || content.contains("Client Auth") {
+                    ekus.push(OID_CLIENT_AUTH.to_string());
+                }
+                let f = evaluate_template("Template-1", name_flags, enroll_flags, 0, &ekus, &[]);
+                all_findings.extend(f);
             }
-        } else {
-            scanned_count = 1;
-            let mut name_flags = 0;
-            if content.contains("CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT") {
-                name_flags |= CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT;
-            }
-            let mut enroll_flags = 0;
-            if content.contains("CT_FLAG_NO_SECURITY_EXTENSION") {
-                enroll_flags |= CT_FLAG_NO_SECURITY_EXTENSION;
-            }
-            let mut ekus = Vec::new();
-            if content.contains(OID_CLIENT_AUTH) || content.contains("Client Auth") {
-                ekus.push(OID_CLIENT_AUTH.to_string());
-            }
-            let f = evaluate_template("Template-1", name_flags, enroll_flags, 0, &ekus, &[]);
-            all_findings.extend(f);
         }
     }
 

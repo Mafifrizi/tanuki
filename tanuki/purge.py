@@ -57,7 +57,17 @@ def shred_file(file_path: str, passes: int = 3) -> Dict[str, Any]:
         }
 
     try:
-        file_size = os.path.getsize(file_path)
+        st = os.lstat(file_path)
+        if hasattr(os, "getuid"):
+            current_uid = os.getuid()
+            if current_uid != 0 and st.st_uid != current_uid:
+                return {
+                    "path": file_path,
+                    "status": "ERROR",
+                    "error": f"Refusing to shred file owned by UID {st.st_uid} (current UID: {current_uid})",
+                    "bytes_shredded": 0,
+                }
+        file_size = st.st_size
     except OSError as exc:
         return {"path": file_path, "status": "ERROR", "error": str(exc), "bytes_shredded": 0}
 
@@ -210,9 +220,13 @@ def run_purge(
         if env_cfg:
             candidates.append(env_cfg)
 
-        # Standard ccache locations
+        # Standard ccache locations scoped to current user when unprivileged
         if os.name != "nt":
-            candidates.extend(glob.glob("/tmp/krb5cc_*"))
+            cur_uid = getattr(os, "getuid", lambda: None)()
+            if cur_uid is not None and cur_uid != 0:
+                candidates.extend(glob.glob(f"/tmp/krb5cc_{cur_uid}*"))
+            else:
+                candidates.extend(glob.glob("/tmp/krb5cc_*"))
         candidates.extend(glob.glob("./krb5cc_*"))
         candidates.extend(glob.glob("./extracted_ccache/*.ccache"))
         candidates.extend(glob.glob("./extracted_ccache/ticket_*.ccache"))

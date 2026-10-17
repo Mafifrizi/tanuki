@@ -143,6 +143,7 @@ class TestPacDecoder(unittest.TestCase):
         self.assertEqual(report["buffer_count"], 2)
         logon = report["logon_info"]
         self.assertIsNotNone(logon)
+        self.assertEqual(logon["user_name"], "adm_ops")
         self.assertTrue(logon["is_domain_admin"])
         self.assertTrue(logon["unconstrained_delegation"])
         self.assertIn(DOMAIN_ADMINS_RID, logon["group_rids"])
@@ -152,6 +153,7 @@ class TestPacDecoder(unittest.TestCase):
         pac_data = build_synthetic_pac_bytes(user_name="regular_user", is_da=False, unconstrained=False)
         report = parse_pac_bytes(pac_data)
         logon = report["logon_info"]
+        self.assertEqual(logon["user_name"], "regular_user")
         self.assertFalse(logon["is_domain_admin"])
         self.assertFalse(logon["unconstrained_delegation"])
 
@@ -160,6 +162,7 @@ class TestPacDecoder(unittest.TestCase):
         hex_str = pac_data.hex()
         report = parse_pac(hex_str)
         self.assertEqual(report["status"], "SUCCESS")
+        self.assertEqual(report["logon_info"]["user_name"], "hex_user")
 
     def test_parse_pac_file_input(self):
         pac_data = build_synthetic_pac_bytes(user_name="file_user", is_da=True)
@@ -170,6 +173,7 @@ class TestPacDecoder(unittest.TestCase):
             report = parse_pac(tmp_path)
             self.assertEqual(report["status"], "SUCCESS")
             logon = report["logon_info"]
+            self.assertEqual(logon["user_name"], "file_user")
             self.assertTrue(logon["is_domain_admin"])
         finally:
             if os.path.exists(tmp_path):

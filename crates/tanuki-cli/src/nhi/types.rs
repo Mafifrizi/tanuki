@@ -305,6 +305,12 @@ impl TokenValidationReport {
         if let Some(aud) = &self.parameters.audience {
             param_entries.push(format!("    \"audience\": \"{}\"", escape_json(aud)));
         }
+        if let Some(res) = &self.parameters.resource {
+            param_entries.push(format!("    \"resource\": \"{}\"", escape_json(res)));
+        }
+        if let Some(sc) = &self.parameters.scope {
+            param_entries.push(format!("    \"scope\": \"{}\"", escape_json(sc)));
+        }
         out.push_str(&param_entries.join(",\n"));
         out.push_str("\n  },\n");
 

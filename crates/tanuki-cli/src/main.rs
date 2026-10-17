@@ -121,17 +121,17 @@ fn emit_cli_error(
         let status = if exit_code == EXIT_POLICY_STOP { "REFUSED" } else { "ERROR" };
         let mut out = format!(
             "{{\n  \"status\": \"{}\",\n  \"reason_code\": \"{}\",\n  \"category\": \"{}\",\n  \"exit_code\": {},\n  \"message\": \"{}\"",
-            status,
-            reason_code,
-            category,
+            escape_json(status),
+            escape_json(reason_code),
+            escape_json(category),
             exit_code,
-            message.replace('\\', "\\\\").replace('"', "\\\"")
+            escape_json(message)
         );
         if let Some(t) = target {
-            out.push_str(&format!(",\n  \"target\": \"{}\"", t.replace('\\', "\\\\").replace('"', "\\\"")));
+            out.push_str(&format!(",\n  \"target\": \"{}\"", escape_json(t)));
         }
         if let Some(d) = details {
-            out.push_str(&format!(",\n  \"details\": \"{}\"", d.replace('\\', "\\\\").replace('"', "\\\"")));
+            out.push_str(&format!(",\n  \"details\": \"{}\"", escape_json(d)));
         }
         out.push_str("\n}");
         println!("{}", out);
@@ -381,36 +381,96 @@ fn main() {
                 if i + 1 < raw_args.len() {
                     file_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "-o" | "--out" => {
                 if i + 1 < raw_args.len() {
                     out_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "-u" | "--username" | "--user" => {
                 if i + 1 < raw_args.len() {
                     username_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--password" => {
                 if i + 1 < raw_args.len() {
                     password_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --password",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--principal" => {
                 if i + 1 < raw_args.len() {
                     principal_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --principal",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--spn" => {
                 if i + 1 < raw_args.len() {
                     spn_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --spn",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "-p" => {
@@ -418,6 +478,16 @@ fn main() {
                     principal_opt = Some(raw_args[i + 1].clone());
                     password_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: -p",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--ad-supported-enctypes" | "--ad-enctypes" => {
@@ -430,18 +500,48 @@ fn main() {
                     };
                     ad_supported_enctypes_opt = parsed;
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--ad-kvno" => {
                 if i + 1 < raw_args.len() {
                     ad_kvno_opt = raw_args[i + 1].parse::<u32>().ok();
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --ad-kvno",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "-a" | "--audience" => {
                 if i + 1 < raw_args.len() {
                     audience_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--interactive" => {
@@ -475,66 +575,176 @@ fn main() {
                 if i + 1 < raw_args.len() {
                     grant_type_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --grant-type",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--subject-token" => {
                 if i + 1 < raw_args.len() {
                     subject_token_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --subject-token",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--subject-token-type" => {
                 if i + 1 < raw_args.len() {
                     subject_token_type_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --subject-token-type",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--requested-token-type" => {
                 if i + 1 < raw_args.len() {
                     requested_token_type_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --requested-token-type",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--keytab" => {
                 if i + 1 < raw_args.len() {
                     keytab_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --keytab",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--krb5-conf" => {
                 if i + 1 < raw_args.len() {
                     krb5_conf_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --krb5-conf",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--sssd-pipe" => {
                 if i + 1 < raw_args.len() {
                     sssd_pipe_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --sssd-pipe",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--sssd-pid" => {
                 if i + 1 < raw_args.len() {
                     sssd_pid_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --sssd-pid",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--secrets-path" => {
                 if i + 1 < raw_args.len() {
                     secrets_path_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --secrets-path",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--ccache" => {
                 if i + 1 < raw_args.len() {
                     ccache_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --ccache",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--realm" => {
                 if i + 1 < raw_args.len() {
                     realm_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --realm",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--kdc" => {
@@ -547,12 +757,32 @@ fn main() {
                         kdc_opt = Some(k);
                     }
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --kdc",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--admin-server" => {
                 if i + 1 < raw_args.len() {
                     admin_server_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --admin-server",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--clock-skew" | "--clockskew" => {
@@ -572,6 +802,16 @@ fn main() {
                         }
                     }
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--use-ctypes" => {
@@ -615,6 +855,16 @@ fn main() {
                 if i + 1 < raw_args.len() {
                     host_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--ssl" => {
@@ -627,18 +877,48 @@ fn main() {
                 if i + 1 < raw_args.len() {
                     endpoint_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --endpoint",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--query" => {
                 if i + 1 < raw_args.len() {
                     query_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --query",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--base-dn" => {
                 if i + 1 < raw_args.len() {
                     base_dn_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --base-dn",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--port" => {
@@ -647,12 +927,32 @@ fn main() {
                         port_opt = Some(p);
                     }
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --port",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             "--krb-error" | "--error" => {
                 if i + 1 < raw_args.len() {
                     krb_error_opt = Some(raw_args[i + 1].clone());
                     i += 1;
+                } else {
+                    emit_cli_error(
+                        &format!("Option requires an argument: {}", raw_args[i]),
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
                 }
             }
             cmd if explicit_command.is_none()
@@ -1167,6 +1467,19 @@ fn handle_config(
 
     let target_file = out_path.unwrap_or_else(|| "./krb5.conf".to_string());
     let target_path = PathBuf::from(&target_file);
+    if let Ok(meta) = fs::symlink_metadata(&target_path) {
+        if meta.file_type().is_symlink() {
+            emit_cli_error(
+                &format!("Refusing to write configuration to symbolic link: {}", target_file),
+                "SYMLINK_REJECTED",
+                "USAGE_ERROR",
+                EXIT_USAGE_ERROR,
+                Some(&target_file),
+                None,
+                json_output,
+            );
+        }
+    }
     if let Some(parent) = target_path.parent() {
         if !parent.as_os_str().is_empty() {
             let _ = fs::create_dir_all(parent);
@@ -1201,11 +1514,11 @@ fn handle_config(
     if json_output {
         let mut out = format!(
             "{{\n  \"status\": \"SUCCESS\",\n  \"realm\": \"{}\",\n  \"kdc\": \"{}\",\n  \"admin_server\": \"{}\",\n  \"config_path\": \"{}\",\n  \"export_command\": \"{}\"",
-            clean_realm,
-            kdc.trim(),
-            target_admin,
-            abs_str.replace('\\', "\\\\").replace('"', "\\\""),
-            export_cmd.replace('\\', "\\\\").replace('"', "\\\""),
+            tanuki::escape_json(&clean_realm),
+            tanuki::escape_json(kdc.trim()),
+            tanuki::escape_json(target_admin),
+            tanuki::escape_json(&abs_str),
+            tanuki::escape_json(&export_cmd),
         );
         if let Some(skew) = clock_skew_opt {
             out.push_str(&format!(",\n  \"clockskew\": {}", skew));
@@ -1338,10 +1651,23 @@ fn handle_auth(
         },
     };
 
+    if princ.trim().starts_with('-') {
+        emit_cli_error(
+            &format!("Invalid principal name starting with '-': '{}'", princ),
+            "INVALID_ARGUMENT",
+            "USAGE_ERROR",
+            EXIT_USAGE_ERROR,
+            Some(&kt_path),
+            None,
+            json_output,
+        );
+    }
+
     // Fast non-blocking socket probe (<800ms) before initiating Kerberos auth over live wire
     let mut target_kdc_host = kdc_opt;
     if target_kdc_host.is_none() {
-        let conf_path = krb5_conf_opt.as_deref().unwrap_or("/etc/krb5.conf");
+        let conf_env = env::var("KRB5_CONFIG").ok();
+        let conf_path = krb5_conf_opt.as_deref().or(conf_env.as_deref()).unwrap_or("/etc/krb5.conf");
         if let Ok(conf_str) = fs::read_to_string(conf_path) {
             for line in conf_str.lines() {
                 let trimmed = line.trim();
@@ -1401,6 +1727,20 @@ fn handle_auth(
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
         .unwrap_or(fallback_cc);
 
+    if let Ok(meta) = fs::symlink_metadata(&ccache) {
+        if meta.file_type().is_symlink() {
+            emit_cli_error(
+                &format!("Refusing to write credential cache to symbolic link: {}", ccache),
+                "SYMLINK_REJECTED",
+                "SECURITY_VIOLATION",
+                EXIT_POLICY_STOP,
+                Some(&ccache),
+                None,
+                json_output,
+            );
+        }
+    }
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -1408,11 +1748,12 @@ fn handle_auth(
     }
 
     let mut cmd = process::Command::new("kinit");
-    cmd.args(["-k", "-t", &kt_path, &princ])
+    cmd.args(["-k", "-t", &kt_path, "-c", &ccache])
         .env("KRB5CCNAME", format!("FILE:{}", ccache));
     if let Some(ref armor) = armor_cache_opt {
         cmd.args(["-T", armor]);
     }
+    cmd.arg(&princ);
     if let Some(ref conf) = krb5_conf_opt {
         cmd.env("KRB5_CONFIG", conf);
     }
@@ -1423,13 +1764,16 @@ fn handle_auth(
             if json_output {
                 let mut json_str = format!(
                     "{{\n  \"status\": \"SUCCESS\",\n  \"method\": \"kinit\",\n  \"principal\": \"{}\",\n  \"keytab\": \"{}\",\n  \"ccache\": \"{}\",\n  \"export_command\": \"export KRB5CCNAME={}\"",
-                    princ, kt_path, ccache, ccache
+                    escape_json(&princ),
+                    escape_json(&kt_path),
+                    escape_json(&ccache),
+                    escape_json(&ccache)
                 );
                 if fast {
                     json_str.push_str(",\n  \"fast\": true");
                 }
                 if let Some(ref armor) = armor_cache_opt {
-                    json_str.push_str(&format!(",\n  \"armor_cache\": \"{}\"", armor));
+                    json_str.push_str(&format!(",\n  \"armor_cache\": \"{}\"", tanuki::escape_json(armor)));
                 }
                 json_str.push_str("\n}");
                 println!("{}", json_str);
@@ -1697,7 +2041,9 @@ fn handle_doctor(
 ) {
     let opts = DoctorOptions {
         keytab_path: keytab_path.or_else(|| Some("/etc/krb5.keytab".to_string())),
-        krb5_conf_path: krb5_conf.or_else(|| Some("/etc/krb5.conf".to_string())),
+        krb5_conf_path: krb5_conf
+            .or_else(|| env::var("KRB5_CONFIG").ok())
+            .or_else(|| Some("/etc/krb5.conf".to_string())),
         sssd_pipe: sssd_pipe.or_else(|| Some("/var/lib/sss/pipes/kcm".to_string())),
         sssd_pid: sssd_pid.or_else(|| Some("/var/run/sssd.pid".to_string())),
         secrets_path: secrets_path.or_else(|| Some("/var/lib/sss/secrets/secrets.ldb".to_string())),
@@ -1905,7 +2251,7 @@ fn handle_nhi(
                 }
             }
             if json_output {
-                let items: Vec<String> = found.iter().map(|p| format!("\"{}\"", p)).collect();
+                let items: Vec<String> = found.iter().map(|p| format!("\"{}\"", escape_json(p))).collect();
                 println!("{{\n  \"discovered_tokens\": [{}]\n}}", items.join(", "));
             } else {
                 print_card_header("TANUKI NHI PASSIVE TOKEN SCANNER", Some("Filesystem Workload Identity Probes"), 72);
@@ -2225,13 +2571,36 @@ fn handle_tgs(
         }
     };
 
+    if spn.starts_with('-') {
+        emit_cli_error(
+            &format!("Invalid SPN starting with '-': '{}'", spn),
+            "INVALID_ARGUMENT",
+            "USAGE_ERROR",
+            EXIT_USAGE_ERROR,
+            None,
+            None,
+            json_output,
+        );
+    }
+
     if let Some(ref kt) = keytab_path_opt {
         if Path::new(kt).exists() {
             let fallback_cc = format!("/tmp/krb5cc_{}", resolve_current_uid());
             let cc = ccache_path_opt.clone().unwrap_or(fallback_cc);
             let mut cmd = process::Command::new("kinit");
-            cmd.args(["-k", "-t", kt]);
+            cmd.args(["-k", "-t", kt, "-c", &cc]);
             if let Some(ref p) = principal_opt {
+                if p.trim().starts_with('-') {
+                    emit_cli_error(
+                        &format!("Invalid principal starting with '-': '{}'", p),
+                        "INVALID_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        json_output,
+                    );
+                }
                 cmd.arg(p);
             }
             cmd.env("KRB5CCNAME", format!("FILE:{}", cc));
@@ -2406,6 +2775,173 @@ fn handle_tgs(
     }
 }
 
+fn read_ccache_principal_at(slice: &[u8], mut cursor: usize) -> Option<(String, usize)> {
+    if cursor + 12 > slice.len() {
+        return None;
+    }
+    let num_components = u32::from_be_bytes([
+        slice[cursor + 4],
+        slice[cursor + 5],
+        slice[cursor + 6],
+        slice[cursor + 7],
+    ]) as usize;
+    let realm_len = u32::from_be_bytes([
+        slice[cursor + 8],
+        slice[cursor + 9],
+        slice[cursor + 10],
+        slice[cursor + 11],
+    ]) as usize;
+    if num_components == 0 || num_components > 16 || realm_len == 0 || realm_len > 256 {
+        return None;
+    }
+    cursor += 12;
+    if cursor + realm_len > slice.len() {
+        return None;
+    }
+    let realm = std::str::from_utf8(&slice[cursor..cursor + realm_len]).ok()?;
+    cursor += realm_len;
+    let mut comps = Vec::with_capacity(num_components);
+    for _ in 0..num_components {
+        if cursor + 4 > slice.len() {
+            return None;
+        }
+        let clen = u32::from_be_bytes([
+            slice[cursor],
+            slice[cursor + 1],
+            slice[cursor + 2],
+            slice[cursor + 3],
+        ]) as usize;
+        cursor += 4;
+        if clen == 0 || clen > 256 || cursor + clen > slice.len() {
+            return None;
+        }
+        let comp = std::str::from_utf8(&slice[cursor..cursor + clen]).ok()?;
+        comps.push(comp);
+        cursor += clen;
+    }
+    Some((format!("{}@{}", comps.join("/"), realm), cursor))
+}
+
+fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>) {
+    let mut spns = Vec::new();
+    let mut cursor = if bytes.len() >= 4 && bytes[0] == 0x05 && bytes[1] == 0x04 {
+        let hlen = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
+        if 4 + hlen > bytes.len() {
+            return (None, spns);
+        }
+        4 + hlen
+    } else if bytes.len() >= 2 && bytes[0] == 0x05 && bytes[1] == 0x03 {
+        2
+    } else {
+        let candidates = scan_for_ccache_blobs(bytes);
+        let def_p = candidates.first().and_then(|c| c.default_principal.clone());
+        return (def_p, spns);
+    };
+
+    let (def_princ, next_cur) = match read_ccache_principal_at(bytes, cursor) {
+        Some((p, c)) => (Some(p), c),
+        None => return (None, spns),
+    };
+    cursor = next_cur;
+
+    while cursor < bytes.len() {
+        let (_client, c1) = match read_ccache_principal_at(bytes, cursor) {
+            Some(v) => v,
+            None => break,
+        };
+        let (server, mut c2) = match read_ccache_principal_at(bytes, c1) {
+            Some(v) => v,
+            None => break,
+        };
+        if server.contains('/') && !server.to_ascii_lowercase().starts_with("krbtgt/") {
+            if !spns.contains(&server) {
+                spns.push(server);
+            }
+        }
+        if c2 + 4 > bytes.len() {
+            break;
+        }
+        let keylen = u16::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        c2 += 4;
+        if keylen > 4096 || c2 + keylen + 21 > bytes.len() {
+            break;
+        }
+        c2 += keylen + 21;
+        if c2 + 4 > bytes.len() {
+            break;
+        }
+        let num_addrs = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        c2 += 4;
+        if num_addrs > 1024 {
+            break;
+        }
+        let mut ok = true;
+        for _ in 0..num_addrs {
+            if c2 + 6 > bytes.len() {
+                ok = false;
+                break;
+            }
+            let alen = u32::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3], bytes[c2 + 4], bytes[c2 + 5]]) as usize;
+            c2 += 6;
+            if alen > 4096 || c2 + alen > bytes.len() {
+                ok = false;
+                break;
+            }
+            c2 += alen;
+        }
+        if !ok || c2 + 4 > bytes.len() {
+            break;
+        }
+        let num_ad = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        c2 += 4;
+        if num_ad > 1024 {
+            break;
+        }
+        for _ in 0..num_ad {
+            if c2 + 6 > bytes.len() {
+                ok = false;
+                break;
+            }
+            let adlen = u32::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3], bytes[c2 + 4], bytes[c2 + 5]]) as usize;
+            c2 += 6;
+            if adlen > 65536 || c2 + adlen > bytes.len() {
+                ok = false;
+                break;
+            }
+            c2 += adlen;
+        }
+        if !ok || c2 + 4 > bytes.len() {
+            break;
+        }
+        let tkt_len = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        c2 += 4;
+        if tkt_len > 65536 || c2 + tkt_len + 4 > bytes.len() {
+            break;
+        }
+        c2 += tkt_len;
+        let sec_len = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        c2 += 4;
+        if sec_len > 65536 || c2 + sec_len > bytes.len() {
+            break;
+        }
+        cursor = c2 + sec_len;
+    }
+
+    (def_princ, spns)
+}
+
+fn is_ccache_path(path: &str) -> bool {
+    if path.ends_with(".ccache") {
+        return true;
+    }
+    if let Ok(bytes) = fs::read(path) {
+        if bytes.len() >= 2 && bytes[0] == 0x05 && (bytes[1] == 0x03 || bytes[1] == 0x04) {
+            return true;
+        }
+    }
+    false
+}
+
 fn handle_blast(
     source_opt: Option<String>,
     ccache_opt: Option<String>,
@@ -2419,7 +2955,7 @@ fn handle_blast(
     json_output: bool,
 ) {
     let mut principal = "unknown@CORP.LOCAL".to_string();
-    let mut user_sid = "S-1-5-21-3524859768-892044447-4268052392-1105".to_string();
+    let mut extracted_user_sid: Option<String> = None;
     let mut primary_group_rid: Option<u32> = None;
     let mut group_rids: Vec<u32> = Vec::new();
     let mut uac_flags: Vec<String> = Vec::new();
@@ -2429,10 +2965,18 @@ fn handle_blast(
         accessible_spns.push(s.clone());
     }
 
+    let source_is_ccache = source_opt.as_deref().map(is_ccache_path).unwrap_or(false);
+
     // 0. Check explicit principal in source_opt
     if let Some(ref src) = source_opt {
         let s = src.trim();
-        if (s.contains('@') || s.contains('/')) && !s.ends_with(".keytab") && !s.ends_with(".bin") && !s.ends_with(".pac") {
+        if (s.contains('@') || s.contains('/'))
+            && !s.ends_with(".keytab")
+            && !source_is_ccache
+            && !s.ends_with(".bin")
+            && !s.ends_with(".pac")
+            && !Path::new(s).is_file()
+        {
             principal = s.to_string();
             if principal.contains('/') && !accessible_spns.contains(&principal) {
                 accessible_spns.push(principal.clone());
@@ -2443,7 +2987,7 @@ fn handle_blast(
     // 1. Check PAC
     let target_pac = pac_source_opt.or_else(|| {
         if let Some(ref s) = source_opt {
-            if !s.ends_with(".keytab") {
+            if !s.ends_with(".keytab") && !source_is_ccache {
                 Some(s.clone())
             } else {
                 None
@@ -2460,7 +3004,7 @@ fn handle_blast(
                     principal = logon.user_name.clone();
                 }
                 if !logon.user_sid.is_empty() {
-                    user_sid = logon.user_sid.clone();
+                    extracted_user_sid = Some(logon.user_sid.clone());
                 }
                 primary_group_rid = Some(logon.primary_group_rid);
                 group_rids = logon.group_rids.clone();
@@ -2498,28 +3042,38 @@ fn handle_blast(
     }
 
     // 3. Check Credential Cache
-    let target_cc = ccache_opt.or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()));
+    let target_cc = ccache_opt
+        .or_else(|| {
+            if let Some(ref s) = source_opt {
+                if source_is_ccache {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()));
     if let Some(ref cc_path) = target_cc {
         if let Ok(bytes) = fs::read(cc_path) {
-            let candidates = scan_for_ccache_blobs(&bytes);
-            if let Some(c) = candidates.first() {
-                if let Some(ref p) = c.default_principal {
-                    if !p.is_empty() && principal == "unknown@CORP.LOCAL" {
-                        principal = p.clone();
-                    }
+            let (def_p, cc_spns) = parse_ccache_principal_and_spns(&bytes);
+            if let Some(p) = def_p {
+                if !p.is_empty() && principal == "unknown@CORP.LOCAL" {
+                    principal = p;
+                }
+            }
+            for spn in cc_spns {
+                if !accessible_spns.contains(&spn) {
+                    accessible_spns.push(spn);
                 }
             }
         }
     }
 
-    // 4. Default accessible SPNs if none discovered
-    if accessible_spns.is_empty() {
-        if principal.contains('/') {
-            accessible_spns.push(principal.clone());
-        } else {
-            let realm = principal.split('@').nth(1).unwrap_or("CORP.LOCAL");
-            accessible_spns.push(format!("HTTP/tanuki-app.lab.local@{}", realm));
-        }
+    // 4. Populate SPN if principal itself is an SPN
+    if accessible_spns.is_empty() && principal.contains('/') {
+        accessible_spns.push(principal.clone());
     }
 
     // 5. Query LDAP if host provided
@@ -2537,36 +3091,82 @@ fn handle_blast(
             password_opt.as_deref(),
         );
         if ldap_rep.status == "SUCCESS" {
+            let clean_acc = tanuki::extract_ad_account_name(&principal)
+                .trim_end_matches('$')
+                .to_ascii_lowercase();
+            let mut candidate_sids = Vec::new();
+            if let Some(ref u_sid) = extracted_user_sid {
+                candidate_sids.push(u_sid.clone());
+                if let Some((dom_prefix, _)) = u_sid.rsplit_once('-') {
+                    if let Some(pg) = primary_group_rid {
+                        candidate_sids.push(format!("{}-{}", dom_prefix, pg));
+                    }
+                    for r in &group_rids {
+                        candidate_sids.push(format!("{}-{}", dom_prefix, r));
+                    }
+                }
+            }
             for entry in ldap_rep.entries {
                 if entry.query_category == "spn" {
+                    let mut sam_matches = false;
                     for (k, vals) in &entry.attributes {
-                        if k.eq_ignore_ascii_case("servicePrincipalName") {
-                            for spn in vals {
-                                if !accessible_spns.contains(spn) {
-                                    accessible_spns.push(spn.clone());
+                        if k.eq_ignore_ascii_case("sAMAccountName") {
+                            for v in vals {
+                                if v.trim_end_matches('$').to_ascii_lowercase() == clean_acc {
+                                    sam_matches = true;
+                                    break;
+                                                                }
+                            }
+                        }
+                    }
+                    if sam_matches {
+                        for (k, vals) in &entry.attributes {
+                            if k.eq_ignore_ascii_case("servicePrincipalName") {
+                                for spn in vals {
+                                    if !accessible_spns.contains(spn) {
+                                        accessible_spns.push(spn.clone());
+                                    }
                                 }
                             }
                         }
                     }
                 } else if entry.query_category == "rbcd" {
-                    rbcd_target_count += 1;
+                    if candidate_sids.is_empty() {
+                        rbcd_target_count += 1;
+                    } else {
+                        let mut matches_trustee = false;
+                        for (k, vals) in &entry.attributes {
+                            if k.eq_ignore_ascii_case("allowed_trustee_sids") {
+                                for v in vals {
+                                    if candidate_sids.iter().any(|cs| cs == v) {
+                                        matches_trustee = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if matches_trustee {
+                            rbcd_target_count += 1;
+                        }
+                    }
                 }
             }
         }
     }
 
-    let has_spn = principal.contains('/');
+    let has_spn = principal.contains('/') || !accessible_spns.is_empty();
     let is_dc = principal.ends_with("$@LAB.LOCAL") || principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
 
     let tier_info = classify_identity_tier(
         &principal,
-        Some(&user_sid),
+        extracted_user_sid.as_deref(),
         primary_group_rid,
         &group_rids,
         &uac_flags,
         has_spn,
         is_dc,
     );
+    let user_sid = extracted_user_sid.unwrap_or_else(|| "S-1-5-21-3524859768-892044447-4268052392-1105".to_string());
 
     let (blast_score, severity, lateral_paths) = evaluate_blast_radius(
         &tier_info,

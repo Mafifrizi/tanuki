@@ -9,6 +9,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/dist/bin"
 
 TARGET="${1:-x86_64-unknown-linux-musl}"
+if [[ ! "${TARGET}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "[!] Error: Invalid target triple '${TARGET}'." >&2
+    exit 1
+fi
 
 echo "[*] Tanuki Static Musl Build Pipeline"
 echo "    Target Architecture: ${TARGET}"
@@ -40,8 +44,9 @@ elif command -v docker &>/dev/null; then
     docker run --rm \
         -v "${REPO_ROOT}:/volume" \
         -w /volume \
+        -e "TARGET=${TARGET}" \
         rust:alpine \
-        sh -c "apk add --no-cache musl-dev && cargo build --release --target ${TARGET} && strip target/${TARGET}/release/tanuki"
+        sh -c 'apk add --no-cache musl-dev && cargo build --release --target "${TARGET}" && strip "target/${TARGET}/release/tanuki"'
         
     BIN_SRC="${REPO_ROOT}/target/${TARGET}/release/tanuki"
     BIN_DEST="${OUTPUT_DIR}/tanuki-${TARGET}"

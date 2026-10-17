@@ -417,8 +417,19 @@ def run_blast(
     if source:
         s_clean = source.strip()
         if os.path.isfile(s_clean):
+            is_ccache = s_clean.endswith(".ccache")
+            if not is_ccache and not s_clean.endswith(".keytab"):
+                try:
+                    with open(s_clean, "rb") as f:
+                        magic = f.read(2)
+                    if magic in (b"\x05\x04", b"\x05\x03"):
+                        is_ccache = True
+                except OSError:
+                    pass
             if s_clean.endswith(".keytab") and not keytab_path:
                 keytab_path = s_clean
+            elif is_ccache and not ccache_path:
+                ccache_path = s_clean
             elif not pac_source:
                 pac_source = s_clean
         elif "@" in s_clean or "/" in s_clean:
@@ -457,19 +468,44 @@ def run_blast(
     # 3. Extract principal from ccache if provided or available
     target_cc = ccache_path or os.environ.get("KRB5CCNAME")
     if not pac_source and not keytab_path and target_cc:
-        clean_cc = target_cc.replace("FILE:", "")
+        clean_cc = target_cc[5:] if target_cc.startswith("FILE:") else target_cc
         if os.path.isfile(clean_cc):
             try:
-                from .doctor import parse_ccache_stream
+                import io
+                import struct
+                from .doctor import _read_principal, parse_ccache_stream
                 with open(clean_cc, "rb") as f:
-                    cc_data = parse_ccache_stream(f.read())
-                    if cc_data.get("client_principal"):
-                        principal = cc_data["client_principal"]
-                    for cred in cc_data.get("credentials", []):
-                        s_princ = cred.get("server_principal")
+                    raw_cc = f.read()
+                cc_data = parse_ccache_stream(io.BytesIO(raw_cc))
+                if cc_data:
+                    princ_cand = (
+                        cc_data.get("default_principal")
+                        or cc_data.get("client")
+                        or cc_data.get("client_principal")
+                    )
+                    if princ_cand:
+                        principal = princ_cand
+                    tickets = cc_data.get("tickets") or cc_data.get("credentials") or []
+                    for cred in tickets:
+                        s_princ = cred.get("server") or cred.get("server_principal")
                         if s_princ and not s_princ.startswith("krbtgt/"):
                             if s_princ not in accessible_spns:
                                 accessible_spns.append(s_princ)
+                else:
+                    stream = io.BytesIO(raw_cc)
+                    magic = stream.read(2)
+                    if magic == b"\x05\x04":
+                        hlen_b = stream.read(2)
+                        if len(hlen_b) == 2:
+                            (hlen,) = struct.unpack(">H", hlen_b)
+                            stream.read(hlen)
+                            dp = _read_principal(stream)
+                            if dp:
+                                principal = dp
+                    elif magic == b"\x05\x03":
+                        dp = _read_principal(stream)
+                        if dp:
+                            principal = dp
             except Exception:
                 pass
 
@@ -494,7 +530,16 @@ def run_blast(
                 password=password,
             )
             if ldap_res.get("status") == "SUCCESS":
-                clean_acc = extract_ad_account_name(principal).lower()
+                clean_acc = extract_ad_account_name(principal).lower().rstrip("$")
+                effective_sids = set()
+                if user_sid:
+                    effective_sids.add(user_sid)
+                    if "-" in user_sid:
+                        dom_prefix = user_sid.rsplit("-", 1)[0]
+                        if primary_group_rid is not None:
+                            effective_sids.add(f"{dom_prefix}-{primary_group_rid}")
+                        for grid in group_rids:
+                            effective_sids.add(f"{dom_prefix}-{grid}")
                 for entry in ldap_res.get("entries", []):
                     cat = entry.get("query_category")
                     attrs = entry.get("attributes", {})
@@ -503,15 +548,18 @@ def run_blast(
                         spn_list = attrs.get("servicePrincipalName", [])
                         if clean_acc in sam_names and spn_list:
                             has_spn = True
-                        for spn_val in spn_list:
-                            if isinstance(spn_val, str) and spn_val not in accessible_spns:
-                                accessible_spns.append(spn_val)
+                            for spn_val in spn_list:
+                                if isinstance(spn_val, str) and spn_val not in accessible_spns:
+                                    accessible_spns.append(spn_val)
                     elif cat == "rbcd":
-                        target_name = attrs.get("sAMAccountName", ["unknown"])[0]
-                        rbcd_targets.append({
-                            "target_name": target_name,
-                            "descriptor": entry.get("rbcd_parsed"),
-                        })
+                        rbcd_parsed = entry.get("rbcd_parsed")
+                        trustee_sids = (rbcd_parsed or {}).get("allowed_trustee_sids") or []
+                        if not effective_sids or any(s in effective_sids for s in trustee_sids):
+                            target_name = attrs.get("sAMAccountName", ["unknown"])[0]
+                            rbcd_targets.append({
+                                "target_name": target_name,
+                                "descriptor": rbcd_parsed,
+                            })
         except Exception:
             pass
 

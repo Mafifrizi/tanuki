@@ -357,6 +357,30 @@ def evaluate_ca_misconfigurations(ca_config: Dict[str, Any]) -> List[Dict[str, A
     findings: List[Dict[str, Any]] = []
     ca_name = ca_config.get("ca_name", "Enterprise-CA")
 
+    # ESC5: Vulnerable PKI Object / Container ACL Permissions
+    low_priv_pki_writers = (
+        ca_config.get("low_privileged_pki_writers")
+        or ca_config.get("low_privileged_ca_writers")
+        or []
+    )
+    if low_priv_pki_writers or ca_config.get("vulnerable_pki_acl", False):
+        writers_str = (
+            ", ".join(str(w) for w in low_priv_pki_writers)
+            if isinstance(low_priv_pki_writers, list) and low_priv_pki_writers
+            else "low-privileged principals"
+        )
+        findings.append({
+            "vector": "ESC5",
+            "severity": "CRITICAL",
+            "ca": ca_name,
+            "title": "Vulnerable PKI Object or Container ACL Permissions",
+            "description": (
+                f"PKI architecture or CA object '{ca_name}' grants write/modify ACL permissions "
+                f"on PKI containers (CN=Public Key Services) to {writers_str}."
+            ),
+            "remediation": "Restrict write/owner permissions on CN=Public Key Services and CA objects to Enterprise/Domain Admins.",
+        })
+
     # ESC6: EDITF_ATTRIBUTESUBJECTALTNAME2 Enabled on CA
     if ca_config.get("EDITF_ATTRIBUTESUBJECTALTNAME2") or ca_config.get("editf_san2"):
         findings.append({
@@ -437,6 +461,20 @@ def evaluate_ca_misconfigurations(ca_config: Dict[str, Any]) -> List[Dict[str, A
     return findings
 
 
+_CA_CONFIG_KEYS = {
+    "ca_name",
+    "EDITF_ATTRIBUTESUBJECTALTNAME2",
+    "editf_san2",
+    "low_privileged_ca_managers",
+    "low_privileged_pki_writers",
+    "low_privileged_ca_writers",
+    "vulnerable_pki_acl",
+    "http_enrollment_enabled",
+    "CertificateMappingMethods",
+    "rpc_enrollment_without_packet_privacy",
+}
+
+
 def scan_adcs(
     source: Optional[str] = None,
     templates: Optional[List[Dict[str, Any]]] = None,
@@ -468,10 +506,17 @@ def scan_adcs(
             templates = loaded
 
     if templates:
-        scanned_templates_count = len(templates)
         for tmpl in templates:
-            t_findings = evaluate_template_misconfigurations(tmpl)
-            all_findings.extend(t_findings)
+            if isinstance(tmpl, dict) and any(k in tmpl for k in _CA_CONFIG_KEYS) and not any(
+                k in tmpl for k in ("msPKI-Certificate-Name-Flag", "msPKI-Enrollment-Flag", "pKIExtendedKeyUsage")
+            ):
+                all_findings.extend(evaluate_ca_misconfigurations(tmpl))
+            else:
+                scanned_templates_count += 1
+                t_findings = evaluate_template_misconfigurations(tmpl)
+                all_findings.extend(t_findings)
+                if isinstance(tmpl, dict) and any(k in tmpl for k in _CA_CONFIG_KEYS):
+                    all_findings.extend(evaluate_ca_misconfigurations(tmpl))
 
     if ca_config:
         ca_findings = evaluate_ca_misconfigurations(ca_config)
