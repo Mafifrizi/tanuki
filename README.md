@@ -12,7 +12,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.3.0-blue.svg" alt="Version 1.3.0">
+  <img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version 2.0.0">
+  <img src="https://img.shields.io/badge/hackathon-Kartika%20Cyber%20Hackathon%202026-f02c2c.svg" alt="Kartika Cyber Hackathon 2026">
   <img src="https://img.shields.io/badge/rust-1.75+-dea584.svg" alt="Rust 1.75+">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
