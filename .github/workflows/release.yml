@@ -65,6 +65,7 @@ jobs:
           path: dist/*
 
       - name: Upload Assets to Existing GitHub Release
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -72,7 +73,7 @@ jobs:
           if ! gh release view "$tag_name" >/dev/null 2>&1; then
             gh release create "$tag_name" --title "$tag_name" --generate-notes
           fi
-          gh release upload "$tag_name" dist/* --clobber
+          gh release upload "$tag_name" dist/* --clobber || true
 
   publish-container:
     name: Build and Publish Container to GitHub Packages (GHCR)
@@ -146,6 +147,7 @@ jobs:
 
       - name: Attach Compiled Binary to GitHub Release
         shell: bash
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -153,5 +155,5 @@ jobs:
           if ! gh release view "$tag_name" >/dev/null 2>&1; then
             gh release create "$tag_name" --title "$tag_name" --generate-notes
           fi
-          gh release upload "$tag_name" release_assets/* --clobber
+          gh release upload "$tag_name" release_assets/* --clobber || true
 
