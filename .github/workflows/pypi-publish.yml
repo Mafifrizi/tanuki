@@ -48,12 +48,14 @@ jobs:
       - name: Publish to PyPI via Trusted Publishing (OIDC)
         if: env.PYPI_API_TOKEN == ''
         uses: pypa/gh-action-pypi-publish@release/v1
+        continue-on-error: true
         with:
           skip-existing: true
 
       - name: Publish to PyPI via API Token
         if: env.PYPI_API_TOKEN != ''
         uses: pypa/gh-action-pypi-publish@release/v1
+        continue-on-error: true
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
