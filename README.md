@@ -605,7 +605,7 @@ tanuki/
 │       └── release.yml        # CI/CD test, release asset, and GHCR container packaging
 ├── Dockerfile                 # Distroless/slim container specification
 ├── Cargo.toml                 # Root workspace manifest
-├── pyproject.toml             # Python PEP 621 package specification (v1.3.0)
+├── pyproject.toml             # Python PEP 621 package specification (v2.0.0)
 ├── install.sh                 # 1-line POSIX installer (Linux & macOS)
 ├── install.ps1                # 1-line PowerShell installer (Windows)
 ├── crates/
@@ -630,7 +630,7 @@ tanuki/
 │       └── tests/
 │           └── integration_tests.rs
 ├── tanuki/                    # Unified Python package
-│   ├── __init__.py            # Library exports (v1.3.0)
+│   ├── __init__.py            # Library exports (v2.0.0)
 │   ├── __main__.py            # python -m tanuki execution
 │   ├── adcs.py                # Passive ADCS template misconfiguration scanner
 │   ├── auth.py                # Unprivileged ctypes TGT & TGS acquisition
