@@ -18,7 +18,7 @@ from .keytab import parse_keytab_file
 
 
 def find_krb5_library() -> Optional[str]:
-    """Locate libkrb5 or libgssapi_krb5 shared library on the host."""
+    """Locate libkrb5 or libgssapi_krb5 shared library on the host in trusted directories."""
     trusted_abs_candidates = [
         "/usr/lib/x86_64-linux-gnu/libkrb5.so.3",
         "/usr/lib/aarch64-linux-gnu/libkrb5.so.3",
@@ -26,6 +26,10 @@ def find_krb5_library() -> Optional[str]:
         "/usr/lib/libkrb5.so.3",
         "/lib/x86_64-linux-gnu/libkrb5.so.3",
         "/lib64/libkrb5.so.3",
+        "/usr/lib/x86_64-linux-gnu/libgssapi_krb5.so.2",
+        "/usr/lib/aarch64-linux-gnu/libgssapi_krb5.so.2",
+        "/usr/lib64/libgssapi_krb5.so.2",
+        "/usr/lib/libgssapi_krb5.so.2",
     ]
     for cand in trusted_abs_candidates:
         if os.path.isabs(cand) and not os.path.islink(cand) and os.path.isfile(cand):
@@ -35,38 +39,34 @@ def find_krb5_library() -> Optional[str]:
             except OSError:
                 pass
 
-    soname_candidates = [
-        "/usr/lib/x86_64-linux-gnu/libkrb5.so.3",
-        "/usr/lib/aarch64-linux-gnu/libkrb5.so.3",
-        "/usr/lib64/libkrb5.so.3",
-        "/usr/lib/libkrb5.so.3",
-        "libkrb5.so.3",
-        "libkrb5.so",
-        "libgssapi_krb5.so.2",
-    ]
+    trusted_prefixes = ("/usr/lib", "/lib", "/usr/local/lib")
     cwd = os.getcwd()
-    for cand in soname_candidates:
-        if not os.path.isabs(cand):
-            if "/" in cand or "\\" in cand or os.path.exists(os.path.join(cwd, cand)):
-                continue
-        try:
-            ctypes.CDLL(cand)
-            return cand
-        except OSError:
-            pass
-
     for lib_short in ("krb5", "gssapi_krb5"):
         found = ctypes.util.find_library(lib_short)
         if found:
-            if not os.path.isabs(found) and (
-                "/" in found or "\\" in found or os.path.exists(os.path.join(cwd, found))
-            ):
-                continue
-            try:
-                ctypes.CDLL(found)
-                return found
-            except OSError:
-                pass
+            resolved: Optional[str] = None
+            if os.path.isabs(found):
+                resolved = os.path.realpath(found)
+            else:
+                for prefix in (
+                    "/usr/lib/x86_64-linux-gnu",
+                    "/usr/lib/aarch64-linux-gnu",
+                    "/usr/lib64",
+                    "/usr/lib",
+                    "/lib/x86_64-linux-gnu",
+                    "/lib64",
+                    "/lib",
+                ):
+                    candidate_p = os.path.join(prefix, found)
+                    if os.path.isfile(candidate_p):
+                        resolved = os.path.realpath(candidate_p)
+                        break
+            if resolved and resolved.startswith(trusted_prefixes) and os.path.isfile(resolved):
+                try:
+                    ctypes.CDLL(resolved)
+                    return resolved
+                except OSError:
+                    pass
 
     return None
 
@@ -590,7 +590,7 @@ def acquire_tgt(
         cmd = [kinit_bin, "-k", "-t", abs_keytab, "-c", abs_ccache]
         if armor_cache:
             cmd.extend(["-T", os.path.abspath(armor_cache)])
-        cmd.append(target_princ)
+        cmd.extend(["--", target_princ])
         env = dict(os.environ)
         if krb5_conf:
             env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)

@@ -923,6 +923,12 @@ def parse_ccache_stream(stream: Any) -> Optional[Dict[str, Any]]:
     return _finalize_ticket(best_ticket)
 
 
+def parse_ccache_bytes(data: bytes) -> Dict[str, Any]:
+    """Parse raw bytes of MIT Kerberos ccache v3/v4 file."""
+    res = parse_ccache_stream(io.BytesIO(data))
+    return res or {}
+
+
 def parse_proc_keys() -> List[Dict[str, Any]]:
     """Passively parse /proc/keys for active or expired Kerberos keyrings."""
     keys: List[Dict[str, Any]] = []

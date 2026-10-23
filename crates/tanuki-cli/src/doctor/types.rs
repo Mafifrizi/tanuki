@@ -17,7 +17,7 @@ impl Default for DoctorOptions {
     fn default() -> Self {
         Self {
             keytab_path: Some("/etc/krb5.keytab".to_string()),
-            krb5_conf_path: Some("/etc/krb5.conf".to_string()),
+            krb5_conf_path: None,
             sssd_pipe: Some("/var/lib/sss/pipes/kcm".to_string()),
             sssd_pid: Some("/var/run/sssd.pid".to_string()),
             secrets_path: Some("/var/lib/sss/secrets/secrets.ldb".to_string()),

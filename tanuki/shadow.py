@@ -211,14 +211,20 @@ def parse_key_credential_link(raw_input: Union[bytes, bytearray, str]) -> Dict[s
         raw_input = bytes(raw_input).decode("utf-8", errors="ignore")
     if isinstance(raw_input, str):
         clean = raw_input.strip()
-        if len(clean) < 260 and os.path.islink(clean):
-            raise ShadowCredentialDecodeError(f"Refusing to read symlink: {clean}")
-        if len(clean) < 260 and os.path.isfile(clean):
-            if os.path.getsize(clean) > 1048576:
-                raise ShadowCredentialDecodeError(f"KeyCredentialLink file exceeds 1 MB limit: {clean}")
-            with open(clean, "rb") as f:
-                raw_bytes = f.read(1048576)
-        elif clean.startswith(("B:", "b:")):
+        if len(clean) < 4096 and "\n" not in clean and "\r" not in clean:
+            try:
+                if os.path.islink(clean):
+                    raise ShadowCredentialDecodeError(f"Refusing to read symlink: {clean}")
+                if os.path.isfile(clean):
+                    if os.path.getsize(clean) > 1048576:
+                        raise ShadowCredentialDecodeError(f"KeyCredentialLink file exceeds 1 MB limit: {clean}")
+                    with open(clean, "rb") as f:
+                        raw_bytes = f.read(1048576)
+            except ShadowCredentialDecodeError:
+                raise
+            except OSError:
+                pass
+        if not raw_bytes and clean.startswith(("B:", "b:")):
             parts = clean.split(":", 3)
             if len(parts) >= 4:
                 try:

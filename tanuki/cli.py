@@ -655,6 +655,26 @@ def handle_tgs(
             json_output=json_output,
         )
 
+    if spn.strip().startswith("-"):
+        emit_cli_error(
+            f"Invalid SPN starting with '-': '{spn}'",
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            target=spn,
+            json_output=json_output,
+        )
+
+    if principal and principal.strip().startswith("-"):
+        emit_cli_error(
+            f"Invalid principal name starting with '-': '{principal}'",
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            target=principal,
+            json_output=json_output,
+        )
+
     res = acquire_tgs(
         spn=spn,
         ccache_path=ccache_path,
@@ -739,6 +759,16 @@ def handle_auth(
             reason_code="MISSING_ARGUMENT",
             category="USAGE_ERROR",
             exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+
+    if principal and principal.strip().startswith("-"):
+        emit_cli_error(
+            f"Invalid principal name starting with '-': '{principal}'",
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            target=principal,
             json_output=json_output,
         )
 

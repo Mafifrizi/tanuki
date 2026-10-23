@@ -509,7 +509,7 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
 
 pub fn parse_key_credential_link(input: &str) -> Result<ShadowCredentialReport, String> {
     let clean = input.trim();
-    if clean.len() < 260 {
+    if clean.len() < 4096 && !clean.contains('\n') && !clean.contains('\r') {
         let p = Path::new(clean);
         if let Ok(meta) = fs::symlink_metadata(p) {
             if meta.file_type().is_symlink() {

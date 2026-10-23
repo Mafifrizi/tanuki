@@ -486,7 +486,7 @@ def parse_pac_logon_info(data: bytes) -> Dict[str, Any]:
             f"PAC_LOGON_INFO fixed header truncated ({len(data) - struct_start} < {min_fixed_hdr} bytes)"
         )
 
-    # Offsets relative to struct_start:
+    # MS-PAC 2.5 NDR structure offsets relative to struct_start:
     # 48..56: EffectiveName (RPC_UNICODE_STRING)
     # 56..64: FullName (RPC_UNICODE_STRING)
     # 96..98: LogonCount (u16)
@@ -495,12 +495,9 @@ def parse_pac_logon_info(data: bytes) -> Dict[str, Any]:
     # 104..108: PrimaryGroupId (u32)
     # 108..112: GroupCount (u32)
     # 112..116: GroupIdsPtr (u32)
-    # 116..120: UserAccountControl (u32)
-    # 148..152: ResourceGroupDomainSidPtr (u32)
-    # 152..156: ResourceGroupCount (u32)
-    # 156..160: ResourceGroupIdsPtr (u32)
-    # 160..164: LogonDomainIdPtr (u32)
-    # 164..172: LogonDomainName (RPC_UNICODE_STRING)
+    # 116..120: UserFlags (u32)
+    # 144..148: LogonDomainIdPtr (u32)
+    # 156..160: UserAccountControl (u32)
 
     eff_name_hdr = struct_start + 48
     full_name_hdr = struct_start + 56
@@ -508,23 +505,32 @@ def parse_pac_logon_info(data: bytes) -> Dict[str, Any]:
     prim_group_offset = struct_start + 104
     group_count_offset = struct_start + 108
     group_ids_ptr_offset = struct_start + 112
-    uac_offset = struct_start + 116
-    domain_sid_ptr_offset = struct_start + 160
-    domain_name_hdr = struct_start + 164
 
     (user_rid,) = struct.unpack_from("<I", data, user_id_offset)
     (primary_group_rid,) = struct.unpack_from("<I", data, prim_group_offset)
     (group_count,) = struct.unpack_from("<I", data, group_count_offset)
     (group_ids_ptr,) = struct.unpack_from("<I", data, group_ids_ptr_offset)
-    (uac_raw,) = struct.unpack_from("<I", data, uac_offset)
-    (domain_sid_ptr,) = struct.unpack_from("<I", data, domain_sid_ptr_offset)
 
-    # Deferral parsing begins after fixed header (176 bytes in standard/synthetic layouts, or 172/200 bytes)
+    # UserAccountControl: check offset 156 first per MS-PAC 2.5, falling back to 116
+    uac_raw = 0
+    if len(data) >= struct_start + 160:
+        (uac_raw,) = struct.unpack_from("<I", data, struct_start + 156)
+    if uac_raw == 0 and len(data) >= struct_start + 120:
+        (uac_raw,) = struct.unpack_from("<I", data, struct_start + 116)
+
+    # LogonDomainId pointer: offset 144 per MS-PAC 2.5, falling back to 160
+    domain_sid_ptr = 0
+    if len(data) >= struct_start + 148:
+        (domain_sid_ptr,) = struct.unpack_from("<I", data, struct_start + 144)
+    if domain_sid_ptr == 0 and len(data) >= struct_start + 164:
+        (domain_sid_ptr,) = struct.unpack_from("<I", data, struct_start + 160)
+
+    # Deferral parsing begins after fixed header (176 bytes in standard MS-PAC 2.5 layouts)
     deferral_start = struct_start + (176 if len(data) - struct_start >= 176 else min_fixed_hdr)
     eff_len, eff_max_len, eff_ptr = struct.unpack_from("<HHI", data, eff_name_hdr)
     if eff_ptr != 0 and eff_len > 0:
         expected_chars = eff_len // 2
-        for cand_off in (struct_start + 176, struct_start + 172, struct_start + 200):
+        for cand_off in (struct_start + 176, struct_start + 172, struct_start + 200, struct_start + 204, struct_start + 216):
             if cand_off + 12 <= len(data):
                 mc, oc, ac = struct.unpack_from("<III", data, cand_off)
                 if oc == 0 and ac == expected_chars and mc >= ac:
@@ -803,6 +809,8 @@ def build_synthetic_pac_bytes(
     if unconstrained:
         uac |= 0x80000
     struct.pack_into("<I", logon_buf, 116, uac)
+    struct.pack_into("<I", logon_buf, 144, 0x00020010)
+    struct.pack_into("<I", logon_buf, 156, uac)
     struct.pack_into("<I", logon_buf, 160, 0x00020010)
 
     char_count = len(user_name)

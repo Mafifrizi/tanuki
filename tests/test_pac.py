@@ -61,13 +61,13 @@ def build_synthetic_pac_bytes(
     # GroupIdsPtr at offset 112
     struct.pack_into("<I", logon_buf, 112, 0x00020008)
 
-    # UserAccountControl at offset 116
+    # UserAccountControl at offset 156 (MS-PAC 2.5 standard) and 116 (legacy)
     uac = 0x0200  # NORMAL_ACCOUNT
     if unconstrained:
         uac |= 0x80000  # TRUSTED_FOR_DELEGATION
     struct.pack_into("<I", logon_buf, 116, uac)
-
-    # DomainSidPtr at offset 160
+    struct.pack_into("<I", logon_buf, 144, 0x00020010)
+    struct.pack_into("<I", logon_buf, 156, uac)
     struct.pack_into("<I", logon_buf, 160, 0x00020010)
 
     # Deferral starts after min_fixed_hdr (172)

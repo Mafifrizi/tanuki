@@ -13,7 +13,12 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from .doctor import render_card_header, supports_unicode
+from .doctor import (
+    parse_ccache_bytes,
+    parse_ccache_stream,
+    render_card_header,
+    supports_unicode,
+)
 from .pac import (
     BUILTIN_ADMINISTRATORS_RID,
     DOMAIN_ADMINS_RID,
@@ -471,12 +476,9 @@ def run_blast(
         clean_cc = target_cc[5:] if target_cc.startswith("FILE:") else target_cc
         if os.path.isfile(clean_cc):
             try:
-                import io
-                import struct
-                from .doctor import _read_principal, parse_ccache_stream
                 with open(clean_cc, "rb") as f:
                     raw_cc = f.read()
-                cc_data = parse_ccache_stream(io.BytesIO(raw_cc))
+                cc_data = parse_ccache_bytes(raw_cc)
                 if cc_data:
                     princ_cand = (
                         cc_data.get("default_principal")
@@ -491,21 +493,6 @@ def run_blast(
                         if s_princ and not s_princ.startswith("krbtgt/"):
                             if s_princ not in accessible_spns:
                                 accessible_spns.append(s_princ)
-                else:
-                    stream = io.BytesIO(raw_cc)
-                    magic = stream.read(2)
-                    if magic == b"\x05\x04":
-                        hlen_b = stream.read(2)
-                        if len(hlen_b) == 2:
-                            (hlen,) = struct.unpack(">H", hlen_b)
-                            stream.read(hlen)
-                            dp = _read_principal(stream)
-                            if dp:
-                                principal = dp
-                    elif magic == b"\x05\x03":
-                        dp = _read_principal(stream)
-                        if dp:
-                            principal = dp
             except Exception:
                 pass
 
@@ -531,6 +518,28 @@ def run_blast(
             )
             if ldap_res.get("status") == "SUCCESS":
                 clean_acc = extract_ad_account_name(principal).lower().rstrip("$")
+                for entry in ldap_res.get("entries", []):
+                    attrs = entry.get("attributes", {})
+                    sam_names = [str(x).lower().rstrip("$") for x in attrs.get("sAMAccountName", [])]
+                    if clean_acc in sam_names:
+                        if not user_sid and attrs.get("objectSid"):
+                            sid_val = attrs.get("objectSid")[0]
+                            if isinstance(sid_val, str):
+                                user_sid = sid_val
+                        if primary_group_rid is None and attrs.get("primaryGroupID"):
+                            try:
+                                primary_group_rid = int(attrs.get("primaryGroupID")[0])
+                            except (ValueError, TypeError):
+                                pass
+                        if not uac_flags and attrs.get("userAccountControl"):
+                            try:
+                                uac_int = int(attrs.get("userAccountControl")[0])
+                                from .ldap import parse_uac_flags
+                                uac_flags = parse_uac_flags(uac_int)
+                            except Exception:
+                                pass
+                        break
+
                 effective_sids = set()
                 if user_sid:
                     effective_sids.add(user_sid)
@@ -540,6 +549,7 @@ def run_blast(
                             effective_sids.add(f"{dom_prefix}-{primary_group_rid}")
                         for grid in group_rids:
                             effective_sids.add(f"{dom_prefix}-{grid}")
+
                 for entry in ldap_res.get("entries", []):
                     cat = entry.get("query_category")
                     attrs = entry.get("attributes", {})
@@ -554,7 +564,7 @@ def run_blast(
                     elif cat == "rbcd":
                         rbcd_parsed = entry.get("rbcd_parsed")
                         trustee_sids = (rbcd_parsed or {}).get("allowed_trustee_sids") or []
-                        if not effective_sids or any(s in effective_sids for s in trustee_sids):
+                        if effective_sids and any(s in effective_sids for s in trustee_sids):
                             target_name = attrs.get("sAMAccountName", ["unknown"])[0]
                             rbcd_targets.append({
                                 "target_name": target_name,
