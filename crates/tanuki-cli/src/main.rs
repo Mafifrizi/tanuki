@@ -3153,9 +3153,9 @@ fn handle_blast(
                         if k.eq_ignore_ascii_case("sAMAccountName") {
                             for v in vals {
                                 if v.trim_end_matches('$').to_ascii_lowercase() == clean_acc {
-                                sam_matches = true;
-                                break;
-                                                                }
+                                    sam_matches = true;
+                                    break;
+                                }
                             }
                         }
                     }
