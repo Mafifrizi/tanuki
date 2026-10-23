@@ -207,6 +207,8 @@ def parse_key_credential_link(raw_input: Union[bytes, bytearray, str]) -> Dict[s
     """Dissect msDS-KeyCredentialLink binary blob or DN-Binary string ([MS-ADTS] 2.2.20)."""
     target_dn = ""
     raw_bytes = b""
+    if isinstance(raw_input, (bytes, bytearray)) and bytes(raw_input).strip().startswith((b"B:", b"b:")):
+        raw_input = bytes(raw_input).decode("utf-8", errors="ignore")
     if isinstance(raw_input, str):
         clean = raw_input.strip()
         if len(clean) < 260 and os.path.islink(clean):
