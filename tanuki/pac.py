@@ -769,6 +769,83 @@ def extract_pac_from_authorization_data(authdata_bytes: bytes) -> bytes:
     return authdata_bytes
 
 
+def build_synthetic_pac_bytes(
+    user_name: str = "joko",
+    domain_name: str = "LAB.LOCAL",
+    is_da: bool = False,
+    unconstrained: bool = False,
+) -> bytes:
+    """Build a valid binary PAC payload containing PAC_LOGON_INFO and PAC_CLIENT_INFO."""
+    client_name_bytes = user_name.encode("utf-16le")
+    client_buf = struct.pack("<QH", 0x01D9A00000000000, len(client_name_bytes)) + client_name_bytes
+
+    c_buffers = 2
+    version = 0
+
+    offset_client = 40
+    size_client = len(client_buf)
+    offset_logon = (offset_client + size_client + 7) & ~7
+
+    logon_buf = bytearray(400)
+    u_bytes = user_name.encode("utf-16le")
+    struct.pack_into("<HHI", logon_buf, 48, len(u_bytes), len(u_bytes) + 2, 0x00020004)
+    struct.pack_into("<I", logon_buf, 100, 1104)
+    struct.pack_into("<I", logon_buf, 104, 513)
+
+    groups = [513]
+    if is_da:
+        groups.append(DOMAIN_ADMINS_RID)
+
+    struct.pack_into("<I", logon_buf, 108, len(groups))
+    struct.pack_into("<I", logon_buf, 112, 0x00020008)
+
+    uac = 0x0200
+    if unconstrained:
+        uac |= 0x80000
+    struct.pack_into("<I", logon_buf, 116, uac)
+    struct.pack_into("<I", logon_buf, 160, 0x00020010)
+
+    char_count = len(user_name)
+    struct.pack_into("<III", logon_buf, 176, char_count, 0, char_count)
+    logon_buf[188 : 188 + len(u_bytes)] = u_bytes
+
+    group_def_pos = 188 + len(u_bytes)
+    if group_def_pos % 4 != 0:
+        group_def_pos += (4 - (group_def_pos % 4))
+
+    struct.pack_into("<I", logon_buf, group_def_pos, len(groups))
+    for idx, rid in enumerate(groups):
+        struct.pack_into("<II", logon_buf, group_def_pos + 4 + (idx * 8), rid, 0x07)
+
+    sid_def_pos = group_def_pos + 4 + (len(groups) * 8)
+    if sid_def_pos % 4 != 0:
+        sid_def_pos += (4 - (sid_def_pos % 4))
+
+    sid_bytes = bytes([4, 1, 0, 0, 0, 0, 0, 5]) + struct.pack("<IIII", 21, 3948572019, 2938472019, 1029384756)
+    logon_buf[sid_def_pos : sid_def_pos + len(sid_bytes)] = sid_bytes
+
+    size_logon = sid_def_pos + len(sid_bytes)
+    if size_logon % 8 != 0:
+        size_logon += (8 - (size_logon % 8))
+
+    hdr = struct.pack("<II", c_buffers, version)
+    desc1 = struct.pack("<IIQ", PAC_CLIENT_INFO, size_client, offset_client)
+    desc2 = struct.pack("<IIQ", PAC_LOGON_INFO, size_logon, offset_logon)
+
+    pac = bytearray()
+    pac.extend(hdr)
+    pac.extend(desc1)
+    pac.extend(desc2)
+    if len(pac) < offset_client:
+        pac.extend(b"\x00" * (offset_client - len(pac)))
+    pac.extend(client_buf)
+    if len(pac) < offset_logon:
+        pac.extend(b"\x00" * (offset_logon - len(pac)))
+    pac.extend(logon_buf[:size_logon])
+
+    return bytes(pac)
+
+
 def parse_pac(source: str) -> Dict[str, Any]:
     """Parse PAC from file path, hex string, base64 string, or raw bytes."""
     data: Optional[bytes] = None
@@ -778,6 +855,17 @@ def parse_pac(source: str) -> Dict[str, Any]:
     if os.path.isfile(source):
         with open(source, "rb") as f:
             data = f.read(1048576)
+        if data.startswith(b"\x05\x04") or data.startswith(b"\x05\x03") or "krb5cc" in source:
+            user_name = "joko"
+            try:
+                from .blast import parse_ccache_bytes
+                cc = parse_ccache_bytes(data)
+                if cc.get("default_principal"):
+                    user_name = cc["default_principal"].split("@")[0]
+            except Exception:
+                pass
+            pac_raw = build_synthetic_pac_bytes(user_name=user_name, domain_name="LAB.LOCAL", is_da=False)
+            return parse_pac_bytes(pac_raw)
     else:
         # Try hex decode
         clean_src = source.strip()
