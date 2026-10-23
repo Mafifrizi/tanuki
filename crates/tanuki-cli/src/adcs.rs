@@ -362,6 +362,8 @@ pub fn evaluate_ca(
     ca_name: &str,
     editf_san2: bool,
     low_priv_ca_managers: &[String],
+    pki_writers: &[String],
+    vuln_pki_acl: bool,
     http_enrollment: bool,
     epa: bool,
     https: bool,
@@ -369,6 +371,23 @@ pub fn evaluate_ca(
     rpc_no_privacy: bool,
 ) -> Vec<AdcsFinding> {
     let mut findings = Vec::new();
+
+    // ESC5: Vulnerable PKI Object or Container ACL Permissions
+    if !pki_writers.is_empty() || vuln_pki_acl {
+        let writers_str = if pki_writers.is_empty() {
+            "low-privileged principals".to_string()
+        } else {
+            pki_writers.join(", ")
+        };
+        findings.push(AdcsFinding {
+            vector: "ESC5".to_string(),
+            severity: "CRITICAL".to_string(),
+            template: ca_name.to_string(),
+            title: "Vulnerable PKI Object or Container ACL Permissions".to_string(),
+            description: format!("PKI architecture or CA object '{}' grants write/modify ACL permissions on PKI containers to {}.", ca_name, writers_str),
+            remediation: "Restrict write/owner permissions on CN=Public Key Services and CA objects to Enterprise/Domain Admins.".to_string(),
+        });
+    }
 
     if editf_san2 {
         findings.push(AdcsFinding {
@@ -548,24 +567,9 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
 
                     if has_ca_keys && !has_template_keys {
                         let ca_name = extract_json_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
-                        if !pki_writers.is_empty() || vuln_pki_acl {
-                            let writers_str = if pki_writers.is_empty() {
-                                "low-privileged principals".to_string()
-                            } else {
-                                pki_writers.join(", ")
-                            };
-                            all_findings.push(AdcsFinding {
-                                vector: "ESC5".to_string(),
-                                severity: "CRITICAL".to_string(),
-                                template: ca_name.clone(),
-                                title: "Vulnerable PKI Object or Container ACL Permissions".to_string(),
-                                description: format!("PKI architecture or CA object '{}' grants write/modify ACL permissions on PKI containers to {}.", ca_name, writers_str),
-                                remediation: "Restrict write/owner permissions on CN=Public Key Services and CA objects to Enterprise/Domain Admins.".to_string(),
-                            });
-                        }
                         let epa = extract_json_bool(obj, "extended_protection_enabled").unwrap_or(false);
                         let https = extract_json_bool(obj, "https_enforced").unwrap_or(false);
-                        let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, http_en, epa, https, cert_map, rpc_no_priv);
+                        let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, &pki_writers, vuln_pki_acl, http_en, epa, https, cert_map, rpc_no_priv);
                         all_findings.extend(ca_f);
                     } else {
                         scanned_count += 1;
@@ -589,6 +593,13 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                         let writers = extract_json_str_array(obj, "low_privileged_writers");
                         let f = evaluate_template(&name, name_flags, enroll_flags, ra_sigs, &ekus, &writers);
                         all_findings.extend(f);
+                        if has_ca_keys {
+                            let ca_name = extract_json_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
+                            let epa = extract_json_bool(obj, "extended_protection_enabled").unwrap_or(false);
+                            let https = extract_json_bool(obj, "https_enforced").unwrap_or(false);
+                            let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, &pki_writers, vuln_pki_acl, http_en, epa, https, cert_map, rpc_no_priv);
+                            all_findings.extend(ca_f);
+                        }
                     }
                 }
             } else {

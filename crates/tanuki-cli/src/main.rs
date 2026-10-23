@@ -1753,6 +1753,7 @@ fn handle_auth(
     if let Some(ref armor) = armor_cache_opt {
         cmd.args(["-T", armor]);
     }
+    cmd.arg("--");
     cmd.arg(&princ);
     if let Some(ref conf) = krb5_conf_opt {
         cmd.env("KRB5_CONFIG", conf);
@@ -2601,6 +2602,7 @@ fn handle_tgs(
                         json_output,
                     );
                 }
+                cmd.arg("--");
                 cmd.arg(p);
             }
             cmd.env("KRB5CCNAME", format!("FILE:{}", cc));
@@ -2681,7 +2683,7 @@ fn handle_tgs(
     }
 
     let mut cmd = process::Command::new("kvno");
-    cmd.args(["-c", &ccache, &spn]);
+    cmd.args(["-c", &ccache, "--", &spn]);
     if let Some(ref conf) = krb5_conf_opt {
         cmd.env("KRB5_CONFIG", conf);
     }
@@ -3094,6 +3096,44 @@ fn handle_blast(
             let clean_acc = tanuki::extract_ad_account_name(&principal)
                 .trim_end_matches('$')
                 .to_ascii_lowercase();
+
+            for entry in &ldap_rep.entries {
+                let mut sam_matches = false;
+                for (k, vals) in &entry.attributes {
+                    if k.eq_ignore_ascii_case("sAMAccountName") {
+                        for v in vals {
+                            if v.trim_end_matches('$').to_ascii_lowercase() == clean_acc {
+                                sam_matches = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if sam_matches {
+                    if extracted_user_sid.is_none() {
+                        for (k, vals) in &entry.attributes {
+                            if k.eq_ignore_ascii_case("objectSid") {
+                                if let Some(first_sid) = vals.first() {
+                                    extracted_user_sid = Some(first_sid.clone());
+                                }
+                            }
+                        }
+                    }
+                    if primary_group_rid.is_none() {
+                        for (k, vals) in &entry.attributes {
+                            if k.eq_ignore_ascii_case("primaryGroupID") {
+                                if let Some(first_pg) = vals.first() {
+                                    if let Ok(pg) = first_pg.parse::<u32>() {
+                                        primary_group_rid = Some(pg);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+
             let mut candidate_sids = Vec::new();
             if let Some(ref u_sid) = extracted_user_sid {
                 candidate_sids.push(u_sid.clone());
@@ -3113,8 +3153,8 @@ fn handle_blast(
                         if k.eq_ignore_ascii_case("sAMAccountName") {
                             for v in vals {
                                 if v.trim_end_matches('$').to_ascii_lowercase() == clean_acc {
-                                    sam_matches = true;
-                                    break;
+                                sam_matches = true;
+                                break;
                                                                 }
                             }
                         }
@@ -3131,9 +3171,7 @@ fn handle_blast(
                         }
                     }
                 } else if entry.query_category == "rbcd" {
-                    if candidate_sids.is_empty() {
-                        rbcd_target_count += 1;
-                    } else {
+                    if !candidate_sids.is_empty() {
                         let mut matches_trustee = false;
                         for (k, vals) in &entry.attributes {
                             if k.eq_ignore_ascii_case("allowed_trustee_sids") {

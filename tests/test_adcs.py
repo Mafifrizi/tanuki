@@ -238,6 +238,18 @@ class TestAdcsScanner(unittest.TestCase):
         f_esc3 = evaluate_template_misconfigurations(t_esc3)
         self.assertIn("ESC3", [f["vector"] for f in f_esc3])
 
+    def test_esc5_detection(self):
+        ca_config = {
+            "ca_name": "VULN-PKI-CA",
+            "low_privileged_pki_writers": ["Domain Users", "S-1-5-21-1234-513"],
+        }
+        findings = evaluate_ca_misconfigurations(ca_config)
+        vectors = [f["vector"] for f in findings]
+        self.assertIn("ESC5", vectors)
+        esc5 = next(f for f in findings if f["vector"] == "ESC5")
+        self.assertEqual(esc5["severity"], "CRITICAL")
+        self.assertIn("Domain Users", esc5["description"])
+
 
 if __name__ == "__main__":
     unittest.main()

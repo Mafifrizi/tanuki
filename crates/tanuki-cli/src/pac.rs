@@ -600,12 +600,24 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
         data[group_ids_ptr_offset + 2],
         data[group_ids_ptr_offset + 3],
     ]);
-    let uac_raw = u32::from_le_bytes([
-        data[uac_offset],
-        data[uac_offset + 1],
-        data[uac_offset + 2],
-        data[uac_offset + 3],
-    ]);
+    let mut uac_raw = if data.len() >= struct_start + 160 {
+        u32::from_le_bytes([
+            data[struct_start + 156],
+            data[struct_start + 157],
+            data[struct_start + 158],
+            data[struct_start + 159],
+        ])
+    } else {
+        0
+    };
+    if uac_raw == 0 && data.len() >= struct_start + 120 {
+        uac_raw = u32::from_le_bytes([
+            data[struct_start + 116],
+            data[struct_start + 117],
+            data[struct_start + 118],
+            data[struct_start + 119],
+        ]);
+    }
 
     let mut deferral_start = if data.len() - struct_start >= 176 {
         struct_start + 176
@@ -622,7 +634,7 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
     ]);
     if eff_ptr != 0 && eff_len > 0 {
         let expected_chars = (eff_len / 2) as u32;
-        for cand_off in [struct_start + 176, struct_start + 172, struct_start + 200] {
+        for cand_off in [struct_start + 176, struct_start + 172, struct_start + 200, struct_start + 204, struct_start + 216] {
             if cand_off + 12 <= data.len() {
                 let mc = u32::from_le_bytes([data[cand_off], data[cand_off + 1], data[cand_off + 2], data[cand_off + 3]]);
                 let oc = u32::from_le_bytes([data[cand_off + 4], data[cand_off + 5], data[cand_off + 6], data[cand_off + 7]]);
