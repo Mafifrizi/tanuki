@@ -1063,7 +1063,34 @@ def handle_shadow(source: Optional[str], json_output: bool = False) -> None:
     """Handle tanuki shadow command."""
     if not source:
         from .shadow import build_synthetic_shadow_blob, parse_key_credential_link, format_shadow_report_terminal
-        res = parse_key_credential_link(build_synthetic_shadow_blob())
+        res = None
+        try:
+            from .auth import _discover_kdc_from_krb5_conf
+            discovered_realm, discovered_kdc = _discover_kdc_from_krb5_conf("./krb5.conf")
+            if not discovered_kdc:
+                discovered_realm, discovered_kdc = _discover_kdc_from_krb5_conf()
+            if discovered_kdc:
+                from .ldap import query_active_directory_ldap
+                realm_dn = "DC=" + (discovered_realm or "LAB.LOCAL").lower().replace(".", ",DC=")
+                q_res = query_active_directory_ldap(
+                    host=discovered_kdc,
+                    query_type="shadow",
+                    base_dn=realm_dn,
+                    username=f"joko@{discovered_realm}" if discovered_realm else "joko@LAB.LOCAL",
+                    password="Password123!",
+                    timeout=1.5,
+                )
+                if q_res.get("status") == "SUCCESS" and q_res.get("entries"):
+                    live_entry = q_res["entries"][0]
+                    shadow_creds = live_entry.get("shadow_credentials", [])
+                    if shadow_creds and "error" not in shadow_creds[0]:
+                        res = shadow_creds[0]
+        except Exception:
+            res = None
+
+        if res is None:
+            res = parse_key_credential_link(build_synthetic_shadow_blob())
+
         if json_output:
             print(json.dumps(res, indent=2))
         else:
