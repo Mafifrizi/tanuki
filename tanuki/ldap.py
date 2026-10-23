@@ -761,7 +761,7 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
     q_type = report.get("query_type", "spn").upper()
     lines.extend(render_card_header(
         "TANUKI UNPRIVILEGED LDAP QUERY ENGINE",
-        f"Target: {host}:{report.get('port', 389)} · Query: {q_type} · Found: {report.get('count', 0)}",
+        f"Target: {host}:{report.get('port', 389)} | Query: {q_type} | Found: {report.get('count', 0)}",
     ))
 
     use_uni = supports_unicode()
@@ -803,16 +803,16 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
                 enctype_int = 0
 
             if enctype_int & 0x10:
-                cipher_desc = "AES-256 (etype 18 · Hashcat: $krb5asrep$18$)"
+                cipher_desc = "AES-256 (etype 18 | Hashcat: $krb5asrep$18$)"
                 enctype_desc = f"0x{enctype_int:x} (AES Supported)"
             elif enctype_int & 0x08:
-                cipher_desc = "AES-128 (etype 17 · Hashcat: $krb5asrep$17$)"
+                cipher_desc = "AES-128 (etype 17 | Hashcat: $krb5asrep$17$)"
                 enctype_desc = f"0x{enctype_int:x} (AES-128 Supported)"
             else:
-                cipher_desc = "RC4-HMAC (etype 23 · Hashcat: $krb5asrep$23$)"
+                cipher_desc = "RC4-HMAC (etype 23 | Hashcat: $krb5asrep$23$)"
                 enctype_desc = f"0x{enctype_int:x} (Default KDC Fallback: RC4-HMAC)"
 
-            lines.append(f"    {t_branch} Pre-Authentication: DISABLED (DONT_REQ_PREAUTH · UAC 0x{uac_int:x})")
+            lines.append(f"    {t_branch} Pre-Authentication: DISABLED (DONT_REQ_PREAUTH | UAC 0x{uac_int:x})")
             lines.append(f"    {t_branch} Encryption Mode   : {cipher_desc}")
             lines.append(f"    {t_branch} Supported Enctypes: {enctype_desc}")
             lines.append(f"    {l_branch} Exposure          : Vulnerable to unauthenticated offline Kerberos AS-REP roasting")

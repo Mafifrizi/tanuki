@@ -435,7 +435,7 @@ impl LdapReport {
         let mut out = String::new();
         out.push_str("[TANUKI UNPRIVILEGED LDAP QUERY ENGINE]\n");
         out.push_str(&format!(
-            " Target: {}:{} · Query: {} · Found: {}\n\n",
+            " Target: {}:{} | Query: {} | Found: {}\n\n",
             self.host,
             self.port,
             self.query_type.to_uppercase(),
@@ -478,14 +478,14 @@ impl LdapReport {
                     .unwrap_or(0);
 
                 let (cipher_desc, enctype_desc) = if (enctype_int & 0x10) != 0 {
-                    ("AES-256 (etype 18 · Hashcat: $krb5asrep$18$)", format!("0x{:x} (AES Supported)", enctype_int))
+                    ("AES-256 (etype 18 | Hashcat: $krb5asrep$18$)", format!("0x{:x} (AES Supported)", enctype_int))
                 } else if (enctype_int & 0x08) != 0 {
-                    ("AES-128 (etype 17 · Hashcat: $krb5asrep$17$)", format!("0x{:x} (AES-128 Supported)", enctype_int))
+                    ("AES-128 (etype 17 | Hashcat: $krb5asrep$17$)", format!("0x{:x} (AES-128 Supported)", enctype_int))
                 } else {
-                    ("RC4-HMAC (etype 23 · Hashcat: $krb5asrep$23$)", format!("0x{:x} (Default KDC Fallback: RC4-HMAC)", enctype_int))
+                    ("RC4-HMAC (etype 23 | Hashcat: $krb5asrep$23$)", format!("0x{:x} (Default KDC Fallback: RC4-HMAC)", enctype_int))
                 };
 
-                out.push_str(&format!("    ├─ Pre-Authentication: DISABLED (DONT_REQ_PREAUTH · UAC 0x{:x})\n", uac_int));
+                out.push_str(&format!("    ├─ Pre-Authentication: DISABLED (DONT_REQ_PREAUTH | UAC 0x{:x})\n", uac_int));
                 out.push_str(&format!("    ├─ Encryption Mode   : {}\n", cipher_desc));
                 out.push_str(&format!("    ├─ Supported Enctypes: {}\n", enctype_desc));
                 out.push_str("    ╰─ Exposure          : Vulnerable to unauthenticated offline Kerberos AS-REP roasting\n");
