@@ -250,6 +250,26 @@ class TestAdcsScanner(unittest.TestCase):
         self.assertEqual(esc5["severity"], "CRITICAL")
         self.assertIn("Domain Users", esc5["description"])
 
+    def test_esc5_vulnerable_pki_acl_boolean(self):
+        ca_config = {
+            "ca_name": "ROOT-CA",
+            "vulnerable_pki_acl": True,
+        }
+        findings = evaluate_ca_misconfigurations(ca_config)
+        vectors = [f["vector"] for f in findings]
+        self.assertIn("ESC5", vectors)
+        esc5 = next(f for f in findings if f["vector"] == "ESC5")
+        self.assertEqual(esc5["severity"], "CRITICAL")
+        self.assertIn("low-privileged principals", esc5["description"])
+
+    def test_esc5_scan_adcs_integration(self):
+        ca_config = {
+            "ca_name": "ENTERPRISE-PKI-CA",
+            "low_privileged_ca_writers": ["Contractors-Group"],
+        }
+        res = scan_adcs(templates=[ca_config])
+        self.assertIn("ESC5", [f["vector"] for f in res["findings"]])
+
 
 if __name__ == "__main__":
     unittest.main()
