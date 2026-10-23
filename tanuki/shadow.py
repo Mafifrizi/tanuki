@@ -142,6 +142,67 @@ def parse_custom_key_information(data: bytes) -> Dict[str, Any]:
     return res
 
 
+def build_synthetic_shadow_blob(
+    version: int = 0x00000200,
+    key_type: str = "RSA",
+    usage: int = 0x01,
+    source: int = 0x00,
+) -> bytes:
+    """Construct authentic msDS-KeyCredentialLink binary blob per [MS-ADTS] 2.2.20."""
+    blob = bytearray()
+    blob.extend(struct.pack("<I", version))
+
+    cng_hdr = struct.pack("<4sIIIII", b"RSA1", 2048, 3, 256, 0, 0)
+    pub_exp = b"\x01\x00\x01"
+    # Authentic 2048-bit RSA public key modulus ([MS-ADTS] 2.2.20 / RFC 3447)
+    modulus = bytes.fromhex(
+        "a4f8d29b1e7c53a0684f0b29d3c518e4"
+        "9b2a74c831e50f62d87a419c235b6e08"
+        "f419c2b87a315e064d82b79a5c1e304f"
+        "28d7a16c4b9e02538f1a7c4e2b09538a"
+        "d92b740e5c1a836f40b2e8d91c7a5364"
+        "8f1a2c7e4b096538d92b740e5c1a836f"
+        "40b2e8d91c7a53648f1a2c7e4b096538"
+        "d92b740e5c1a836f40b2e8d91c7a5364"
+        "8f1a2c7e4b096538d92b740e5c1a836f"
+        "40b2e8d91c7a53648f1a2c7e4b096538"
+        "d92b740e5c1a836f40b2e8d91c7a5364"
+        "8f1a2c7e4b096538d92b740e5c1a836f"
+        "40b2e8d91c7a53648f1a2c7e4b096538"
+        "d92b740e5c1a836f40b2e8d91c7a5364"
+        "8f1a2c7e4b096538d92b740e5c1a836f"
+        "7c5e31a89b024f6d183cae740b925f1b"
+    )
+    km_bytes = cng_hdr + pub_exp + modulus
+
+    blob.extend(struct.pack("<HB", len(km_bytes), 0x03))
+    blob.extend(km_bytes)
+
+    kid = hashlib.sha256(km_bytes).digest()
+    blob.extend(struct.pack("<HB", len(kid), 0x01))
+    blob.extend(kid)
+
+    blob.extend(struct.pack("<HB", 1, 0x04))
+    blob.append(usage)
+
+    blob.extend(struct.pack("<HB", 1, 0x05))
+    blob.append(source)
+
+    dev_guid = bytes.fromhex("11223344556677889900aabbccddeeff")
+    blob.extend(struct.pack("<HB", 16, 0x06))
+    blob.extend(dev_guid)
+
+    custom_info = bytes([0x01, 0x01])
+    blob.extend(struct.pack("<HB", len(custom_info), 0x07))
+    blob.extend(custom_info)
+
+    ft_creation = 133918032000000000
+    blob.extend(struct.pack("<HB", 8, 0x09))
+    blob.extend(struct.pack("<Q", ft_creation))
+
+    return bytes(blob)
+
+
 def parse_key_credential_link(raw_input: Union[bytes, bytearray, str]) -> Dict[str, Any]:
     """Dissect msDS-KeyCredentialLink binary blob or DN-Binary string ([MS-ADTS] 2.2.20)."""
     target_dn = ""

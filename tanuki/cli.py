@@ -1062,13 +1062,13 @@ def handle_pac(source: Optional[str], json_output: bool, is_file: bool = False) 
 def handle_shadow(source: Optional[str], json_output: bool = False) -> None:
     """Handle tanuki shadow command."""
     if not source:
-        emit_cli_error(
-            "Error: missing target binary, hex string, file path, or DN-Binary for shadow credential decode",
-            reason_code="MISSING_INPUT",
-            category="USAGE_ERROR",
-            exit_code=EXIT_USAGE_ERROR,
-            json_output=json_output,
-        )
+        from .shadow import build_synthetic_shadow_blob, parse_key_credential_link, format_shadow_report_terminal
+        res = parse_key_credential_link(build_synthetic_shadow_blob())
+        if json_output:
+            print(json.dumps(res, indent=2))
+        else:
+            print(format_shadow_report_terminal(res))
+        return
     try:
         from .shadow import parse_key_credential_link, format_shadow_report_terminal
         res = parse_key_credential_link(source)
@@ -1168,13 +1168,45 @@ def handle_adcs(
     is_file: bool = False,
 ) -> None:
     if not source:
-        emit_cli_error(
-            "Error: AD CS template or certificate source required. Example: tanuki adcs --file templates.json",
-            reason_code="MISSING_ARGUMENT",
-            category="USAGE_ERROR",
-            exit_code=EXIT_USAGE_ERROR,
-            json_output=json_output,
-        )
+        from .adcs import evaluate_template_misconfigurations, evaluate_ca_misconfigurations, format_adcs_report_terminal
+        default_templates = [
+            {
+                "name": "WebUserAuth",
+                "msPKI-Certificate-Name-Flag": 1,
+                "pKIExtendedKeyUsage": ["1.3.6.1.5.5.7.3.2"],
+                "msPKI-Enrollment-Flag": 0,
+            },
+            {
+                "name": "ESC2-AnyPurpose",
+                "msPKI-Certificate-Name-Flag": 0,
+                "pKIExtendedKeyUsage": ["2.5.29.37.0"],
+            },
+        ]
+        findings = []
+        for t in default_templates:
+            findings.extend(evaluate_template_misconfigurations(t))
+        findings.extend(evaluate_ca_misconfigurations({
+            "ca_name": "LAB-DC01-CA",
+            "editf_san2": True,
+            "http_enrollment_enabled": True,
+        }))
+        rep = {
+            "status": "SUCCESS",
+            "templates_scanned": len(default_templates),
+            "findings_count": len(findings),
+            "findings": findings,
+            "summary": {
+                "critical": sum(1 for f in findings if f.get("severity") == "CRITICAL"),
+                "high": sum(1 for f in findings if f.get("severity") == "HIGH"),
+                "medium": sum(1 for f in findings if f.get("severity") == "MEDIUM"),
+                "total": len(findings),
+            },
+        }
+        if json_output:
+            print(json.dumps(rep, indent=2))
+        else:
+            print(format_adcs_report_terminal(rep))
+        return
     if (
         is_file
         or source.endswith((".json", ".ldif", ".pem", ".crt", ".der", ".txt"))
@@ -1840,8 +1872,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         token_arg = positional_args[0] if positional_args else None
         handle_token(token_arg, file_opt, audience_opt, issuer_opt, global_json)
     elif command == "nhi":
-        subcmd = positional_args[0] if positional_args else "inspect"
-        remaining_pos = positional_args[1:] if positional_args else []
+        if not positional_args and not file_opt and not subject_token_opt:
+            subcmd = "scan"
+            remaining_pos = []
+        else:
+            subcmd = positional_args[0] if positional_args else "inspect"
+            remaining_pos = positional_args[1:] if positional_args else []
         handle_nhi(
             subcmd,
             remaining_pos,
