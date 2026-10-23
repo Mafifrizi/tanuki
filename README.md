@@ -530,56 +530,57 @@ cargo test --workspace
 
 ```mermaid
 flowchart TD
-    subgraph DIST["Distribution & 1-Line Setup"]
+    subgraph DIST["Distribution and 1-Line Setup"]
         M1["pyproject.toml (PEP 621)"]
         M2["Cargo.toml (Workspace)"]
         I1["install.sh (POSIX)"]
         I2["install.ps1 (Windows)"]
     end
 
-    subgraph ENGINES["Dual Protocol Engines"]
-        subgraph RUST_ENGINE["Rust Systems Core (crates/tanuki-cli)"]
-            R_LIB["lib.rs (#![forbid(unsafe_code)])"]
-            R_DOC["doctor/ (Pre-flight sub-5ms)"]
-            R_NHI["nhi/ (RFC 8693 Validator)"]
-            R_KT["keytab/ (RFC 4120 Parser)"]
-            R_KCM["kcm/ (CCACHE Extractor)"]
-            R_TEL["protocol/ (Telemetry & Triage)"]
-            R_PAC["pac/ (MS-PAC Decoder)"]
-            R_LDAP["ldap/ (LDAP & RBCD Parser)"]
-            R_FIX["fix/ (Self-Healing)"]
-            R_PURGE["purge/ (Zero-Trace)"]
-        end
-
-        subgraph PY_ENGINE["Python Unified Package (tanuki/)"]
-            P_CLI["cli.py (Unified CLI & TUI Wizard)"]
-            P_DOC["doctor.py (Pre-flight sub-5ms)"]
-            P_AUTH["auth.py (ctypes TGT Acquisition)"]
-            P_NHI["nhi.py (RFC 8693 Token Exchange)"]
-            P_TEL["telemetry.py (Auditd & Event IDs)"]
-            P_PAC["pac.py (MS-PAC NDR Decoder)"]
-            P_FIX["fix.py (Idempotent Self-Healing)"]
-            P_PURGE["purge.py (NIST SP 800-88 Purge)"]
-            P_ADCS["adcs.py (ESC1-ESC11 Scanner)"]
-            P_LDAP["ldap.py (Pure Socket LDAP & RBCD)"]
-        end
+    subgraph RUST_ENGINE["Rust Systems Core (crates/tanuki-cli)"]
+        R_LIB["lib.rs (Zero Unsafe Code)"]
+        R_DOC["doctor/ (Pre-flight sub-5ms)"]
+        R_NHI["nhi/ (RFC 8693 Validator)"]
+        R_KT["keytab/ (RFC 4120 Parser)"]
+        R_KCM["kcm/ (CCACHE Extractor)"]
+        R_TEL["protocol/ (Telemetry and Triage)"]
+        R_PAC["pac/ (MS-PAC Decoder)"]
+        R_LDAP["ldap/ (LDAP and RBCD Parser)"]
+        R_FIX["fix/ (Self-Healing)"]
+        R_PURGE["purge/ (Zero-Trace)"]
     end
 
-    subgraph AGENT_LAYER["Agent Specifications & Lineage"]
-        S1["SKILL.md (Claude Code & Antigravity)"]
-        S2[".cursor/rules/tanuki.mdc (Cursor)"]
+    subgraph PY_ENGINE["Python Unified Package (tanuki/)"]
+        P_CLI["cli.py (Unified CLI and TUI Wizard)"]
+        P_DOC["doctor.py (Pre-flight sub-5ms)"]
+        P_AUTH["auth.py (ctypes TGT Acquisition)"]
+        P_NHI["nhi.py (RFC 8693 Token Exchange)"]
+        P_TEL["telemetry.py (Auditd and Event IDs)"]
+        P_PAC["pac.py (MS-PAC NDR Decoder)"]
+        P_FIX["fix.py (Idempotent Self-Healing)"]
+        P_PURGE["purge.py (NIST SP 800-88 Purge)"]
+        P_ADCS["adcs.py (ESC1-ESC11 Scanner)"]
+        P_LDAP["ldap.py (Pure Socket LDAP and RBCD)"]
+    end
+
+    subgraph AGENT_LAYER["Agent Specifications and Lineage"]
+        S1["SKILL.md (Claude Code and Antigravity)"]
+        S2["rules/tanuki.mdc (Cursor Rules)"]
         S3["references/ (Tactical Ladder, AD CS, NHI)"]
     end
 
-    subgraph VERIFICATION["Empirical Verification (422 Python + 36 Rust Tests)"]
+    subgraph VERIFICATION["Empirical Verification (461 Python and 20 Rust Tests)"]
         V1["tests/ (Unit Test Suites)"]
         V2["tests/e2e/ (Tiers 1-4 Scenarios)"]
         V3["Tier 5 Adversarial Fuzzing"]
     end
 
-    DIST --> ENGINES
-    ENGINES --> AGENT_LAYER
-    ENGINES --> VERIFICATION
+    DIST --> RUST_ENGINE
+    DIST --> PY_ENGINE
+    RUST_ENGINE --> AGENT_LAYER
+    PY_ENGINE --> AGENT_LAYER
+    RUST_ENGINE --> VERIFICATION
+    PY_ENGINE --> VERIFICATION
 ```
 
 ### Subsystem Directory Map
@@ -591,7 +592,7 @@ flowchart TD
 | **Living-off-the-Land Scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or compiler toolchains. |
 | **Agent Skill Definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
 | **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
-| **Verification Harness** | `tests/`, `tests/e2e/` | 422 automated Python tests and 36 Rust unit tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
+| **Verification Harness** | `tests/`, `tests/e2e/` | 461 automated Python tests and 20 Rust unit tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
 
 <details>
 <summary><b>View complete directory file tree</b></summary>
