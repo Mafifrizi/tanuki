@@ -7,14 +7,61 @@ external dependencies or root privileges.
 
 import ctypes
 import ctypes.util
+import errno
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .keytab import parse_keytab_file
+
+
+def _parse_kdc_host_port(token: str) -> Tuple[Optional[str], int]:
+    """Extract hostname and optional port from a single KDC token (supports IPv4, DNS, and IPv6)."""
+    if not token:
+        return None, 88
+    token = token.strip()
+    if token.lower().startswith(("tcp/", "udp/")):
+        token = token[4:].strip()
+    if not token:
+        return None, 88
+    if token.startswith("[") and "]" in token:
+        host_part, rest = token[1:].split("]", 1)
+        port_val = 88
+        if rest.startswith(":") and rest[1:].isdigit():
+            cand_port = int(rest[1:])
+            if 1 <= cand_port <= 65535:
+                port_val = cand_port
+        return (host_part.strip() or None), port_val
+    if token.count(":") >= 2:
+        return (token or None), 88
+    if ":" in token:
+        host_part, port_part = token.rsplit(":", 1)
+        if port_part.isdigit():
+            cand_port = int(port_part)
+            if 1 <= cand_port <= 65535:
+                return (host_part.strip() or None), cand_port
+        return (host_part.strip() or None), 88
+    return (token or None), 88
+
+
+def _is_trusted_krb5_lib_path(path: str) -> bool:
+    norm = path.replace("\\", "/")
+    return any(
+        norm.startswith(prefix)
+        for prefix in (
+            "/usr/lib/",
+            "/usr/lib64/",
+            "/usr/lib32/",
+            "/lib/",
+            "/lib64/",
+            "/lib32/",
+            "/usr/local/lib/",
+            "/usr/local/lib64/",
+        )
+    )
 
 
 def find_krb5_library() -> Optional[str]:
@@ -32,20 +79,20 @@ def find_krb5_library() -> Optional[str]:
         "/usr/lib/libgssapi_krb5.so.2",
     ]
     for cand in trusted_abs_candidates:
-        if os.path.isabs(cand) and not os.path.islink(cand) and os.path.isfile(cand):
-            try:
-                ctypes.CDLL(cand)
-                return cand
-            except OSError:
-                pass
+        if (os.path.isabs(cand) or cand.startswith("/")) and os.path.isfile(cand):
+            real_cand = os.path.realpath(cand)
+            if _is_trusted_krb5_lib_path(real_cand) and os.path.isfile(real_cand):
+                try:
+                    ctypes.CDLL(real_cand)
+                    return real_cand
+                except OSError:
+                    pass
 
-    trusted_prefixes = ("/usr/lib", "/lib", "/usr/local/lib")
-    cwd = os.getcwd()
     for lib_short in ("krb5", "gssapi_krb5"):
         found = ctypes.util.find_library(lib_short)
         if found:
             resolved: Optional[str] = None
-            if os.path.isabs(found):
+            if os.path.isabs(found) or found.startswith("/"):
                 resolved = os.path.realpath(found)
             else:
                 for prefix in (
@@ -61,7 +108,7 @@ def find_krb5_library() -> Optional[str]:
                     if os.path.isfile(candidate_p):
                         resolved = os.path.realpath(candidate_p)
                         break
-            if resolved and resolved.startswith(trusted_prefixes) and os.path.isfile(resolved):
+            if resolved and _is_trusted_krb5_lib_path(resolved) and os.path.isfile(resolved):
                 try:
                     ctypes.CDLL(resolved)
                     return resolved
@@ -128,74 +175,76 @@ def acquire_tgt_via_ctypes(
             "exit_code": 1,
             "message": f"Invalid principal name starting with '-': '{principal}'",
         }
-    if krb5_conf:
-        os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
-
-    target_lib = lib_path or find_krb5_library()
+    _orig_krb5_cfg = os.environ.get("KRB5_CONFIG")
     krb5 = None
-    if target_lib:
-        try:
-            krb5 = ctypes.CDLL(target_lib)
-        except OSError:
-            krb5 = None
-
-    if krb5 is None:
-        static_bin = find_static_binary()
-        if static_bin:
-            cmd = [static_bin, "auth", "--keytab", os.path.abspath(keytab_path), "--principal", principal]
-            if ccache_path:
-                cmd.extend(["--ccache", os.path.abspath(ccache_path)])
-            if fast:
-                cmd.append("--fast")
-            if armor_cache:
-                cmd.extend(["--armor-cache", os.path.abspath(armor_cache)])
-            env = dict(os.environ)
-            if krb5_conf:
-                env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
-            try:
-                proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
-                if proc.returncode == 0:
-                    res_dict = {
-                        "status": "SUCCESS",
-                        "method": "static-binary",
-                        "principal": principal,
-                        "keytab": os.path.abspath(keytab_path),
-                        "ccache": os.path.abspath(ccache_path),
-                        "export_command": f"export KRB5CCNAME={os.path.abspath(ccache_path)}",
-                    }
-                    if fast:
-                        res_dict["fast"] = True
-                    if armor_cache:
-                        res_dict["armor_cache"] = os.path.abspath(armor_cache)
-                    return res_dict
-            except (subprocess.SubprocessError, OSError):
-                pass
-
-        guidance = get_distro_guidance()
-        return {
-            "status": "ERROR",
-            "reason_code": "MISSING_GSSAPI_LIBRARY",
-            "category": "DEPENDENCY_ERROR",
-            "exit_code": 3,
-            "message": f"libkrb5/libgssapi_krb5 shared library not found on host. {guidance}",
-            "details": guidance,
-            "recommendation": guidance,
-        }
-
-    # Initialize Kerberos context
     ctx = ctypes.c_void_p()
-    krb5.krb5_init_context.restype = ctypes.c_int32
-    krb5.krb5_init_context.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-    ret = krb5.krb5_init_context(ctypes.byref(ctx))
-    if ret != 0:
-        return {
-            "status": "ERROR",
-            "reason_code": "INIT_CONTEXT_FAILED",
-            "category": "PROTOCOL_ERROR",
-            "message": f"krb5_init_context failed with error code {ret}",
-        }
-
+    ctx_initialized = False
     try:
+        if krb5_conf:
+            os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+        target_lib = lib_path or find_krb5_library()
+        if target_lib:
+            try:
+                krb5 = ctypes.CDLL(target_lib)
+            except OSError:
+                krb5 = None
+
+        if krb5 is None:
+            static_bin = find_static_binary()
+            if static_bin:
+                cmd = [static_bin, "auth", "--keytab", os.path.abspath(keytab_path), "--principal", principal]
+                if ccache_path:
+                    cmd.extend(["--ccache", os.path.abspath(ccache_path)])
+                if fast:
+                    cmd.append("--fast")
+                if armor_cache:
+                    cmd.extend(["--armor-cache", os.path.abspath(armor_cache)])
+                env = dict(os.environ)
+                if krb5_conf:
+                    env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+                try:
+                    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
+                    if proc.returncode == 0:
+                        res_dict = {
+                            "status": "SUCCESS",
+                            "method": "static-binary",
+                            "principal": principal,
+                            "keytab": os.path.abspath(keytab_path),
+                            "ccache": os.path.abspath(ccache_path),
+                            "export_command": f"export KRB5CCNAME={os.path.abspath(ccache_path)}",
+                        }
+                        if fast:
+                            res_dict["fast"] = True
+                        if armor_cache:
+                            res_dict["armor_cache"] = os.path.abspath(armor_cache)
+                        return res_dict
+                except (subprocess.SubprocessError, OSError):
+                    pass
+
+            guidance = get_distro_guidance()
+            return {
+                "status": "ERROR",
+                "reason_code": "MISSING_GSSAPI_LIBRARY",
+                "category": "DEPENDENCY_ERROR",
+                "exit_code": 3,
+                "message": f"libkrb5/libgssapi_krb5 shared library not found on host. {guidance}",
+                "details": guidance,
+                "recommendation": guidance,
+            }
+
+        # Initialize Kerberos context
+        krb5.krb5_init_context.restype = ctypes.c_int32
+        krb5.krb5_init_context.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+        ret = krb5.krb5_init_context(ctypes.byref(ctx))
+        if ret != 0:
+            return {
+                "status": "ERROR",
+                "reason_code": "INIT_CONTEXT_FAILED",
+                "category": "PROTOCOL_ERROR",
+                "message": f"krb5_init_context failed with error code {ret}",
+            }
+        ctx_initialized = True
+
         # Parse principal string
         princ = ctypes.c_void_p()
         krb5.krb5_parse_name.restype = ctypes.c_int32
@@ -252,14 +301,26 @@ def acquire_tgt_via_ctypes(
                     }
                 cc_spec = f"FILE:{abs_cc}".encode("utf-8")
                 if os.name != "nt" and not (ccache_path.startswith("KEYRING:") or ccache_path.startswith("KCM:")):
-                    flags = os.O_CREAT | os.O_WRONLY
                     if hasattr(os, "O_NOFOLLOW"):
-                        flags |= os.O_NOFOLLOW
-                    try:
-                        fd = os.open(abs_cc, flags, 0o600)
-                        os.close(fd)
-                    except OSError:
-                        pass
+                        flags = os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW
+                        try:
+                            fd = os.open(abs_cc, flags, 0o600)
+                            os.close(fd)
+                        except OSError as _e:
+                            if _e.errno == errno.ELOOP:
+                                return {
+                                    "status": "ERROR",
+                                    "reason_code": "SYMLINK_REJECTED",
+                                    "category": "SECURITY_VIOLATION",
+                                    "message": f"Refusing to write credential cache to symbolic link: {abs_cc}",
+                                    "target": abs_cc,
+                                }
+                    else:
+                        try:
+                            fd = os.open(abs_cc, os.O_CREAT | os.O_WRONLY, 0o600)
+                            os.close(fd)
+                        except OSError:
+                            pass
 
                 ret = krb5.krb5_cc_resolve(ctx, cc_spec, ctypes.byref(cc))
                 if ret != 0:
@@ -447,10 +508,17 @@ def acquire_tgt_via_ctypes(
                 krb5.krb5_free_principal.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
                 krb5.krb5_free_principal(ctx, princ)
     finally:
-        if hasattr(krb5, "krb5_free_context"):
-            krb5.krb5_free_context.restype = None
-            krb5.krb5_free_context.argtypes = [ctypes.c_void_p]
-            krb5.krb5_free_context(ctx)
+        try:
+            if ctx_initialized and krb5 is not None and hasattr(krb5, "krb5_free_context"):
+                krb5.krb5_free_context.restype = None
+                krb5.krb5_free_context.argtypes = [ctypes.c_void_p]
+                krb5.krb5_free_context(ctx)
+        finally:
+            if krb5_conf:
+                if _orig_krb5_cfg is None:
+                    os.environ.pop("KRB5_CONFIG", None)
+                else:
+                    os.environ["KRB5_CONFIG"] = _orig_krb5_cfg
 
 
 def acquire_tgt(
@@ -513,6 +581,7 @@ def acquire_tgt(
 
     # Determine destination credential cache path
     target_ccache = ccache_path
+    _unsupported_cc_scheme = None
     if not target_ccache:
         env_cc = os.environ.get("KRB5CCNAME")
         if env_cc:
@@ -520,6 +589,8 @@ def acquire_tgt(
                 target_ccache = env_cc[5:]
             elif env_cc.startswith("/"):
                 target_ccache = env_cc
+            elif any(env_cc.startswith(s) for s in ("KCM:", "KEYRING:", "API:", "MEMORY:", "DIR:")):
+                _unsupported_cc_scheme = env_cc
     if not target_ccache:
         uid = getattr(os, "getuid", lambda: 1000)()
         if os.name != "nt":
@@ -535,17 +606,86 @@ def acquire_tgt(
         os.makedirs(parent_dir, exist_ok=True)
 
     # Fast non-blocking socket probe (<800ms) before initiating Kerberos auth over live wire
-    target_kdc_host = kdc.split(",")[0].strip().split(":")[0].strip() if kdc else None
+    _srv_kdc_port = 88
+    target_kdc_host: Optional[str] = None
+    if kdc:
+        _kdc_tok = kdc.split(",")[0].strip()
+        if _kdc_tok:
+            target_kdc_host, _srv_kdc_port = _parse_kdc_host_port(_kdc_tok.split()[0])
     if not target_kdc_host:
         conf_to_check = krb5_conf or os.environ.get("KRB5_CONFIG") or "/etc/krb5.conf"
         if os.path.isfile(conf_to_check):
             try:
+                _target_realm = target_princ.split("@")[-1].strip().upper() if (target_princ and "@" in target_princ) else None
+                _cur_section: Optional[str] = None
+                _cur_realm: Optional[str] = None
+                _pending_realm: Optional[str] = None
+                _brace_depth = 0
                 with open(conf_to_check, "r", encoding="utf-8", errors="replace") as f:
                     for line in f:
                         line_s = line.strip()
-                        if line_s.startswith("kdc") and "=" in line_s:
-                            target_kdc_host = line_s.split("=")[1].strip().split()[0].split(",")[0].split(":")[0]
+                        _clean = line_s.split("#", 1)[0].split(";", 1)[0].strip()
+                        if not _clean:
+                            continue
+                        if _clean.startswith("[") and _clean.endswith("]"):
+                            _cur_section = _clean[1:-1].strip().lower()
+                            _cur_realm = None
+                            _pending_realm = None
+                            _brace_depth = 0
+                            continue
+                        if _cur_section == "libdefaults" and not _target_realm and "=" in _clean:
+                            _lk, _lv = _clean.split("=", 1)
+                            if _lk.strip() == "default_realm" and _lv.strip():
+                                _target_realm = _lv.strip().upper()
+                            continue
+                        if _cur_section == "realms" and _brace_depth == 0:
+                            if "=" in _clean and _clean.split("=", 1)[0].strip() != "kdc":
+                                _lhs, _rhs = _clean.split("=", 1)
+                                _pending_realm = _lhs.strip().upper() or None
+                                if "{" in _rhs:
+                                    _cur_realm = _pending_realm
+                                    _pending_realm = None
+                                    _after_brace = _rhs.split("{", 1)[1]
+                                    _brace_depth = 1 + _after_brace.count("{") - _after_brace.count("}")
+                                    line_s = line_s.split("{", 1)[1].strip()
+                                else:
+                                    continue
+                            elif _clean.startswith("{") and _pending_realm:
+                                _cur_realm = _pending_realm
+                                _pending_realm = None
+                                _after_brace = _clean[1:]
+                                _brace_depth = 1 + _after_brace.count("{") - _after_brace.count("}")
+                                line_s = line_s.split("{", 1)[1].strip()
+                        elif _cur_section == "realms" and _brace_depth > 0:
+                            _brace_depth += _clean.count("{") - _clean.count("}")
+                        if line_s.startswith("kdc") and "=" in line_s and line_s.split("=", 1)[0].strip() == "kdc":
+                            if _cur_section == "realms" and _target_realm and _cur_realm and _cur_realm != _target_realm:
+                                if _brace_depth <= 0:
+                                    _brace_depth = 0
+                                    _cur_realm = None
+                                continue
+                            raw_kdc_val = line_s.split("=", 1)[1].strip()
+                            for _comment_char in ("#", ";"):
+                                if _comment_char in raw_kdc_val:
+                                    raw_kdc_val = raw_kdc_val[:raw_kdc_val.index(_comment_char)].strip()
+                            raw_kdc_val = raw_kdc_val.rstrip("}").strip()
+                            _first_entry = raw_kdc_val.split(",")[0].strip()
+                            if not _first_entry:
+                                if _brace_depth <= 0:
+                                    _brace_depth = 0
+                                    _cur_realm = None
+                                continue
+                            target_kdc_host, _srv_kdc_port = _parse_kdc_host_port(_first_entry.split()[0])
+                            if not target_kdc_host:
+                                target_kdc_host = None
+                                if _brace_depth <= 0:
+                                    _brace_depth = 0
+                                    _cur_realm = None
+                                continue
                             break
+                        if _cur_section == "realms" and _brace_depth <= 0:
+                            _brace_depth = 0
+                            _cur_realm = None
             except OSError:
                 pass
     if not target_kdc_host and target_princ and "@" in target_princ:
@@ -555,12 +695,17 @@ def acquire_tgt(
             discovered = discover_dc_via_srv(realm, timeout=0.8)
             if discovered:
                 target_kdc_host = discovered[0]
+                _srv_kdc_port = discovered[1]
         except Exception:
             pass
 
     if target_kdc_host:
         from .ldap import probe_tcp_port
-        reachable, err_msg = probe_tcp_port(target_kdc_host, 88, timeout=0.8)
+        reachable, err_msg = probe_tcp_port(
+            target_kdc_host,
+            _srv_kdc_port if _srv_kdc_port else 88,
+            timeout=0.8,
+        )
         if not reachable:
             remediation = f"ssh -L 8888:{target_kdc_host}:88 user@pivot -N"
             return {
@@ -596,14 +741,26 @@ def acquire_tgt(
             env["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
         env["KRB5CCNAME"] = f"FILE:{abs_ccache}"
         if os.name != "nt":
-            flags = os.O_CREAT | os.O_WRONLY
             if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            try:
-                fd = os.open(abs_ccache, flags, 0o600)
-                os.close(fd)
-            except OSError:
-                pass
+                flags = os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW
+                try:
+                    fd = os.open(abs_ccache, flags, 0o600)
+                    os.close(fd)
+                except OSError as _e:
+                    if _e.errno == errno.ELOOP:
+                        return {
+                            "status": "ERROR",
+                            "reason_code": "SYMLINK_REJECTED",
+                            "category": "SECURITY_VIOLATION",
+                            "message": f"Refusing to write credential cache to symbolic link: {abs_ccache}",
+                            "target": abs_ccache,
+                        }
+            else:
+                try:
+                    fd = os.open(abs_ccache, os.O_CREAT | os.O_WRONLY, 0o600)
+                    os.close(fd)
+                except OSError:
+                    pass
         try:
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
             if proc.returncode == 0:
@@ -612,7 +769,7 @@ def acquire_tgt(
                         os.chmod(abs_ccache, 0o600)
                     except OSError:
                         pass
-                success_dict = {
+                success_dict: Dict[str, Any] = {
                     "status": "SUCCESS",
                     "method": "kinit",
                     "principal": target_princ,
@@ -624,6 +781,11 @@ def acquire_tgt(
                     success_dict["fast"] = True
                 if armor_cache:
                     success_dict["armor_cache"] = os.path.abspath(armor_cache)
+                if _unsupported_cc_scheme:
+                    success_dict["warning"] = (
+                        f"KRB5CCNAME was set to '{_unsupported_cc_scheme}' (unsupported scheme). "
+                        f"Credentials written to FILE: fallback instead: {success_dict['ccache']}"
+                    )
                 return success_dict
             else:
                 kinit_err = (proc.stderr or proc.stdout or "").strip()
@@ -640,6 +802,11 @@ def acquire_tgt(
         armor_cache=armor_cache,
     )
     if ctypes_res.get("status") == "SUCCESS":
+        if _unsupported_cc_scheme:
+            ctypes_res["warning"] = (
+                f"KRB5CCNAME was set to '{_unsupported_cc_scheme}' (unsupported scheme). "
+                f"Credentials written to FILE: fallback instead: {ctypes_res['ccache']}"
+            )
         return ctypes_res
 
     # 3. Clean fallback when neither kinit nor libkrb5.so is available
@@ -698,12 +865,24 @@ def inject_ticket_to_keyring(
 
     import platform
     machine = platform.machine().lower()
-    # Syscall numbers for __NR_add_key
-    syscall_nr = 248  # x86_64 default
-    if "aarch64" in machine or "arm64" in machine:
-        syscall_nr = 217
-    elif "i386" in machine or "i686" in machine:
-        syscall_nr = 286
+    SYSCALL_ADD_KEY = {
+        "x86_64": 248,
+        "aarch64": 217,
+        "arm64": 217,
+        "armv7l": 309,
+        "armv6l": 309,
+        "i386": 286,
+        "i686": 286,
+        "riscv64": 217,
+        "ppc64le": 269,
+        "s390x": 278,
+    }
+    syscall_nr = SYSCALL_ADD_KEY.get(machine)
+    if syscall_nr is None:
+        return {
+            "status": "UNSUPPORTED_PLATFORM",
+            "message": f"Kernel keyring injection not supported on architecture: {machine}",
+        }
 
     try:
         libc = ctypes.CDLL(None, use_errno=True)
@@ -807,61 +986,63 @@ def acquire_tgs_via_ctypes(
             "exit_code": 1,
             "message": f"Invalid SPN starting with '-': '{spn}'",
         }
-    if krb5_conf:
-        os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
-
-    target_lib = lib_path or find_krb5_library()
+    _orig_krb5_cfg = os.environ.get("KRB5_CONFIG")
     krb5 = None
-    if target_lib:
-        try:
-            krb5 = ctypes.CDLL(target_lib)
-        except OSError:
-            krb5 = None
-
-    if krb5 is None:
-        guidance = get_distro_guidance()
-        return {
-            "status": "ERROR",
-            "reason_code": "MISSING_GSSAPI_LIBRARY",
-            "category": "DEPENDENCY_ERROR",
-            "exit_code": 3,
-            "message": f"libkrb5/libgssapi_krb5 shared library not found on host. {guidance}",
-            "details": guidance,
-            "recommendation": guidance,
-        }
-
-    # 1. Initialize context
     ctx = ctypes.c_void_p()
-    krb5.krb5_init_context.restype = ctypes.c_int32
-    krb5.krb5_init_context.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-    ret = krb5.krb5_init_context(ctypes.byref(ctx))
-    if ret != 0:
-        return {
-            "status": "ERROR",
-            "reason_code": "INIT_CONTEXT_FAILED",
-            "category": "PROTOCOL_ERROR",
-            "message": f"krb5_init_context failed with error code {ret}",
-        }
-
-    def _get_err(code: int, default: str) -> str:
-        if hasattr(krb5, "krb5_get_error_message"):
-            try:
-                krb5.krb5_get_error_message.restype = ctypes.c_void_p
-                krb5.krb5_get_error_message.argtypes = [ctypes.c_void_p, ctypes.c_int32]
-                msg_ptr = krb5.krb5_get_error_message(ctx, code)
-                if msg_ptr:
-                    try:
-                        return ctypes.string_at(msg_ptr).decode("utf-8", errors="replace")
-                    finally:
-                        if hasattr(krb5, "krb5_free_error_message"):
-                            krb5.krb5_free_error_message.restype = None
-                            krb5.krb5_free_error_message.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                            krb5.krb5_free_error_message(ctx, msg_ptr)
-            except Exception:
-                pass
-        return default
-
+    ctx_initialized = False
     try:
+        if krb5_conf:
+            os.environ["KRB5_CONFIG"] = os.path.abspath(krb5_conf)
+        target_lib = lib_path or find_krb5_library()
+        if target_lib:
+            try:
+                krb5 = ctypes.CDLL(target_lib)
+            except OSError:
+                krb5 = None
+
+        if krb5 is None:
+            guidance = get_distro_guidance()
+            return {
+                "status": "ERROR",
+                "reason_code": "MISSING_GSSAPI_LIBRARY",
+                "category": "DEPENDENCY_ERROR",
+                "exit_code": 3,
+                "message": f"libkrb5/libgssapi_krb5 shared library not found on host. {guidance}",
+                "details": guidance,
+                "recommendation": guidance,
+            }
+
+        # 1. Initialize context
+        krb5.krb5_init_context.restype = ctypes.c_int32
+        krb5.krb5_init_context.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+        ret = krb5.krb5_init_context(ctypes.byref(ctx))
+        if ret != 0:
+            return {
+                "status": "ERROR",
+                "reason_code": "INIT_CONTEXT_FAILED",
+                "category": "PROTOCOL_ERROR",
+                "message": f"krb5_init_context failed with error code {ret}",
+            }
+        ctx_initialized = True
+
+        def _get_err(code: int, default: str) -> str:
+            if hasattr(krb5, "krb5_get_error_message"):
+                try:
+                    krb5.krb5_get_error_message.restype = ctypes.c_void_p
+                    krb5.krb5_get_error_message.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+                    msg_ptr = krb5.krb5_get_error_message(ctx, code)
+                    if msg_ptr:
+                        try:
+                            return ctypes.string_at(msg_ptr).decode("utf-8", errors="replace")
+                        finally:
+                            if hasattr(krb5, "krb5_free_error_message"):
+                                krb5.krb5_free_error_message.restype = None
+                                krb5.krb5_free_error_message.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                                krb5.krb5_free_error_message(ctx, msg_ptr)
+                except Exception:
+                    pass
+            return default
+
         abs_cc = os.path.abspath(ccache_path)
 
         # Synchronize context time with KDC clock drift from existing ticket in ccache
@@ -1007,10 +1188,17 @@ def acquire_tgs_via_ctypes(
                 krb5.krb5_cc_close.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
                 krb5.krb5_cc_close(ctx, cc)
     finally:
-        if hasattr(krb5, "krb5_free_context"):
-            krb5.krb5_free_context.restype = None
-            krb5.krb5_free_context.argtypes = [ctypes.c_void_p]
-            krb5.krb5_free_context(ctx)
+        try:
+            if ctx_initialized and krb5 is not None and hasattr(krb5, "krb5_free_context"):
+                krb5.krb5_free_context.restype = None
+                krb5.krb5_free_context.argtypes = [ctypes.c_void_p]
+                krb5.krb5_free_context(ctx)
+        finally:
+            if krb5_conf:
+                if _orig_krb5_cfg is None:
+                    os.environ.pop("KRB5_CONFIG", None)
+                else:
+                    os.environ["KRB5_CONFIG"] = _orig_krb5_cfg
 
 
 def acquire_tgs(
@@ -1087,17 +1275,86 @@ def acquire_tgs(
         }
 
     # Fast KDC probe if KDC is provided, configured, or discovered
-    target_kdc_host = kdc.split(",")[0].strip().split(":")[0].strip() if kdc else None
+    _srv_kdc_port = 88
+    target_kdc_host: Optional[str] = None
+    if kdc:
+        _kdc_tok = kdc.split(",")[0].strip()
+        if _kdc_tok:
+            target_kdc_host, _srv_kdc_port = _parse_kdc_host_port(_kdc_tok.split()[0])
     if not target_kdc_host:
         conf_to_check = krb5_conf or os.environ.get("KRB5_CONFIG") or "/etc/krb5.conf"
         if os.path.isfile(conf_to_check):
             try:
+                _target_realm = clean_spn.split("@")[-1].strip().upper() if "@" in clean_spn else None
+                _cur_section: Optional[str] = None
+                _cur_realm: Optional[str] = None
+                _pending_realm: Optional[str] = None
+                _brace_depth = 0
                 with open(conf_to_check, "r", encoding="utf-8", errors="replace") as f:
                     for line in f:
                         line_s = line.strip()
-                        if line_s.startswith("kdc") and "=" in line_s:
-                            target_kdc_host = line_s.split("=")[1].strip().split()[0].split(",")[0].split(":")[0]
+                        _clean = line_s.split("#", 1)[0].split(";", 1)[0].strip()
+                        if not _clean:
+                            continue
+                        if _clean.startswith("[") and _clean.endswith("]"):
+                            _cur_section = _clean[1:-1].strip().lower()
+                            _cur_realm = None
+                            _pending_realm = None
+                            _brace_depth = 0
+                            continue
+                        if _cur_section == "libdefaults" and not _target_realm and "=" in _clean:
+                            _lk, _lv = _clean.split("=", 1)
+                            if _lk.strip() == "default_realm" and _lv.strip():
+                                _target_realm = _lv.strip().upper()
+                            continue
+                        if _cur_section == "realms" and _brace_depth == 0:
+                            if "=" in _clean and _clean.split("=", 1)[0].strip() != "kdc":
+                                _lhs, _rhs = _clean.split("=", 1)
+                                _pending_realm = _lhs.strip().upper() or None
+                                if "{" in _rhs:
+                                    _cur_realm = _pending_realm
+                                    _pending_realm = None
+                                    _after_brace = _rhs.split("{", 1)[1]
+                                    _brace_depth = 1 + _after_brace.count("{") - _after_brace.count("}")
+                                    line_s = line_s.split("{", 1)[1].strip()
+                                else:
+                                    continue
+                            elif _clean.startswith("{") and _pending_realm:
+                                _cur_realm = _pending_realm
+                                _pending_realm = None
+                                _after_brace = _clean[1:]
+                                _brace_depth = 1 + _after_brace.count("{") - _after_brace.count("}")
+                                line_s = line_s.split("{", 1)[1].strip()
+                        elif _cur_section == "realms" and _brace_depth > 0:
+                            _brace_depth += _clean.count("{") - _clean.count("}")
+                        if line_s.startswith("kdc") and "=" in line_s and line_s.split("=", 1)[0].strip() == "kdc":
+                            if _cur_section == "realms" and _target_realm and _cur_realm and _cur_realm != _target_realm:
+                                if _brace_depth <= 0:
+                                    _brace_depth = 0
+                                    _cur_realm = None
+                                continue
+                            raw_kdc_val = line_s.split("=", 1)[1].strip()
+                            for _comment_char in ("#", ";"):
+                                if _comment_char in raw_kdc_val:
+                                    raw_kdc_val = raw_kdc_val[:raw_kdc_val.index(_comment_char)].strip()
+                            raw_kdc_val = raw_kdc_val.rstrip("}").strip()
+                            _first_entry = raw_kdc_val.split(",")[0].strip()
+                            if not _first_entry:
+                                if _brace_depth <= 0:
+                                    _brace_depth = 0
+                                    _cur_realm = None
+                                continue
+                            target_kdc_host, _srv_kdc_port = _parse_kdc_host_port(_first_entry.split()[0])
+                            if not target_kdc_host:
+                                target_kdc_host = None
+                                if _brace_depth <= 0:
+                                    _brace_depth = 0
+                                    _cur_realm = None
+                                continue
                             break
+                        if _cur_section == "realms" and _brace_depth <= 0:
+                            _brace_depth = 0
+                            _cur_realm = None
             except OSError:
                 pass
     if not target_kdc_host and "@" in clean_spn:
@@ -1107,12 +1364,17 @@ def acquire_tgs(
             discovered = discover_dc_via_srv(realm, timeout=0.8)
             if discovered:
                 target_kdc_host = discovered[0]
+                _srv_kdc_port = discovered[1]
         except Exception:
             pass
 
     if target_kdc_host:
         from .ldap import probe_tcp_port
-        reachable, err_msg = probe_tcp_port(target_kdc_host, 88, timeout=0.8)
+        reachable, err_msg = probe_tcp_port(
+            target_kdc_host,
+            _srv_kdc_port if _srv_kdc_port else 88,
+            timeout=0.8,
+        )
         if not reachable:
             remediation = f"ssh -L 8888:{target_kdc_host}:88 user@pivot -N"
             return {

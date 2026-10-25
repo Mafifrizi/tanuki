@@ -244,103 +244,112 @@ def run_fix(
                 drift = calculate_clock_drift(kdc_time)
                 effective_skew = calculate_remediated_clockskew(drift)
 
-        optimal_conf = generate_krb5_conf(
-            realm=clean_realm,
-            kdc=[target_kdc],
-            admin_server=target_kdc,
-            clockskew=effective_skew,
-            enforce_aes=False,
-        )
-
-        existing_content = None
-        if not os.path.islink(resolved_config_path) and os.path.isfile(resolved_config_path):
-            try:
-                with open(resolved_config_path, "r", encoding="utf-8", errors="replace") as f:
-                    existing_content = f.read()
-            except OSError:
-                pass
-
-        if existing_content:
-            extra_sections = _extract_unrelated_krb5_sections(existing_content)
-            if extra_sections:
-                optimal_conf = optimal_conf.rstrip("\n") + "\n\n" + extra_sections + "\n"
-
-        if existing_content == optimal_conf and not os.path.islink(resolved_config_path):
+        try:
+            optimal_conf: Optional[str] = generate_krb5_conf(
+                realm=clean_realm,
+                kdc=[target_kdc],
+                clockskew=effective_skew,
+                enforce_aes=False,
+            )
+        except ValueError as exc:
+            optimal_conf = None
             actions.append({
                 "action": "krb5_configuration",
                 "target": resolved_config_path,
-                "status": "IDEMPOTENT_SKIPPED",
-                "details": "Configuration already optimal with udp_preference_limit=0 and clockskew tolerance",
+                "status": "ERROR",
+                "details": f"Invalid Kerberos configuration parameter: {exc}",
             })
-        else:
-            if os.path.islink(resolved_config_path):
-                if not dry_run:
-                    actions.append({
-                        "action": "backup_preservation",
-                        "target": resolved_config_path,
-                        "status": "WARN",
-                        "details": f"Refusing to backup symbolic link target: {resolved_config_path}",
-                    })
+
+        if optimal_conf is not None:
+            existing_content = None
+            if not os.path.islink(resolved_config_path) and os.path.isfile(resolved_config_path):
+                try:
+                    with open(resolved_config_path, "r", encoding="utf-8", errors="replace") as f:
+                        existing_content = f.read()
+                except OSError:
+                    pass
+
+            if existing_content:
+                extra_sections = _extract_unrelated_krb5_sections(existing_content)
+                if extra_sections:
+                    optimal_conf = optimal_conf.rstrip("\n") + "\n\n" + extra_sections + "\n"
+
+            if existing_content == optimal_conf and not os.path.islink(resolved_config_path):
                 actions.append({
                     "action": "krb5_configuration",
                     "target": resolved_config_path,
-                    "status": "ERROR",
-                    "details": f"Refusing to write to symbolic link: {resolved_config_path}",
-                })
-            elif dry_run:
-                actions.append({
-                    "action": "krb5_configuration",
-                    "target": resolved_config_path,
-                    "status": "PROPOSED",
-                    "details": f"Would create .bak and write optimal configuration for realm {clean_realm}",
+                    "status": "IDEMPOTENT_SKIPPED",
+                    "details": "Configuration already optimal with udp_preference_limit=0 and clockskew tolerance",
                 })
             else:
-                backup_path = None
-                if existing_content is not None:
-                    backup_path = f"{resolved_config_path}.bak"
-                    if os.path.islink(backup_path):
+                if os.path.islink(resolved_config_path):
+                    if not dry_run:
                         actions.append({
                             "action": "backup_preservation",
-                            "target": backup_path,
+                            "target": resolved_config_path,
                             "status": "WARN",
-                            "details": f"Refusing to overwrite symbolic link backup: {backup_path}",
+                            "details": f"Refusing to backup symbolic link target: {resolved_config_path}",
                         })
-                    else:
-                        try:
-                            shutil.copy2(resolved_config_path, backup_path, follow_symlinks=False)
-                        except OSError as exc:
-                            actions.append({
-                                "action": "backup_preservation",
-                                "target": backup_path,
-                                "status": "WARN",
-                                "details": f"Could not create backup: {exc}",
-                            })
-
-                try:
-                    p_dir = os.path.dirname(os.path.abspath(resolved_config_path))
-                    if p_dir and not os.path.exists(p_dir):
-                        os.makedirs(p_dir, exist_ok=True)
-                    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-                    if hasattr(os, "O_NOFOLLOW"):
-                        flags |= os.O_NOFOLLOW
-                    fd = os.open(resolved_config_path, flags, 0o644)
-                    with os.fdopen(fd, "w", encoding="utf-8") as f:
-                        f.write(optimal_conf)
-
-                    actions.append({
-                        "action": "krb5_configuration",
-                        "target": resolved_config_path,
-                        "backup": backup_path,
-                        "status": "APPLIED",
-                        "details": f"Generated unprivileged krb5.conf (udp_preference_limit=0, clockskew={effective_skew}s)",
-                    })
-                except OSError as exc:
                     actions.append({
                         "action": "krb5_configuration",
                         "target": resolved_config_path,
                         "status": "ERROR",
-                        "details": f"Failed to write configuration: {exc}",
+                        "details": f"Refusing to write to symbolic link: {resolved_config_path}",
                     })
+                elif dry_run:
+                    actions.append({
+                        "action": "krb5_configuration",
+                        "target": resolved_config_path,
+                        "status": "PROPOSED",
+                        "details": f"Would create .bak and write optimal configuration for realm {clean_realm}",
+                    })
+                else:
+                    backup_path = None
+                    if existing_content is not None:
+                        backup_path = f"{resolved_config_path}.bak"
+                        if os.path.islink(backup_path):
+                            actions.append({
+                                "action": "backup_preservation",
+                                "target": backup_path,
+                                "status": "WARN",
+                                "details": f"Refusing to overwrite symbolic link backup: {backup_path}",
+                            })
+                        else:
+                            try:
+                                shutil.copy2(resolved_config_path, backup_path, follow_symlinks=False)
+                            except OSError as exc:
+                                actions.append({
+                                    "action": "backup_preservation",
+                                    "target": backup_path,
+                                    "status": "WARN",
+                                    "details": f"Could not create backup: {exc}",
+                                })
+
+                    try:
+                        p_dir = os.path.dirname(os.path.abspath(resolved_config_path))
+                        if p_dir and not os.path.exists(p_dir):
+                            os.makedirs(p_dir, exist_ok=True)
+                        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                        if hasattr(os, "O_NOFOLLOW"):
+                            flags |= os.O_NOFOLLOW
+                        fd = os.open(resolved_config_path, flags, 0o644)
+                        with os.fdopen(fd, "w", encoding="utf-8") as f:
+                            f.write(optimal_conf)
+
+                        actions.append({
+                            "action": "krb5_configuration",
+                            "target": resolved_config_path,
+                            "backup": backup_path,
+                            "status": "APPLIED",
+                            "details": f"Generated unprivileged krb5.conf (udp_preference_limit=0, clockskew={effective_skew}s)",
+                        })
+                    except OSError as exc:
+                        actions.append({
+                            "action": "krb5_configuration",
+                            "target": resolved_config_path,
+                            "status": "ERROR",
+                            "details": f"Failed to write configuration: {exc}",
+                        })
     else:
         actions.append({
             "action": "krb5_configuration",

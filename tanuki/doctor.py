@@ -8,7 +8,7 @@ import stat
 import struct
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import sys
 from .keytab import ENCTYPE_MAP, parse_keytab_stream
@@ -1114,17 +1114,37 @@ def check_ticket_lifetime(
     return result
 
 
-_DEFAULT_HOST_TOOLS_CACHE: Optional[Dict[str, Any]] = None
+_DEFAULT_HOST_TOOLS_CACHE: Optional[Tuple[str, Dict[str, Any]]] = None
+
+
+def _is_wsl_drvfs_path(path_entry: str) -> bool:
+    return (
+        len(path_entry) >= 6
+        and path_entry.startswith("/mnt/")
+        and path_entry[5].isalpha()
+        and (len(path_entry) == 6 or path_entry[6] == "/")
+    )
 
 
 def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
     """Audit host availability of Kerberos client utilities (kinit, klist, kvno)."""
     global _DEFAULT_HOST_TOOLS_CACHE
-    if search_path is None and _DEFAULT_HOST_TOOLS_CACHE is not None:
-        return {k: list(v) if isinstance(v, list) else v for k, v in _DEFAULT_HOST_TOOLS_CACHE.items()}
+    env_path = os.environ.get("PATH", "")
+    if search_path is None and _DEFAULT_HOST_TOOLS_CACHE is not None and _DEFAULT_HOST_TOOLS_CACHE[0] == env_path:
+        cached = _DEFAULT_HOST_TOOLS_CACHE[1]
+        return {k: list(v) if isinstance(v, list) else v for k, v in cached.items()}
 
     exts = [".exe", ""] if os.name == "nt" else [""]
-    path_dirs = (search_path or os.environ.get("PATH", "")).split(os.pathsep)
+    path_dirs = (search_path if search_path is not None else env_path).split(os.pathsep)
+    if search_path is None and os.name != "nt":
+        is_wsl = bool(
+            os.environ.get("WSL_DISTRO_NAME")
+            or os.environ.get("WSL_INTEROP")
+            or os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop")
+        )
+        # Skip appended Windows 9P DrvFS directories when scanning default Linux PATH for ELF kinit.
+        if is_wsl and any(d and not _is_wsl_drvfs_path(d) for d in path_dirs):
+            path_dirs = [d for d in path_dirs if not _is_wsl_drvfs_path(d)]
 
     kinit_path: Optional[str] = None
     klist_path: Optional[str] = None
@@ -1176,7 +1196,10 @@ def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
         result["status"] = "PASS"
         result["details"] = f"Utilities available: {', '.join(tools_found)} (kinit: {kinit_path})"
         if search_path is None:
-            _DEFAULT_HOST_TOOLS_CACHE = {k: list(v) if isinstance(v, list) else v for k, v in result.items()}
+            _DEFAULT_HOST_TOOLS_CACHE = (
+                env_path,
+                {k: list(v) if isinstance(v, list) else v for k, v in result.items()},
+            )
         return result
 
     result["status"] = "WARN"
@@ -1212,7 +1235,10 @@ def check_host_tools(search_path: Optional[str] = None) -> Dict[str, Any]:
         f"Install client tools: {install_cmd} (unprivileged: use portable client with KRB5_CONFIG)"
     )
     if search_path is None:
-        _DEFAULT_HOST_TOOLS_CACHE = {k: list(v) if isinstance(v, list) else v for k, v in result.items()}
+        _DEFAULT_HOST_TOOLS_CACHE = (
+            env_path,
+            {k: list(v) if isinstance(v, list) else v for k, v in result.items()},
+        )
     return result
 
 

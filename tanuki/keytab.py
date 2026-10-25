@@ -1,5 +1,6 @@
 """RFC 4120 Binary Keytab Parser (Keytab v2)."""
 
+import hashlib
 import io
 import os
 import struct
@@ -132,7 +133,8 @@ def parse_keytab_stream(stream: io.BytesIO) -> List[Dict[str, Any]]:
                 "keytype": keytype,
                 "enctype_name": ENCTYPE_MAP.get(keytype, f"unknown({keytype})"),
                 "key_len": key_len,
-                "key_hex": key_bytes.hex(),
+                "key_preview": key_bytes[:4].hex() + "...",
+                "key_fingerprint": hashlib.sha256(key_bytes).hexdigest()[:16],
                 "timestamp": timestamp,
             }
         )
@@ -149,5 +151,12 @@ def parse_keytab_file(filepath: str) -> List[Dict[str, Any]]:
     """Read file and parse Keytab v2 entries."""
     if os.path.islink(filepath):
         raise ValueError(f"Refusing to read symbolic link: {filepath}")
+    MAX_KEYTAB_SIZE = 10485760
+    file_size = os.path.getsize(filepath)
+    if file_size > MAX_KEYTAB_SIZE:
+        raise ValueError(
+            f"Keytab file size {file_size} bytes exceeds maximum allowed size "
+            f"({MAX_KEYTAB_SIZE} bytes). Possible corrupt or non-keytab file: {filepath!r}"
+        )
     with open(filepath, "rb") as f:
-        return parse_keytab_stream(io.BytesIO(f.read(10485760)))
+        return parse_keytab_stream(io.BytesIO(f.read()))

@@ -35,7 +35,7 @@ KNOWN_JWT_ALGORITHMS = {
 
 def b64url_decode(segment: str) -> bytes:
     clean = segment.strip().rstrip("=")
-    if clean and not re.fullmatch(r"[A-Za-z0-9_+/\-]+", clean):
+    if clean and not re.fullmatch(r"[A-Za-z0-9_\-]+", clean):
         raise ValueError("Invalid characters in Base64URL encoding")
     mod = len(clean) % 4
     if mod == 1:
