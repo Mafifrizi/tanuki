@@ -154,25 +154,9 @@ def build_synthetic_shadow_blob(
 
     cng_hdr = struct.pack("<4sIIIII", b"RSA1", 2048, 3, 256, 0, 0)
     pub_exp = b"\x01\x00\x01"
-    # Authentic 2048-bit RSA public key modulus ([MS-ADTS] 2.2.20 / RFC 3447)
-    modulus = bytes.fromhex(
-        "a4f8d29b1e7c53a0684f0b29d3c518e4"
-        "9b2a74c831e50f62d87a419c235b6e08"
-        "f419c2b87a315e064d82b79a5c1e304f"
-        "28d7a16c4b9e02538f1a7c4e2b09538a"
-        "d92b740e5c1a836f40b2e8d91c7a5364"
-        "8f1a2c7e4b096538d92b740e5c1a836f"
-        "40b2e8d91c7a53648f1a2c7e4b096538"
-        "d92b740e5c1a836f40b2e8d91c7a5364"
-        "8f1a2c7e4b096538d92b740e5c1a836f"
-        "40b2e8d91c7a53648f1a2c7e4b096538"
-        "d92b740e5c1a836f40b2e8d91c7a5364"
-        "8f1a2c7e4b096538d92b740e5c1a836f"
-        "40b2e8d91c7a53648f1a2c7e4b096538"
-        "d92b740e5c1a836f40b2e8d91c7a5364"
-        "8f1a2c7e4b096538d92b740e5c1a836f"
-        "7c5e31a89b024f6d183cae740b925f1b"
-    )
+    # 2048-bit odd random modulus (MSB ensures 2048-bit length, LSB ensures odd integer)
+    modulus = os.urandom(256)
+    modulus = bytes([modulus[0] | 0x80]) + modulus[1:-1] + bytes([modulus[-1] | 0x01])
     km_bytes = cng_hdr + pub_exp + modulus
 
     blob.extend(struct.pack("<HB", len(km_bytes), 0x03))

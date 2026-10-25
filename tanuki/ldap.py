@@ -584,9 +584,8 @@ def probe_tcp_port(host: str, port: int = 389, timeout: float = 3.0) -> Tuple[bo
     """Socket probe verifying connectivity before initiating live wire operations."""
     sock = None
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect((host, port))
+        clean_host = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+        sock = socket.create_connection((clean_host, port), timeout=timeout)
         return True, None
     except Exception as exc:
         return False, str(exc)

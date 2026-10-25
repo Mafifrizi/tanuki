@@ -9,7 +9,7 @@ from . import __version__
 from .adcs import format_adcs_report_terminal, scan_adcs
 from .auth import acquire_tgs, acquire_tgt
 from .blast import format_blast_report_terminal, run_blast
-from .config import discover_dc_via_srv, generate_krb5_conf
+from .config import _strip_kdc_transport_prefix, discover_dc_via_srv, generate_krb5_conf
 from .doctor import diagnose_system, render_card_header, supports_unicode
 from .fix import run_fix
 from .kcm import (
@@ -218,8 +218,8 @@ def handle_keytab(file_path: Optional[str], json_output: bool) -> None:
         print(f"[{idx}] Principal : {e['principal']}")
         print(f"    {t_branch} KVNO      : {e['vno']}")
         print(f"    {t_branch} Enctype   : {e['enctype_name']} ({e['keytype']})")
-        key_preview = e["key_hex"][:16] if len(e["key_hex"]) > 16 else e["key_hex"]
-        print(f"    {l_branch} Key (Hex) : {key_preview}... (length: {e['key_len']} bytes)")
+        key_preview = e.get("key_preview", "???")
+        print(f"    {l_branch} Key (Hex) : {key_preview} (length: {e['key_len']} bytes)")
 
     aes_entries = [e for e in entries if e["keytype"] in (17, 18, 19, 20)]
     if aes_entries:
@@ -539,17 +539,27 @@ def handle_config(
             json_output=json_output,
         )
 
-    target_admin = admin_server_opt.strip() if admin_server_opt else kdcs[0]
+    explicit_admin = admin_server_opt.strip() if (admin_server_opt and admin_server_opt.strip()) else None
+    target_admin = explicit_admin if explicit_admin else _strip_kdc_transport_prefix(kdcs[0])
 
-    content = generate_krb5_conf(
-        realm=clean_realm,
-        kdc=kdcs,
-        admin_server=target_admin,
-        clockskew=clockskew_opt,
-        enforce_aes=enforce_aes_opt,
-        fast=fast_opt,
-        armor_cache=armor_cache_opt,
-    )
+    try:
+        content = generate_krb5_conf(
+            realm=clean_realm,
+            kdc=kdcs,
+            admin_server=explicit_admin,
+            clockskew=clockskew_opt,
+            enforce_aes=enforce_aes_opt,
+            fast=fast_opt,
+            armor_cache=armor_cache_opt,
+        )
+    except ValueError as exc:
+        emit_cli_error(
+            str(exc),
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
 
     if stdout_mode and not json_output:
         sys.stdout.write(content)
@@ -570,7 +580,8 @@ def handle_config(
         parent_dir = os.path.dirname(abs_path)
         if parent_dir and not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
-        fd = os.open(abs_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(abs_path, flags, 0o644)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
     except OSError as exc:
@@ -805,6 +816,8 @@ def handle_auth(
         if res.get("armor_cache"):
             print(f"    {t_branch} Armor Cache    : {res['armor_cache']}")
         print(f"    {l_branch} Auth Method    : {res.get('method', 'unknown')}")
+        if res.get("warning"):
+            print(f"\n[!] Warning: {res['warning']}")
         print("\n[+] Active Credential Cache Export:")
         print(f"    $ {res['export_command']}")
     else:
@@ -1156,16 +1169,30 @@ def handle_fix(
     json_output: bool,
     krb_error: Optional[Any] = None,
 ) -> None:
-    rep = run_fix(
-        keytab_path=keytab_path,
-        realm=realm,
-        kdc=kdc,
-        krb5_conf=krb5_conf,
-        ccache_path=ccache_path,
-        dry_run=dry_run,
-        clock_skew=clock_skew,
-        krb_error=krb_error,
-    )
+    try:
+        if realm is not None or kdc is not None:
+            generate_krb5_conf(
+                realm=realm if realm is not None else "EXAMPLE.COM",
+                kdc=kdc if kdc is not None else "127.0.0.1",
+            )
+        rep = run_fix(
+            keytab_path=keytab_path,
+            realm=realm,
+            kdc=kdc,
+            krb5_conf=krb5_conf,
+            ccache_path=ccache_path,
+            dry_run=dry_run,
+            clock_skew=clock_skew,
+            krb_error=krb_error,
+        )
+    except ValueError as exc:
+        emit_cli_error(
+            str(exc),
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
     if json_output:
         print(rep.to_json())
     else:

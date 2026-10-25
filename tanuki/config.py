@@ -1,5 +1,6 @@
 """Unprivileged Kerberos Configuration Generator for Linux Active Directory."""
 
+import ipaddress
 import os
 import socket
 import struct
@@ -7,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 _KRB5_CONF_FORBIDDEN_CHARS = set("\r\n\x00;#{}[]=")
+_KRB5_CONF_KDC_FORBIDDEN_CHARS = set("\r\n\x00;#{} =")
 
 
 def _validate_krb5_conf_token(value: str, field_name: str) -> None:
@@ -14,6 +16,42 @@ def _validate_krb5_conf_token(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} cannot contain newline characters")
     if any(ch in _KRB5_CONF_FORBIDDEN_CHARS for ch in value):
         raise ValueError(f"{field_name} contains forbidden configuration syntax characters")
+
+
+def _strip_kdc_transport_prefix(token: str) -> str:
+    if token.lower().startswith(("tcp/", "udp/")):
+        return token[4:]
+    return token
+
+
+def _validate_ipv6_with_optional_zone(addr_text: str, raw_kdc: str) -> None:
+    addr_part, pct_sep, zone_part = addr_text.partition("%")
+    if not addr_part or (pct_sep and (not zone_part or not all(ch.isalnum() or ch in "._-" for ch in zone_part))):
+        raise ValueError(f"KDC contains invalid IPv6 address literal: {raw_kdc!r}")
+    try:
+        ipaddress.IPv6Address(addr_part)
+    except ValueError as exc:
+        raise ValueError(f"KDC contains invalid IPv6 address literal: {raw_kdc!r}") from exc
+
+
+def _normalize_kdc_candidates(kdc: Union[str, List[str]]) -> List[str]:
+    if not kdc:
+        raise ValueError("KDC cannot be empty")
+    if isinstance(kdc, str):
+        kdc_candidates = [k.strip() for k in kdc.split(",") if k.strip()]
+    elif isinstance(kdc, (list, tuple)):
+        kdc_candidates = []
+        for item in kdc:
+            for k in item.split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean not in kdc_candidates:
+                    kdc_candidates.append(k_clean)
+    else:
+        raw = str(kdc).strip()
+        kdc_candidates = [raw] if raw else []
+    if not kdc_candidates:
+        raise ValueError("KDC cannot be empty")
+    return kdc_candidates
 
 
 def generate_krb5_conf(
@@ -55,27 +93,39 @@ def generate_krb5_conf(
             _validate_krb5_conf_token(armor_cache, "armor_cache")
 
     if admin_server is not None:
-        _validate_krb5_conf_token(admin_server, "admin_server")
+        admin_server = admin_server.strip()
+        if not admin_server:
+            admin_server = None
+        else:
+            _validate_krb5_conf_token(admin_server, "admin_server")
+            if any(ch.isspace() for ch in admin_server) or "/" in admin_server:
+                raise ValueError("admin_server contains forbidden configuration syntax characters")
 
-    if isinstance(kdc, str):
-        kdc_candidates = [k.strip() for k in kdc.split(",") if k.strip()]
-    elif isinstance(kdc, (list, tuple)):
-        kdc_candidates = []
-        for item in kdc:
-            for k in item.split(","):
-                k_clean = k.strip()
-                if k_clean and k_clean not in kdc_candidates:
-                    kdc_candidates.append(k_clean)
-    else:
-        kdc_candidates = [str(kdc).strip()]
-
-    if not kdc_candidates:
-        raise ValueError("KDC cannot be empty")
+    kdc_candidates = _normalize_kdc_candidates(kdc)
 
     for k in kdc_candidates:
-        _validate_krb5_conf_token(k, "KDC")
+        if any(ch in _KRB5_CONF_KDC_FORBIDDEN_CHARS or ch.isspace() for ch in k):
+            raise ValueError(f"KDC contains forbidden configuration syntax characters: {k!r}")
+        k_host = _strip_kdc_transport_prefix(k)
+        if not k_host:
+            raise ValueError(f"KDC contains invalid transport prefix without host: {k!r}")
+        if "/" in k_host:
+            raise ValueError(f"KDC contains invalid transport prefix: {k!r}")
+        if "[" in k_host or "]" in k_host:
+            if not (k_host.startswith("[") and k_host.count("[") == 1 and k_host.count("]") == 1):
+                raise ValueError(f"KDC contains forbidden configuration syntax characters: {k!r}")
+            inner, suffix = k_host[1:].split("]", 1)
+            _validate_ipv6_with_optional_zone(inner, k)
+            if suffix and not (suffix.startswith(":") and suffix[1:].isdigit() and 1 <= int(suffix[1:]) <= 65535):
+                raise ValueError(f"KDC contains invalid port suffix: {k!r}")
+        elif k_host.count(":") == 1:
+            host_part, port_part = k_host.split(":", 1)
+            if not host_part or not (port_part.isdigit() and 1 <= int(port_part) <= 65535):
+                raise ValueError(f"KDC contains invalid host:port syntax: {k!r}")
+        elif k_host.count(":") >= 2:
+            _validate_ipv6_with_optional_zone(k_host, k)
 
-    admin_target = admin_server.strip() if admin_server else kdc_candidates[0]
+    admin_target = admin_server if admin_server else _strip_kdc_transport_prefix(kdc_candidates[0])
 
     dns_realm_str = "true" if dns_lookup_realm else "false"
     dns_kdc_str = "true" if dns_lookup_kdc else "false"
@@ -156,21 +206,24 @@ def write_krb5_conf_file(
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
 
-    kdc_str = kdc if isinstance(kdc, str) else ",".join(kdc)
+    kdc_candidates = _normalize_kdc_candidates(kdc)
+    clean_admin = admin_server.strip() if (admin_server and admin_server.strip()) else None
+    admin_target = clean_admin if clean_admin else _strip_kdc_transport_prefix(kdc_candidates[0])
+    kdc_str = ",".join(kdc_candidates)
 
     res: Dict[str, Any] = {
         "status": "SUCCESS",
         "realm": realm.strip().upper(),
         "kdc": kdc_str,
-        "admin_server": admin_server.strip() if admin_server else (kdc.split(",")[0].strip() if isinstance(kdc, str) else kdc[0]),
+        "admin_server": admin_target,
         "config_path": abs_path,
         "export_command": f"export KRB5_CONFIG={abs_path}",
         "content": content,
     }
     if fast:
         res["fast"] = True
-    if armor_cache:
-        res["armor_cache"] = armor_cache
+    if armor_cache and armor_cache.strip():
+        res["armor_cache"] = armor_cache.strip()
     return res
 
 
@@ -245,6 +298,9 @@ def parse_srv_response(
         return []
     if (flags & 0x000F) != 0:
         return []
+    MAX_SRV_RECORDS = 64
+    if ancount > MAX_SRV_RECORDS:
+        ancount = MAX_SRV_RECORDS
     offset = 12
     for _ in range(qdcount):
         _, offset = parse_dns_name(data, offset)

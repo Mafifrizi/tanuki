@@ -201,6 +201,7 @@ def run_purge(
     target_paths: Optional[List[str]] = None,
     purge_all: bool = False,
     extra_dirs: Optional[List[str]] = None,
+    allow_cross_user_purge: bool = False,
 ) -> PurgeReport:
     """Execute complete zero-trace sanitization across filesystem, environment, and memory."""
     candidates: List[str] = []
@@ -226,7 +227,10 @@ def run_purge(
             if cur_uid is not None and cur_uid != 0:
                 candidates.extend(glob.glob(f"/tmp/krb5cc_{cur_uid}*"))
             else:
-                candidates.extend(glob.glob("/tmp/krb5cc_*"))
+                if allow_cross_user_purge:
+                    candidates.extend(glob.glob("/tmp/krb5cc_*"))
+                else:
+                    candidates.extend(glob.glob("/tmp/krb5cc_0*"))
         candidates.extend(glob.glob("./krb5cc_*"))
         candidates.extend(glob.glob("./extracted_ccache/*.ccache"))
         candidates.extend(glob.glob("./extracted_ccache/ticket_*.ccache"))
