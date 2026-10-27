@@ -13,11 +13,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mafifrizi/tanuki/actions"><img src="https://img.shields.io/badge/CI%2FCD-100%25%20Passing%20(522%20tests)-brightgreen.svg?logo=githubactions&logoColor=white" alt="CI/CD 522 Tests Passing"></a>
   <img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version 2.0.0">
   <img src="https://img.shields.io/badge/rust-1.75+%20(1.8MB%20musl)-dea584.svg?logo=rust&logoColor=white" alt="Rust Systems Core">
   <img src="https://img.shields.io/badge/python-3.10+%20(zero--dep)-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
-  <img src="https://img.shields.io/badge/privileges-UID%201000%20(Unprivileged)-success.svg" alt="Unprivileged UID 1000">
   <img src="https://img.shields.io/badge/standards-RFC_4120%20%7C%20RFC_8693-orange.svg" alt="RFC Standards">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0">
   <a href="https://youtu.be/7nGKrodNrlI"><img src="https://img.shields.io/badge/demo-YouTube-red.svg?logo=youtube&logoColor=white" alt="Demo Video"></a>
