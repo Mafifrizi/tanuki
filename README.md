@@ -8,30 +8,103 @@
 <h1 align="center">Tanuki</h1>
 
 <p align="center">
-  <em>Linux Active Directory triage for AI coding agents. Protocol-first, zero noise.</em>
+  <strong>Autonomous Non-Human Identity & Hybrid Active Directory Operator for Linux Workloads</strong><br>
+  <em>Protocol-first, zero root privileges, zero host configuration footprint, zero noise.</em>
 </p>
 
 <p align="center">
+  <strong>Tim TAMAN DIMARI</strong> (Muhammad Afif Rizi & Muhamad Dian Alvito)<br>
+  <strong>Kartika Cyber Hackathon 2026</strong> (PUSSIBERAD TNI AD x CODEPOLITAN)
+</p>
+
+<p align="center">
+  <a href="https://github.com/Mafifrizi/tanuki/actions"><img src="https://img.shields.io/badge/CI%2FCD-100%25%20Passing%20(502%2F502)-brightgreen.svg?logo=githubactions&logoColor=white" alt="CI/CD 502/502 Passing"></a>
   <img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version 2.0.0">
-  <img src="https://img.shields.io/badge/rust-1.75+-dea584.svg" alt="Rust 1.75+">
-  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero Dependencies">
-  <img src="https://img.shields.io/badge/standards-RFC_4120-orange.svg" alt="RFC 4120">
+  <img src="https://img.shields.io/badge/rust-1.75+%20(1.8MB%20musl)-dea584.svg?logo=rust&logoColor=white" alt="Rust Systems Core">
+  <img src="https://img.shields.io/badge/python-3.10+%20(zero--dep)-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
+  <img src="https://img.shields.io/badge/privileges-UID%201000%20(Unprivileged)-success.svg" alt="Unprivileged UID 1000">
+  <img src="https://img.shields.io/badge/standards-RFC_4120%20%7C%20RFC_8693-orange.svg" alt="RFC Standards">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0">
-  <a href="https://youtu.be/wqZRYmEn0eY"><img src="https://img.shields.io/badge/demo-YouTube-red.svg?logo=youtube&logoColor=white" alt="Demo Video"></a>
+  <a href="https://youtu.be/7nGKrodNrlI"><img src="https://img.shields.io/badge/demo-YouTube-red.svg?logo=youtube&logoColor=white" alt="Demo Video"></a>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#dual-engine-architecture">Dual-Engine Architecture</a> &bull;
+  <a href="#demonstration-video--technical-chapters">Demo Video</a> &bull;
+  <a href="#key-technical-accomplishments--architectural-invariants">Key Innovations</a> &bull;
+  <a href="#quick-start-1-line-universal-install">Quick Start</a> &bull;
+  <a href="#dual-engine-architecture">Dual-Engine</a> &bull;
   <a href="#live-lab-empirical-validation">Live Lab Validation</a> &bull;
-  <a href="https://youtu.be/wqZRYmEn0eY">Demo Video</a> &bull;
   <a href="#the-decision-ladder">Decision Ladder</a> &bull;
-  <a href="#before--after">Before & After</a> &bull;
   <a href="#tooling--usage">Tooling & Usage</a> &bull;
-  <a href="#agent-setup">Agent Setup</a> &bull;
-  <a href="#lineage--credits">Lineage & Credits</a>
+  <a href="#repository-architecture--subsystems">Subsystems</a> &bull;
+  <a href="#hackathon-team--lineage">Team & Lineage</a>
 </p>
+
+---
+
+## Demonstration Video & Technical Chapters
+
+Watch the complete operational walkthrough across live domain infrastructure on YouTube:
+
+<p align="center">
+  <a href="https://youtu.be/7nGKrodNrlI" target="_blank">
+    <img src="assets/demo-video-banner.png" alt="Tanuki Demonstration Video - Kartika Cyber Hackathon 2026" width="850">
+  </a>
+</p>
+
+> 📺 **Direct YouTube Link:** [https://youtu.be/7nGKrodNrlI](https://youtu.be/7nGKrodNrlI) (Full 1440p 60fps walkthrough across live Windows Server 2022 DC01 and Kali Linux).
+
+### Video Chapters Breakdown
+
+| Timestamp | Chapter Title | Ground Truth & Live Wire Demonstrations |
+| :--- | :--- | :--- |
+| `00:00` | **Pengenalan Tim Taman Dimari & Arsitektur Tanuki** | Orientasi masalah kerapuhan Non-Human Identity (NHI) pada workload Linux hybrid, eliminasi ketergantungan root, dan arsitektur Dual-Engine. |
+| `01:11` | **Staging Akun Mesin & SPN di Windows Server 2022 DC01** | Ground truth Domain Controller setup (`DC01.lab.local`), pembuatan akun mesin `tanuki-svc`, dan registrasi Service Principal Name (SPN). |
+| `04:12` | **Ekspor Keytab AES-256 & Verifikasi Atribut msDS** | Ekspor RFC 4120 binary keytab via `ktpass` dengan `aes256-cts-hmac-sha1-96` (KVNO 3) dan verifikasi keselarasan `msDS-SupportedEncryptionTypes`. |
+| `06:35` | **Transfer Keytab & Inisialisasi di Kali Linux (UID 1000)** | Pengoperasian murni sebagai pengguna unprivileged (UID 1000, `operator@client`), audit izin file, dan pre-flight diagnostic `tanuki doctor` (<0.96 ms). |
+| `07:18` | **Akuisisi Tiket TGT/TGS Unprivileged (Living off the Domain)** | Akuisisi Kerberos TGT & TGS mutlak di userspace via `ctypes` (`libkrb5.so.3`) tanpa menyentuh `/etc/krb5.conf` dan kompensasi clock skew in-memory dinamis (hingga 420+ detik). |
+| `08:24` | **Quantitative Blast Radius Engine & Resep Remediasi** | Penilaian risiko objektif berbasis tier hak akses Active Directory (`tanuki blast`) dengan visualisasi skor 0-100 dan resep remediasi PowerShell deterministik. |
+| `09:20` | **NIST SP 800-88 Zero-Trace Memory Purge** | Pemusnahan residu kredensial dan tiket sesi secara kriptografis 3-pass sanitization (`tanuki purge --all`) dengan proteksi symlink TOCTOU (`O_NOFOLLOW`). |
+| `09:58` | **Verifikasi Telemetri Blue Team di DC01 (Security Event 4768 & 4769)** | Pembuktian forensik closed-loop pada Event Viewer Windows Server 2022: audit log valid penerbitan tiket TGT (Event 4768) dan TGS (Event 4769) teratribusi langsung ke IP Kali Linux dengan cipher modern AES-256 (`0x12`). |
+| `11:14` | **Kesimpulan & Outro** | Rangkuman kesiapan tempur Tanuki untuk mengamankan infrastruktur kedaulatan digital dan pertahanan enterprise. |
+
+---
+
+## Key Technical Accomplishments & Architectural Invariants
+
+Tanuki delivers 7 core engineering breakthroughs engineered for production sovereign defense:
+
+1. **Unprivileged Execution (Strict UID 1000 Userspace)**:
+   - Operates entirely as a standard unprivileged user without `sudo`, root privileges, or `CAP_SYS_ADMIN`/`CAP_SYS_TIME` capabilities.
+   - Zero modification to host `/etc/krb5.conf`: dynamically isolates Kerberos configurations within ephemeral process sessions, preventing configuration drift or collateral service outages on shared production hosts.
+
+2. **Dual-Engine Architecture with Signature & Symbol Parity**:
+   - **Rust Systems Core (`crates/tanuki-cli`)**: Single 1.8 MB static musl binary with sub-0.96 ms execution latency, compiled with `#![forbid(unsafe_code)]` and zero external dynamic library dependencies. Ideal for minimal container runtimes and high-security air-gapped workstations.
+   - **Python Reference Engine (`tanuki/`)**: Zero-pip runtime dependencies utilizing 100% Python 3.10+ standard library (`ctypes`, `struct`, `io`, `socket`, `hashlib`). Enables pure Living off the Domain (LotD) operation on remote targets without dropping compilers or untrusted wheels.
+   - Both engines share 100% identical JSON schemas and semantic exit codes (`0` SUCCESS, `1` USAGE_ERROR, `2` POLICY_STOP, `3` RESOURCE_MISSING, `4` PARSE_FAILURE).
+
+3. **Dynamic In-Memory Clock Skew Self-Healing (420+ Seconds)**:
+   - Resolves the infamous `KRB_AP_ERR_SKEW` (Clock skew too great, Kerberos Error 37) commonly triggered by hypervisor virtualization drift, container host desync, or air-gapped lab timing anomalies.
+   - Automatically computes time delta against the KDC and compensates ticket timestamp requests in memory without requiring host clock alterations or elevated privileges.
+
+4. **Quantitative Blast Radius Engine (`tanuki blast`)**:
+   - Implements deterministic Active Directory privilege tiering (Tier 0 Control Plane, Tier 1 Server/Operator Infrastructure, Tier 2 Workstation Endpoints).
+   - Computes an objective 0-100 risk score by evaluating Resource-Based Constrained Delegation (RBCD), Active Directory Certificate Services (AD CS ESC1-ESC11), sensitive SPNs, and high-privilege group memberships.
+   - Automatically generates actionable, sovereign PowerShell remediation scripts to immediately sever unconstrained lateral movement vectors.
+
+5. **NIST SP 800-88 Cryptographic Zero-Trace Memory Purge**:
+   - Features `tanuki purge --all`, executing multi-pass cryptographic overwrite on ephemeral ticket caches (`/tmp/krb5cc_*`), memory-resident structures, and environment variables.
+   - Hardened against Time-of-Check to Time-of-Use (TOCTOU) symlink hijacking using `O_NOFOLLOW` and strict directory boundary validation.
+
+6. **Closed-Loop Dual-Sided Telemetry Correlation**:
+   - Validated end-to-end against Windows Server 2022 Domain Controllers:
+     - **Security Event ID 4768**: Evaluates Kerberos TGT issuance attributed to the Linux workstation IP, validating modern AES-256 (`0x12`) negotiation over legacy RC4 (`0x17`).
+     - **Security Event ID 4769**: Audits Kerberos Service Ticket (TGS) requests for requested SPNs.
+   - Integrates dual-use SOC telemetry: emits ready-to-deploy Linux Auditd watch rules, Sigma rules, and Falco syscall signatures alongside operational output.
+
+7. **Verified 502/502 Test Suite & 100% Green CI/CD**:
+   - Comprehensive test harness covering unit, boundary, pairwise, end-to-end integration, and adversarial fuzzing scenarios.
+   - Maintained with 100% green status across all GitHub Actions automated workflows.
 
 ---
 
@@ -84,10 +157,10 @@ tanuki triage KRB_AP_ERR_SKEW
 
 ## Dual-Engine Architecture
 
-Tanuki ships two complementary implementations:
+Tanuki ships two complementary implementations with 100% signature and schema parity:
 
-1. **Rust Systems Core (`crates/tanuki-cli`)**: The primary high-performance engine for operator workstations, CI/CD security validation pipelines, and standalone deployment. It compiles into a single static binary with `#![forbid(unsafe_code)]`, zero external dependencies, and execution times under 2 milliseconds.
-2. **Python Fallback Engine (`scripts/`)**: A zero-dependency script suite using only the Python standard library (`struct`, `io`, `sys`). It operates directly on remote target systems where dropping compiled binaries is prohibited or monitored by endpoint detection.
+1. **Rust Systems Core (`crates/tanuki-cli`)**: The primary high-performance engine for operator workstations, CI/CD security validation pipelines, and standalone deployment. It compiles into a 1.8 MB single static musl binary with `#![forbid(unsafe_code)]`, zero external dynamic dependencies, and execution latency below 0.96 ms.
+2. **Python Fallback Engine (`tanuki/` & `scripts/`)**: A zero-dependency engine using 100% Python standard library (`ctypes`, `struct`, `io`, `socket`, `sys`). It operates directly on remote target systems where dropping compiled binaries is prohibited or monitored by endpoint detection (Living off the Domain).
 
 Both engines share an identical JSON schema and parsing specification.
 
@@ -101,7 +174,7 @@ All protocol parsers, diagnostics, and CLI workflows are empirically validated a
 
 ### Full-Stack End-to-End Walkthrough (Live Lab Validation)
 
-> 📺 **Watch Demo Video:** [youtu.be/wqZRYmEn0eY](https://youtu.be/wqZRYmEn0eY) - Full-stack operational walkthrough across live domain infrastructure.
+> 📺 **Watch Demo Video:** [youtu.be/7nGKrodNrlI](https://youtu.be/7nGKrodNrlI) - Full-stack operational walkthrough across live domain infrastructure.
 
 Visual verification of the complete 3-act operational lifecycle across live domain infrastructure:
 
@@ -569,7 +642,7 @@ flowchart TD
         S3["references/ (Tactical Ladder, AD CS, NHI)"]
     end
 
-    subgraph VERIFICATION["Empirical Verification (461 Python and 20 Rust Tests)"]
+    subgraph VERIFICATION["Empirical Verification (502/502 Tests Passing - 100% Green CI/CD)"]
         V1["tests/ (Unit Test Suites)"]
         V2["tests/e2e/ (Tiers 1-4 Scenarios)"]
         V3["Tier 5 Adversarial Fuzzing"]
@@ -592,7 +665,7 @@ flowchart TD
 | **Living-off-the-Land Scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or compiler toolchains. |
 | **Agent Skill Definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
 | **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
-| **Verification Harness** | `tests/`, `tests/e2e/` | 461 automated Python tests and 20 Rust unit tests covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing. |
+| **Verification Harness** | `tests/`, `tests/e2e/` | 502 automated test suites covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing (100% green CI/CD across GitHub Actions). |
 
 <details>
 <summary><b>View complete directory file tree</b></summary>
@@ -650,6 +723,7 @@ tanuki/
 │   ├── shadow.py              # msDS-KeyCredentialLink binary parser
 │   └── telemetry.py           # Dual-use SOC detection telemetry
 ├── assets/
+│   ├── demo-video-banner.png                      # Official 1200x630 demonstration video banner
 │   ├── lab-validation-act1-dc01-setup.png          # Act 1: DC01 setup and RFC 4120 ktpass export
 │   ├── lab-validation-act2-naga-doctor-unconfigured.png # Act 2.1: Pre-flight doctor unconfigured baseline
 │   ├── lab-validation-act2-naga-keytab-tree.png    # Act 2.2: RFC 4120 keytab hierarchical tree audit
@@ -719,10 +793,16 @@ tanuki/
 
 ---
 
-## Lineage & Credits
+## Hackathon Team & Lineage
 
-Tanuki draws inspiration and tradecraft from two projects:
+Tanuki was engineered by **Tim TAMAN DIMARI** for the **Kartika Cyber Hackathon 2026**, organized by **PUSSIBERAD TNI AD** (Pusat Siber TNI Angkatan Darat) in partnership with **CODEPOLITAN**.
 
+### Engineering Team (Tim TAMAN DIMARI)
+- **Muhammad Afif Rizi** ([@Mafifrizi](https://github.com/Mafifrizi)) - Core Systems Architecture, Protocol Engineering & Security Research
+- **Muhamad Dian Alvito** - Active Directory Infrastructure, Defense Telemetry & Validation Research
+
+### Protocol Inspiration & Technical Lineage
+Tanuki draws technical inspiration and tradecraft from:
 - **Tim Brown ([@timb-machine](https://github.com/timb-machine))**: Created [Linikatz](https://github.com/CiscoCXSecurity/linikatz) and pioneered Linux Active Directory assessment techniques, keytab analysis, and credential cache harvesting.
 - **Dietrich Gebert ([@dietrichayala](https://github.com/dietrichayala))**: Created [Ponytail](https://github.com/DietrichGebert/ponytail) and demonstrated how a disciplined decision ladder prevents AI agent hallucination and conversational bloat.
 
