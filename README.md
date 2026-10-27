@@ -30,7 +30,7 @@
   <a href="#empirical-validation">Empirical Validation</a> &bull;
   <a href="#tooling--usage">Tooling & Usage</a> &bull;
   <a href="#the-decision-ladder">Decision Ladder</a> &bull;
-  <a href="#repository-architecture">Architecture</a> &bull;
+  <a href="#repository-architecture--subsystems">Repository Architecture</a> &bull;
   <a href="#lineage--credits">Lineage & Credits</a>
 </p>
 
@@ -285,51 +285,167 @@ Tanuki executes an immutable 5-rung tactical decision ladder to prevent privileg
 
 ---
 
-## Repository Architecture
+## Repository Architecture & Subsystems
 
+```mermaid
+flowchart TD
+    subgraph DIST["Distribution and 1-Line Setup"]
+        M1["pyproject.toml (PEP 621)"]
+        M2["Cargo.toml (Workspace)"]
+        I1["install.sh (POSIX)"]
+        I2["install.ps1 (Windows)"]
+    end
+
+    subgraph RUST_ENGINE["Rust Systems Core (crates/tanuki-cli)"]
+        R_LIB["lib.rs (Zero Unsafe Code)"]
+        R_DOC["doctor/ (Pre-flight sub-5ms)"]
+        R_BLAST["blast.rs (Quantitative Risk Engine)"]
+        R_NHI["nhi/ (RFC 8693 Validator)"]
+        R_KT["keytab/ (RFC 4120 Parser)"]
+        R_KCM["kcm/ (CCACHE Extractor)"]
+        R_TEL["protocol/ (Telemetry and Triage)"]
+        R_PAC["pac/ (MS-PAC Decoder)"]
+        R_LDAP["ldap/ (LDAP and RBCD Parser)"]
+        R_FIX["fix/ (Self-Healing)"]
+        R_PURGE["purge/ (Zero-Trace)"]
+    end
+
+    subgraph PY_ENGINE["Python Unified Package (tanuki/)"]
+        P_CLI["cli.py (Unified CLI and TUI Wizard)"]
+        P_DOC["doctor.py (Pre-flight sub-5ms)"]
+        P_AUTH["auth.py (ctypes TGT Acquisition)"]
+        P_BLAST["blast.py (Tier 0/1/2 Scoring)"]
+        P_NHI["nhi.py (RFC 8693 Token Exchange)"]
+        P_TEL["telemetry.py (Auditd and Event IDs)"]
+        P_PAC["pac.py (MS-PAC NDR Decoder)"]
+        P_FIX["fix.py (Idempotent Self-Healing)"]
+        P_PURGE["purge.py (NIST SP 800-88 Purge)"]
+        P_ADCS["adcs.py (ESC1-ESC11 Scanner)"]
+        P_LDAP["ldap.py (Pure Socket LDAP and RBCD)"]
+    end
+
+    subgraph AGENT_LAYER["Agent Specifications and Lineage"]
+        S1["SKILL.md (Claude Code and Antigravity)"]
+        S2["rules/tanuki.mdc (Cursor Rules)"]
+        S3["references/ (Tactical Ladder, AD CS, NHI)"]
+    end
+
+    subgraph VERIFICATION["Empirical Verification (502 Python and 20 Rust Tests)"]
+        V1["tests/ (21 Unit Test Suites)"]
+        V2["crates/tanuki-cli/tests/ (Integration Tests)"]
+        V3["Adversarial Protocol & Fuzzing Validation"]
+    end
+
+    DIST --> RUST_ENGINE
+    DIST --> PY_ENGINE
+    RUST_ENGINE --> AGENT_LAYER
+    PY_ENGINE --> AGENT_LAYER
+    RUST_ENGINE --> VERIFICATION
+    PY_ENGINE --> VERIFICATION
 ```
+
+### Subsystem Directory Map
+
+| Subsystem | Primary Location | Key Capabilities & Architecture |
+| :--- | :--- | :--- |
+| **Rust Systems Core** | `crates/tanuki-cli/` | High-performance binary CLI built with `#![forbid(unsafe_code)]`. Houses sub-millisecond `doctor`, quantitative `blast`, RFC 8693 token exchange, RFC 4120 keytab parsing, MS-PAC NDR decoding, in-line RBCD parsing, and SSSD CCACHE extraction. |
+| **Python Unified Package** | `tanuki/` | Zero-dependency PEP 621 package providing `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing `fix`, zero-trace `purge`, and unprivileged authenticated/anonymous LDAP queries. |
+| **Living-off-the-Land Scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or compiler toolchains. |
+| **Agent Skill Definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
+| **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
+| **Verification Harness** | `tests/`, `crates/tanuki-cli/tests/` | 502 automated Python unit tests and 20 Rust integration tests covering unit, boundary, pairwise, and live-wire lab scenarios. |
+
+<details>
+<summary><b>View complete directory file tree</b></summary>
+
+```text
 tanuki/
-├── assets/                          # Curated terminal validation proofs & branding
-│   ├── 01_tanuki_doctor.png         # Pre-flight diagnostic triage
-│   ├── 02_tanuki_keytab.png         # RFC 4120 keytab inspection
-│   ├── 03_tanuki_auth_tgt.png       # Native userspace TGT acquisition
-│   ├── 04_tanuki_blast_radius.png   # Quantitative blast radius & identity tiering
-│   ├── 05_dc01_event4769.png        # Closed-loop Blue Team telemetry on DC01
-│   ├── logo.png                     # Official project mark (Light theme)
-│   ├── logo-dark.png                # Official project mark (Dark theme)
-│   └── social-preview.png           # Open graph social card
-├── crates/                          # Rust Systems Core
-│   └── tanuki-cli/                  # Standalone musl binary CLI (1.8 MB)
+├── .github/
+│   └── workflows/
+│       ├── build-musl.yml     # Multi-architecture static musl binary builder
+│       ├── pypi-publish.yml   # PyPI distribution workflow
+│       └── release.yml        # CI/CD test, release asset, and GHCR container packaging
+├── assets/                    # Curated terminal validation proofs & branding
+│   ├── 01_tanuki_doctor.png   # Pre-flight diagnostic triage
+│   ├── 02_tanuki_keytab.png   # RFC 4120 keytab inspection
+│   ├── 03_tanuki_auth_tgt.png # Native userspace TGT acquisition
+│   ├── 04_tanuki_blast_radius.png # Quantitative blast radius & identity tiering
+│   ├── 05_dc01_event4769.png  # Closed-loop Blue Team telemetry on DC01
+│   ├── logo.png               # Official project mark (Light theme)
+│   ├── logo-dark.png          # Official project mark (Dark theme)
+│   └── social-preview.png     # Open graph social card
+├── crates/
+│   └── tanuki-cli/            # Rust systems core
+│       ├── Cargo.toml
 │       ├── src/
-│       │   ├── main.rs              # CLI entrypoint & argument routing
-│       │   ├── lib.rs               # Exported protocol library
-│       │   ├── blast.rs             # Rust quantitative blast radius engine
-│       │   ├── doctor.rs            # Rust pre-flight diagnostic harness
-│       │   ├── keytab.rs            # Binary RFC 4120 parser
-│       │   ├── pac.rs               # MS-PAC NDR validator
-│       │   ├── ldap.rs              # Unprivileged LDAP & binary DACL parser
-│       │   └── tgs.rs               # Native TGS request engine
-│       └── tests/                   # Rust integration test suite (20 tests)
-├── tanuki/                          # Python 3.10+ Reference Engine (Zero Dependencies)
-│   ├── __init__.py                  # Package exports & version metadata
-│   ├── cli.py                       # Unified CLI argument parser
-│   ├── auth.py                      # Unprivileged native Kerberos engine
-│   ├── blast.py                     # Quantitative blast radius scoring
-│   ├── doctor.py                    # Pre-flight diagnostic engine
-│   ├── keytab.py                    # RFC 4120 binary keytab parser
-│   ├── ldap.py                      # Unprivileged LDAP client & parser
-│   ├── pac.py                       # MS-PAC privilege validator
-│   ├── purge.py                     # NIST SP 800-88 memory zeroization
-│   └── tgs.py                       # Kerberos TGS request engine
-├── tests/                           # Python Test Suite (502 unit tests)
-│   ├── test_auth.py                 # TGT negotiation & clock skew tests
-│   ├── test_blast.py                # Quantitative blast radius scoring tests
-│   ├── test_doctor.py               # Pre-flight diagnostic checks
-│   ├── test_keytab_inspector.py     # RFC 4120 keytab parser tests
-│   └── test_purge.py                # Cryptographic memory sanitization tests
-├── Cargo.toml                       # Rust workspace manifest
-└── pyproject.toml                   # Python package configuration
+│       │   ├── lib.rs         # Library entry point (#![forbid(unsafe_code)])
+│       │   ├── main.rs        # CLI entry point and formatters
+│       │   ├── adcs.rs        # Passive ADCS certificate scanner
+│       │   ├── blast.rs       # Rust quantitative blast radius engine
+│       │   ├── config.rs      # Zero-DNS krb5.conf generator
+│       │   ├── fix.rs         # Closed-loop remediation engine
+│       │   ├── ldap.rs        # Unprivileged LDAP & RBCD parser
+│       │   ├── pac.rs         # MS-PAC & RBCD security descriptor decoder
+│       │   ├── purge.rs       # NIST SP 800-88 cryptographic shredder
+│       │   ├── shadow.rs      # msDS-KeyCredentialLink shadow credentials
+│       │   ├── util.rs        # Entropy and JSON utilities
+│       │   ├── doctor/        # Sub-millisecond pre-flight diagnostic probe
+│       │   ├── nhi/           # RFC 8693 workload token validator
+│       │   ├── keytab/        # RFC 4120 keytab binary parser
+│       │   ├── kcm/           # SSSD KCM CCACHE stream extractor
+│       │   └── protocol/      # Kerberos constants, error triage & telemetry
+│       └── tests/
+│           └── integration_tests.rs
+├── tanuki/                    # Unified Python package (Zero Dependencies)
+│   ├── __init__.py            # Library exports (v2.0.0)
+│   ├── __main__.py            # python -m tanuki execution
+│   ├── adcs.py                # Passive ADCS template misconfiguration scanner
+│   ├── auth.py                # Unprivileged native Kerberos engine & clock skew
+│   ├── blast.py               # Quantitative blast radius scoring
+│   ├── cli.py                 # Unified CLI argument parser
+│   ├── config.py              # Zero-DNS krb5.conf generator
+│   ├── doctor.py              # Pre-flight diagnostic engine
+│   ├── fix.py                 # Idempotent self-healing remediation
+│   ├── interactive.py         # Terminal UI wizard
+│   ├── kcm_parser.py          # SSSD KCM database parser
+│   ├── keytab.py              # RFC 4120 keytab binary parser
+│   ├── ldap.py                # Unprivileged LDAP client & parser
+│   ├── nhi.py                 # RFC 8693 token exchange & workload identity
+│   ├── pac.py                 # MS-PAC NDR privilege validator
+│   ├── protocol_constants.py  # Kerberos constants & cipher mappings
+│   ├── purge.py               # NIST SP 800-88 memory zeroization
+│   ├── shadow.py              # msDS-KeyCredentialLink shadow credentials
+│   ├── telemetry.py           # Auditd, Sigma, and Windows Event ID mappings
+│   └── tgs.py                 # Kerberos TGS request engine
+├── tests/                     # 21 Automated Python Unit Test Suites (502 tests)
+│   ├── test_adcs.py
+│   ├── test_audit_fixes_14.py
+│   ├── test_auth.py
+│   ├── test_blast.py
+│   ├── test_config.py
+│   ├── test_doctor.py
+│   ├── test_fix.py
+│   ├── test_kcm_parser.py
+│   ├── test_keytab_inspector.py
+│   ├── test_ldap.py
+│   ├── test_live_investigation.py
+│   ├── test_mesh.py
+│   ├── test_nhi.py
+│   ├── test_pac.py
+│   ├── test_purge.py
+│   ├── test_rust_compatibility.py
+│   ├── test_security_audit.py
+│   ├── test_shadow.py
+│   ├── test_telemetry.py
+│   ├── test_tgs.py
+│   └── test_unified_cli.py
+├── Cargo.toml                 # Root workspace manifest
+├── pyproject.toml             # Python PEP 621 package specification (v2.0.0)
+├── install.sh                 # 1-line POSIX installer (Linux & macOS)
+└── install.ps1                # 1-line PowerShell installer (Windows)
 ```
+
+</details>
 
 ---
 
@@ -337,7 +453,13 @@ tanuki/
 
 Tanuki is engineered by **Muhammad Afif Rizi** ([@Mafifrizi](https://github.com/Mafifrizi)) and **Muhamad Dian Alvito**.
 
-Technical specifications implemented:
+Tanuki draws inspiration and tradecraft from two foundational projects:
+
+- **Tim Brown ([@timb-machine](https://github.com/timb-machine))**: Created [Linikatz](https://github.com/CiscoCXSecurity/linikatz) and pioneered Linux Active Directory assessment techniques, keytab analysis, and credential cache harvesting.
+- **Dietrich Gebert ([@dietrichayala](https://github.com/dietrichayala))**: Created [Ponytail](https://github.com/DietrichGebert/ponytail) and demonstrated how a disciplined decision ladder prevents AI agent hallucination and conversational bloat.
+
+### Technical Specifications Implemented
+
 - **[RFC 4120]**: The Kerberos Network Authentication Service (V5)
 - **[RFC 4511]**: Lightweight Directory Access Protocol (LDAP): The Protocol
 - **[RFC 8693]**: OAuth 2.0 Token Exchange
@@ -348,6 +470,21 @@ Technical specifications implemented:
 
 ---
 
+## Contributing
+
+We welcome community contributions from protocol researchers, systems engineers, and toolmakers. Tanuki enforces two core invariants: zero external dependencies in the Python core, and `#![forbid(unsafe_code)]` in the Rust core.
+
+- **Developer Guide**: See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local environment setup, testing commands, and PR guidelines.
+- **Good First Issues**: We curate starter ideas including shell autocompletion (`bash`/`zsh`/`fish`), error dictionary expansion in `tanuki triage`, and SARIF/Markdown export formatters.
+- **Reporting Issues**: Use our structured [Issue Templates](https://github.com/Mafifrizi/tanuki/issues/new/choose) for bug reports and feature proposals.
+
+---
+
 ## License
 
-Distributed under either the **MIT License** or **Apache License (Version 2.0)** at your option. See [LICENSE](LICENSE) for details.
+Tanuki is dual-licensed under either:
+
+- **MIT License** ([`LICENSE-MIT`](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- **Apache License, Version 2.0** ([`LICENSE-APACHE`](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+
+You may choose to use this project under the terms of either license.
