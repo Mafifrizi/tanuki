@@ -58,15 +58,15 @@ Watch the complete operational walkthrough across live domain infrastructure on 
 
 | Timestamp | Chapter Title | Ground Truth & Live Wire Demonstrations |
 | :--- | :--- | :--- |
-| `00:00` | **Pengenalan Tim Taman Dimari & Arsitektur Tanuki** | Orientasi masalah kerapuhan Non-Human Identity (NHI) pada workload Linux hybrid, eliminasi ketergantungan root, dan arsitektur Dual-Engine. |
-| `01:11` | **Staging Akun Mesin & SPN di Windows Server 2022 DC01** | Ground truth Domain Controller setup (`DC01.lab.local`), pembuatan akun mesin `tanuki-svc`, dan registrasi Service Principal Name (SPN). |
-| `04:12` | **Ekspor Keytab AES-256 & Verifikasi Atribut msDS** | Ekspor RFC 4120 binary keytab via `ktpass` dengan `aes256-cts-hmac-sha1-96` (KVNO 3) dan verifikasi keselarasan `msDS-SupportedEncryptionTypes`. |
-| `06:35` | **Transfer Keytab & Inisialisasi di Kali Linux (UID 1000)** | Pengoperasian murni sebagai pengguna unprivileged (UID 1000, `operator@client`), audit izin file, dan pre-flight diagnostic `tanuki doctor` (<0.96 ms). |
-| `07:18` | **Akuisisi Tiket TGT/TGS Unprivileged (Living off the Domain)** | Akuisisi Kerberos TGT & TGS mutlak di userspace via `ctypes` (`libkrb5.so.3`) tanpa menyentuh `/etc/krb5.conf` dan kompensasi clock skew in-memory dinamis (hingga 420+ detik). |
-| `08:24` | **Quantitative Blast Radius Engine & Resep Remediasi** | Penilaian risiko objektif berbasis tier hak akses Active Directory (`tanuki blast`) dengan visualisasi skor 0-100 dan resep remediasi PowerShell deterministik. |
-| `09:20` | **NIST SP 800-88 Zero-Trace Memory Purge** | Pemusnahan residu kredensial dan tiket sesi secara kriptografis 3-pass sanitization (`tanuki purge --all`) dengan proteksi symlink TOCTOU (`O_NOFOLLOW`). |
-| `09:58` | **Verifikasi Telemetri Blue Team di DC01 (Security Event 4768 & 4769)** | Pembuktian forensik closed-loop pada Event Viewer Windows Server 2022: audit log valid penerbitan tiket TGT (Event 4768) dan TGS (Event 4769) teratribusi langsung ke IP Kali Linux dengan cipher modern AES-256 (`0x12`). |
-| `11:14` | **Kesimpulan & Outro** | Rangkuman kesiapan tempur Tanuki untuk mengamankan infrastruktur kedaulatan digital dan pertahanan enterprise. |
+| [`00:00`](https://youtu.be/7nGKrodNrlI?t=0) | **Pengenalan Tim Taman Dimari & Arsitektur Tanuki** | Orientasi masalah kerapuhan Non-Human Identity (NHI) pada workload Linux hybrid, eliminasi ketergantungan root, dan arsitektur Dual-Engine. |
+| [`01:11`](https://youtu.be/7nGKrodNrlI?t=71) | **Staging Akun Mesin & SPN di Windows Server 2022 DC01** | Ground truth Domain Controller setup (`DC01.lab.local`), pembuatan akun mesin `tanuki-svc`, dan registrasi Service Principal Name (SPN). |
+| [`04:12`](https://youtu.be/7nGKrodNrlI?t=252) | **Ekspor Keytab AES-256 & Verifikasi Atribut msDS** | Ekspor RFC 4120 binary keytab via `ktpass` dengan `aes256-cts-hmac-sha1-96` (KVNO 3) dan verifikasi keselarasan `msDS-SupportedEncryptionTypes`. |
+| [`06:35`](https://youtu.be/7nGKrodNrlI?t=395) | **Transfer Keytab & Inisialisasi di Kali Linux (UID 1000)** | Pengoperasian murni sebagai pengguna unprivileged (UID 1000, `operator@client`), audit izin file, dan pre-flight diagnostic `tanuki doctor` (<0.96 ms). |
+| [`07:18`](https://youtu.be/7nGKrodNrlI?t=438) | **Akuisisi Tiket TGT/TGS Unprivileged (Living off the Domain)** | Akuisisi Kerberos TGT & TGS mutlak di userspace via `ctypes` (`libkrb5.so.3`) tanpa menyentuh `/etc/krb5.conf` dan kompensasi clock skew in-memory dinamis (hingga 420+ detik). |
+| [`08:24`](https://youtu.be/7nGKrodNrlI?t=504) | **Quantitative Blast Radius Engine & Resep Remediasi** | Penilaian risiko objektif berbasis tier hak akses Active Directory (`tanuki blast`) dengan visualisasi skor 0-100 dan resep remediasi PowerShell deterministik. |
+| [`09:20`](https://youtu.be/7nGKrodNrlI?t=560) | **NIST SP 800-88 Zero-Trace Memory Purge** | Pemusnahan residu kredensial dan tiket sesi secara kriptografis 3-pass sanitization (`tanuki purge --all`) dengan proteksi symlink TOCTOU (`O_NOFOLLOW`). |
+| [`09:58`](https://youtu.be/7nGKrodNrlI?t=598) | **Verifikasi Telemetri Blue Team di DC01 (Security Event 4768 & 4769)** | Pembuktian forensik closed-loop pada Event Viewer Windows Server 2022: audit log valid penerbitan tiket TGT (Event 4768) dan TGS (Event 4769) teratribusi langsung ke IP Kali Linux dengan cipher modern AES-256 (`0x12`). |
+| [`11:14`](https://youtu.be/7nGKrodNrlI?t=674) | **Kesimpulan & Outro** | Rangkuman kesiapan tempur Tanuki untuk mengamankan infrastruktur kedaulatan digital dan pertahanan enterprise. |
 
 ---
 
@@ -176,15 +176,16 @@ All protocol parsers, diagnostics, and CLI workflows are empirically validated a
 
 > 📺 **Watch Demo Video:** [youtu.be/7nGKrodNrlI](https://youtu.be/7nGKrodNrlI) - Full-stack operational walkthrough across live domain infrastructure.
 
-Visual verification of the complete 3-act operational lifecycle across live domain infrastructure:
+Visual verification of the complete 4-act operational lifecycle across live domain infrastructure:
 
 | Act | Environment | Objectives & Validated Primitives |
 | :--- | :--- | :--- |
-| **Act 1: Domain Controller Setup** | Windows Server 2022 (`DC01`) | Domain discovery (`nltest`), SPN audit (`setspn`), and RFC 4120 AES-256 binary keytab export (`ktpass`, KVNO 9). |
-| **Act 2: Unprivileged Linux Operator** | Kali Linux 2024 (Linux Workstation) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), ticket health pass (`tanuki doctor`), unprivileged LDAP recon (`tanuki ldap`), MS-PAC privilege decoding (`tanuki pac`), shadow credential triage (`tanuki shadow`), protocol triage (`tanuki triage`), and zero-trace purge (`tanuki purge`). |
-| **Act 3: Closed-Loop Verification** | Windows Server 2022 (`DC01`) | Domain Controller Security Event ID 4768 Audit Success for `tanuki-nhi` originating from client IP `192.168.56.105`. |
+| **Act 1: Domain Controller Baseline & Machine Account Staging** | Windows Server 2022 (`DC01`) | Domain discovery (`nltest`), SPN registration (`setspn`), and RFC 4120 AES-256 binary keytab export (`ktpass`, KVNO 9). |
+| **Act 2: Unprivileged Linux Operator Session & Tooling** | Kali Linux 2024 (`Naga`) | Passive diagnostic (`tanuki doctor`), RFC 4120 tree audit (`tanuki keytab`), zero-root config synthesis (`tanuki config`), native `ctypes` TGT acquisition (`tanuki auth`), post-auth health pass (`tanuki doctor`), unprivileged LDAP recon (`tanuki ldap`), MS-PAC privilege decoding (`tanuki pac`), shadow credential triage (`tanuki shadow`), protocol error triage (`tanuki triage`), and zero-trace purge (`tanuki purge`). |
+| **Act 3: Autonomous AI Operator Climax & Sovereign Architecture** | Kali Linux 2024 (`Naga`) | Service Ticket acquisition (`tanuki tgs`), Active Directory privilege tiering and quantitative blast radius engine (`tanuki blast`), and NIST SP 800-88 cryptographic memory sanitization (`tanuki purge --all`). |
+| **Act 4: Closed-Loop Blue Team Forensic Verification** | Windows Server 2022 (`DC01`) | Real-time Event Viewer validation: Domain Controller Security Event ID 4768 (TGT) and Security Event ID 4769 (TGS) with modern AES-256 (`0x12`) attributed directly to the Linux client IP `192.168.56.105`. |
 
-#### Act 1: Domain Controller Service Setup & Keytab Provisioning (`DC01`)
+#### Act 1: Domain Controller Baseline & Keytab Provisioning (`DC01`)
 
 Official RFC 4120 binary keytab export on the Domain Controller for service account `LAB\tanuki-nhi` with modern AES-256 (`aes256-cts-hmac-sha1-96`, KVNO 9):
 
@@ -282,17 +283,9 @@ Executes NIST SP 800-88 compliant 3-pass file shredding, memory zeroization, and
   <img src="assets/lab-validation-act2-naga-purge.png" alt="Act 2.11: NIST SP 800-88 Zero-Trace Purge" width="850">
 </p>
 
-#### Act 3: Closed-Loop Domain Controller Telemetry Verification (`DC01`)
+#### Act 3: Autonomous AI Operator Climax & Active Directory Sovereign Architecture
 
-Native high-efficiency log query via `wevtutil` on the Domain Controller proving live Event ID 4768 Audit Success for account `tanuki-nhi` originating from `192.168.56.105` with Ticket Encryption Type `0x12` (`aes256-cts-hmac-sha1-96`):
-
-<p align="center">
-  <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 3: Windows Event ID 4768 Audit Success Verification" width="850">
-</p>
-
-#### Act 4 / The Climax: Active Directory Sovereign Architecture
-
-A complete 3-phase operational workflow bridging unprivileged offensive verification with sovereign enterprise defense, executed live against Windows Server 2022 (`DC01-GUI`) and Kali Linux (`Naga`):
+A complete 3-phase operational climax bridging unprivileged offensive verification with sovereign enterprise defense, executed live against Windows Server 2022 (`DC01-GUI`) and Kali Linux (`Naga`):
 
 ##### Phase 1: Operational Proof of Service Access (TGS Acquisition)
 
@@ -310,16 +303,32 @@ Performs deterministic privilege tiering (Tier 0 Control Plane, Tier 1 Server/Op
   <img src="assets/lab-validation-climax-phase2-blast.png" alt="Phase 2: Active Directory Privilege Tiering and Quantitative Blast Radius Engine" width="850">
 </p>
 
-##### Phase 3: Closed-Loop Sovereign Hardening, Telemetry Verification & Zero-Trace Purge
+##### Phase 3: Cryptographic Zero-Trace Memory Purge (NIST SP 800-88)
 
-Audits live Windows Security Event ID 4769 on `DC01-GUI` confirming successful Kerberos Service Ticket issuance with modern AES-256 (`0x12`), followed by cryptographic zero-trace artifact purge (`tanuki purge --all`) compliant with NIST SP 800-88:
-
-<p align="center">
-  <img src="assets/lab-validation-climax-phase3-event4769.png" alt="Phase 3: Domain Controller Security Event ID 4769 Live Telemetry Correlation" width="850">
-</p>
+Executes multi-pass cryptographic zeroization on ephemeral ticket caches, process memory buffers, and environment variables with symlink hijacking defense (`O_NOFOLLOW`):
 
 <p align="center">
   <img src="assets/lab-validation-climax-phase3-purge.png" alt="Phase 3: NIST SP 800-88 Cryptographic Zero-Trace Purge" width="850">
+</p>
+
+#### Act 4: Closed-Loop Blue Team Forensic Telemetry Verification (`DC01` Event Viewer)
+
+Domain Controller ground truth proof verifying that unprivileged Linux workload operations emit standard, authentic security event telemetry on Windows Server 2022 without anomalous bypass signatures:
+
+##### 1. Kerberos TGT Issuance Audit (Security Event ID 4768)
+
+Native high-efficiency log query via `wevtutil` on the Domain Controller proving live Event ID 4768 Audit Success for account `tanuki-nhi` originating from client IP `192.168.56.105` with Ticket Encryption Type `0x12` (`aes256-cts-hmac-sha1-96`):
+
+<p align="center">
+  <img src="assets/lab-validation-act3-dc01-event4768.png" alt="Act 4.1: Windows Event ID 4768 Audit Success Verification" width="850">
+</p>
+
+##### 2. Kerberos Service Ticket Audit (Security Event ID 4769)
+
+Audits live Windows Security Event ID 4769 on `DC01-GUI` confirming successful Kerberos Service Ticket issuance for `HTTP/tanuki-app.lab.local` with modern AES-256 (`0x12`):
+
+<p align="center">
+  <img src="assets/lab-validation-climax-phase3-event4769.png" alt="Act 4.2: Domain Controller Security Event ID 4769 Live Telemetry Correlation" width="850">
 </p>
 
 ---
@@ -360,22 +369,27 @@ Level 1  [ Local Passive First ]  --> Triage /etc/krb5.keytab & SSSD KCM before 
 
 ## Tooling & Usage
 
-### 1. Rust Systems Core (`crates/tanuki-cli`)
+### 1. Unified Command-Line Interface
 
-Build the standalone binary:
+Build or run the standalone binaries or Python standard library module:
 
 ```bash
+# Rust Systems Core build
 cargo build --release --manifest-path crates/tanuki-cli/Cargo.toml
+
+# Or execute Python unified package directly (zero pip dependencies)
+python3 -m tanuki <COMMAND>
 ```
 
-Run proactive pre-flight health diagnostics (<5ms, zero network packets):
+#### Pre-Flight Health Diagnostics (`tanuki doctor`)
 
-`tanuki doctor` runs deterministic, zero-network pre-flight diagnostics across local Active Directory components in under 5 milliseconds:
-- Keytab permissions and format: Audits `/etc/krb5.keytab` permissions (flags world-readable `0644`/`0666` permissions vs secure `0600`) and validates RFC 4120 binary header magic (`0x0502`).
-- Realm capitalization: Audits `/etc/krb5.conf` for lowercase realm declarations across `[libdefaults]` and `[realms]`, honoring `KRB5_CONFIG` environment variable precedence.
-- SSSD daemon and socket status: Validates `/var/lib/sss/pipes/kcm` socket presence and `/var/run/sssd.pid` daemon state.
-- Ticket cache lifetimes: Evaluates remaining ticket validity across MIT CCACHE v4 streams (`0x0504`) and Linux Kernel Keyring (`KEYRING:persistent:` / `/proc/keys`).
-- Host client tooling: Passively audits availability of `kinit`/`klist` on `$PATH` in <0.5ms and provides package recommendations for Debian/Kali (`krb5-user`) and RHEL (`krb5-workstation`).
+Deterministic, zero-network pre-flight diagnostics across local Active Directory components executing in under **0.96 ms**:
+- **Keytab permissions and magic**: Audits `/etc/krb5.keytab` permissions (flags world-readable `0644`/`0666` permissions vs secure `0600`) and validates RFC 4120 binary header magic (`0x0502`).
+- **Realm capitalization**: Audits `/etc/krb5.conf` for lowercase realm declarations across `[libdefaults]` and `[realms]`, honoring `KRB5_CONFIG` environment variable precedence.
+- **SSSD daemon & socket status**: Validates `/var/lib/sss/pipes/kcm` socket presence and `/var/run/sssd.pid` daemon state.
+- **Ticket cache lifetimes**: Evaluates remaining ticket validity across MIT CCACHE v4 streams (`0x0504`) and Linux Kernel Keyring (`KEYRING:persistent:` / `/proc/keys`).
+- **Host client tooling**: Passively audits availability of `kinit`/`klist` on `$PATH` in <0.5ms and provides package recommendations for Debian/Kali (`krb5-user`) and RHEL (`krb5-workstation`).
+- **Active Directory Enctype & KVNO Pre-Flight**: Cross-references local keytab enctypes against `msDS-SupportedEncryptionTypes` and checks KVNO alignment.
 
 ```bash
 # Terminal checklist output
@@ -384,64 +398,109 @@ tanuki doctor
 # Structured JSON export for automated agent ingestion
 tanuki doctor --json
 
-# Custom target paths
-tanuki doctor --keytab /custom/krb5.keytab --krb5-conf /custom/krb5.conf
+# Custom target paths and live OPSEC sensor probe
+tanuki doctor --keytab /custom/krb5.keytab --krb5-conf /custom/krb5.conf --opsec
 ```
 
-Generate zero-DNS unprivileged Kerberos configuration (RFC 4120):
+#### Unprivileged Native TGT Authentication (`tanuki auth`)
+
+Acquires a Kerberos Ticket Granting Ticket (TGT) strictly in userspace (UID 1000) using Python standard library `ctypes` (`libkrb5.so.3`) without requiring root privileges, `kinit` on PATH, or host `/etc/krb5.conf` modification:
 
 ```bash
-# Generate unprivileged configuration directly targeting KDC IP (zero root, zero DNS dependency)
-tanuki config --realm CORP.LOCAL --kdc 192.168.56.106 -o ./krb5.conf
+# Acquire TGT using local keytab (automatic principal discovery and AES-256 negotiation)
+tanuki auth --keytab /etc/krb5.keytab
 
-# Activate in current unprivileged shell session
-export KRB5_CONFIG=$(pwd)/krb5.conf
+# Authenticate specific machine principal with in-memory clock skew tolerance
+tanuki auth --keytab /etc/krb5.keytab --principal tanuki-svc$@LAB.LOCAL --clock-skew 420
+
+# Enforce modern AES-256 ciphers and write to custom ccache destination
+tanuki auth --keytab /etc/krb5.keytab --enforce-aes --ccache /tmp/krb5cc_live
 ```
 
-Inspect binary keytabs (RFC 4120):
+#### Kerberos Service Ticket Acquisition (`tanuki tgs`)
+
+Acquires Kerberos Service Tickets (TGS-REQ) for target services using existing cached machine TGTs without asking for cleartext user passwords:
 
 ```bash
-# Human-readable report
-tanuki keytab /etc/krb5.keytab
+# Acquire service ticket using existing cached TGT
+tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL
 
-# Deterministic JSON schema
-tanuki keytab /etc/krb5.keytab --json
+# Acquire service ticket with custom ccache destination
+tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL --ccache /tmp/krb5cc_live_climax
+
+# Combined TGT and TGS acquisition in a single command via keytab
+tanuki auth --keytab /etc/krb5.keytab --spn HTTP/tanuki-app.lab.local@LAB.LOCAL
+
+# Structured JSON export for agent telemetry
+tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL --json
 ```
 
-Extract SSSD KCM credential cache streams:
+#### Active Directory Privilege Tiering & Quantitative Blast Radius Engine (`tanuki blast`)
+
+Calculates objective 0-100 blast radius risk scores, maps lateral movement vectors (Tier 0 Control Plane, Tier 1 Server/Operator Infrastructure, Tier 2 Workstations), and emits actionable PowerShell remediation recipes:
 
 ```bash
-# Scan local default SSSD database paths
-tanuki kcm
+# Evaluate identity privilege tier and quantitative blast radius (0-100 score)
+tanuki blast --keytab /etc/krb5.keytab
 
-# Parse a specific LDB database and save recovered tickets
-tanuki kcm -f /var/lib/sss/secrets/secrets.ldb -o ./extracted_ccache
+# Correlate cached ticket privileges and accessible SPNs
+tanuki blast --keytab /etc/krb5.keytab --ccache /tmp/krb5cc_live_climax
+
+# Structured JSON export with sovereign PowerShell remediation recipes
+tanuki blast --keytab /etc/krb5.keytab --json
 ```
 
-Decode MS-PAC binary privileges and modern buffer layouts ([MS-PAC]):
+#### Idempotent Closed-Loop Self-Healing Remediation (`tanuki fix`)
+
+Autonomous closed-loop self-healing engine that detects and repairs common Kerberos and Active Directory configuration defects without human intervention:
+- Corrects lowercase realm declarations to RFC 4120 compliant uppercase.
+- Configures software clock skew tolerances for virtualized/hypervisor workloads.
+- Restores zero-DNS KDC endpoint routing in local ephemeral configs.
 
 ```bash
-# Decode raw MS-PAC binary stream or hex payload
-tanuki pac ./extracted_pac.bin
+# Dry-run inspection to preview planned remediations without disk modification
+tanuki fix --dry-run
 
-# Decode with structured JSON output
-tanuki pac ./extracted_pac.bin --json
+# Execute automated idempotent configuration repair
+tanuki fix --keytab /etc/krb5.keytab --krb5-conf /tmp/krb5.conf
+
+# Structured JSON output for orchestration pipelines
+tanuki fix --json
 ```
 
-Dissect Active Directory Shadow Credentials ([MS-ADTS] 2.2.20):
+#### NIST SP 800-88 Cryptographic Zero-Trace Purge (`tanuki purge`)
+
+Executes multi-pass cryptographic shredding on ephemeral ticket caches, temporary Kerberos configurations, and process memory structures:
+- Hardened against Time-of-Check to Time-of-Use (TOCTOU) symlink attacks via `O_NOFOLLOW`.
+- Clears session environment variables (`KRB5CCNAME`, `KRB5_CONFIG`).
+- Compliant with NIST SP 800-88 Rev. 1 media sanitization standards.
 
 ```bash
-# Dissect raw msDS-KeyCredentialLink binary blob
-tanuki shadow ./shadow_credential.bin
+# Purge all discovered ticket caches and temporary session files
+tanuki purge --all
 
-# Dissect live LDAP DN-Binary string value
-tanuki shadow "B:736:00020000...:CN=svc-app,CN=Users,DC=corp,DC=local"
+# Purge specific credential cache file
+tanuki purge /tmp/krb5cc_1000
 
-# Output structured JSON for automation pipelines
-tanuki shadow ./shadow_credential.bin --json
+# Dry-run audit to preview targets prior to zeroization
+tanuki purge --all --dry-run
 ```
 
-Query Active Directory via unprivileged LDAP (zero superuser, fast socket probe):
+#### Passive AD CS Certificate & Template Scanner (`tanuki adcs`)
+
+Audits Active Directory Certificate Services (AD CS) template configurations for privilege escalation vulnerabilities across ESC1 through ESC11:
+
+```bash
+# Scan certificate template definition file for ESC1-ESC11 misconfigurations
+tanuki adcs --file templates.json
+
+# Structured JSON output for vulnerability management integration
+tanuki adcs --file templates.json --json
+```
+
+#### Unprivileged & Authenticated Active Directory LDAP (`tanuki ldap`)
+
+Queries Active Directory over unprivileged simple bind or Kerberos GSSAPI sockets with in-line binary DACL and key credential parsing:
 
 ```bash
 # Audit Kerberos Service Principal Names (SPN)
@@ -457,44 +516,78 @@ tanuki ldap --host 192.168.56.106 -u "user@corp.local" -p "Password123" --base-d
 tanuki ldap --host 192.168.56.106 --query shadow --base-dn "DC=corp,DC=local"
 ```
 
-Acquire Kerberos Service Tickets (TGS-REQ) for service workloads:
+#### Zero-DNS Unprivileged Kerberos Configuration Generator (`tanuki config`)
+
+Generates a local Kerberos configuration file (`krb5.conf`) enforcing RFC 4120 Section 6.1 uppercase realm conventions, zero-DNS direct KDC IP routing, and hypervisor clock-skew tolerance:
 
 ```bash
-# Acquire service ticket using existing cached TGT
-tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL
+# Generate unprivileged configuration directly targeting KDC IP (zero root, zero DNS dependency)
+tanuki config --realm CORP.LOCAL --kdc 192.168.56.106 -o ./krb5.conf
 
-# Acquire service ticket with custom ccache destination
-tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL --ccache /tmp/krb5cc_live_climax
-
-# Combined TGT and TGS acquisition via keytab
-tanuki auth --keytab /etc/krb5.keytab --spn HTTP/tanuki-app.lab.local@LAB.LOCAL
-
-# Structured JSON export for agent telemetry
-tanuki tgs HTTP/tanuki-app.lab.local@LAB.LOCAL --json
+# Activate in current unprivileged shell session
+export KRB5_CONFIG=$(pwd)/krb5.conf
 ```
 
-Active Directory Privilege Tiering and Quantitative Blast Radius Engine:
+#### RFC 4120 Binary Keytab Inspection & Tree Audit (`tanuki keytab`)
+
+Parses binary keytab structures, extracts AES-256 principals, displays hierarchical principal trees, verifies KVNOs, and identifies weak legacy ciphers:
 
 ```bash
-# Evaluate identity privilege tier and quantitative blast radius (0-100 score)
-tanuki blast --keytab /etc/krb5.keytab
+# Human-readable hierarchical tree report
+tanuki keytab /etc/krb5.keytab
 
-# Correlate cached ticket privileges and accessible SPNs
-tanuki blast --keytab /etc/krb5.keytab --ccache /tmp/krb5cc_live_climax
-
-# Structured JSON export with sovereign PowerShell remediation recipes
-tanuki blast --keytab /etc/krb5.keytab --json
+# Deterministic JSON schema
+tanuki keytab /etc/krb5.keytab --json
 ```
 
-Query the Kerberos error triage dictionary with dual-use SOC detection telemetry:
+#### SSSD KCM Credential Cache Stream Extractor (`tanuki kcm`)
 
-Tanuki couples every tactical remediation (Rung 5) and all 10 Kerberos error codes with defender detection telemetry:
-- Auditd watch rules: Exact audit rules for monitored paths (such as `-w /etc/krb5.keytab -p r -k keytab_read` and `-w /etc/localtime -p wa`).
-- Domain Controller Security Event IDs: Windows Event IDs (4768 TGT Request, 4769 TGS Request, 4771 Pre-Authentication Failed, 4624/4625 Logon).
-- Sigma rules: Detection rule identifiers (such as `proc_creation_win_susp_kerberos_ticket_request`).
-- Falco signatures: Syscall monitoring signatures (such as `read_sensitive_file_untrusted`).
-- Terminal display: Emits `[BLUE TELEMETRY]` alongside `[TACTICAL CMD]`.
-- Structured JSON: Full `telemetry` schema blocks in `tanuki triage <ERROR> --json` and `tanuki ladder --json`.
+Extracts MIT CCACHE v4 credential streams directly from local SSSD secrets databases (`secrets.ldb`):
+
+```bash
+# Scan local default SSSD database paths
+tanuki kcm
+
+# Parse a specific LDB database and save recovered tickets
+tanuki kcm -f /var/lib/sss/secrets/secrets.ldb -o ./extracted_ccache
+```
+
+#### Bounded MS-PAC Privilege Validation (`tanuki pac`)
+
+Decodes MS-PAC binary privilege attributes and logon information buffers ([MS-PAC]) with NDR structure boundary validation:
+
+```bash
+# Decode raw MS-PAC binary stream or hex payload
+tanuki pac ./extracted_pac.bin
+
+# Decode with structured JSON output
+tanuki pac ./extracted_pac.bin --json
+```
+
+#### Active Directory Shadow Credential Dissector (`tanuki shadow`)
+
+Parses `msDS-KeyCredentialLink` binary structures ([MS-ADTS] 2.2.20) to audit Next Generation Credential (NGC) key material and device GUIDs:
+
+```bash
+# Dissect raw msDS-KeyCredentialLink binary blob
+tanuki shadow ./shadow_credential.bin
+
+# Dissect live LDAP DN-Binary string value
+tanuki shadow "B:736:00020000...:CN=svc-app,CN=Users,DC=corp,DC=local"
+
+# Output structured JSON for automation pipelines
+tanuki shadow ./shadow_credential.bin --json
+```
+
+#### Kerberos Protocol Error Triage & Blue Telemetry Coupling (`tanuki triage`)
+
+Couples every tactical remediation (Rung 5) and all 10 Kerberos error codes with defender detection telemetry:
+- **Auditd watch rules**: Exact audit rules for monitored paths (such as `-w /etc/krb5.keytab -p r -k keytab_read` and `-w /etc/localtime -p wa`).
+- **Domain Controller Security Event IDs**: Windows Event IDs (4768 TGT Request, 4769 TGS Request, 4771 Pre-Authentication Failed, 4624/4625 Logon).
+- **Sigma rules**: Detection rule identifiers (such as `proc_creation_win_susp_kerberos_ticket_request`).
+- **Falco signatures**: Syscall monitoring signatures (such as `read_sensitive_file_untrusted`).
+- **Terminal display**: Emits `[BLUE TELEMETRY]` alongside `[TACTICAL CMD]`.
+- **Structured JSON**: Full `telemetry` schema blocks in `tanuki triage <ERROR> --json` and `tanuki ladder --json`.
 
 ```bash
 # Lookup resolution with [TACTICAL CMD] and [BLUE TELEMETRY]
@@ -504,13 +597,25 @@ tanuki triage KRB_AP_ERR_SKEW
 tanuki triage 14 --json
 ```
 
-Validate Non-Human Identity (NHI) workload tokens (RFC 8693):
+#### Tactical Decision Ladder Inspection (`tanuki ladder`)
 
-Tanuki validates modern cloud and workload identity tokens undergoing RFC 8693 OAuth 2.0 Token Exchange to Kerberos tickets:
-- Zero external runtime dependencies: Parses and validates JWT claims (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`) using standard library base64 and JSON without network calls.
-- Supported identity classes: Evaluates Kubernetes ServiceAccount tokens, AWS IAM Roles Anywhere credentials, SPIFFE SVIDs, and GitHub Actions OIDC tokens.
-- Security policy auditing: Detects dangerous wildcard audience scopes (`aud: "*"` or wildcard array elements) and overly broad subject patterns (`system:serviceaccount:*:*`, `arn:aws:iam::*:role/*`, `spiffe://*`).
-- Token exchange parameter validation: Verifies RFC 8693 parameters (`grant_type`, `subject_token`, `subject_token_type`, `requested_token_type`, `audience`).
+Inspect the 5-rung operational ladder governing disciplined, anti-hallucinatory identity operations:
+
+```bash
+# Interactive terminal view
+tanuki ladder
+
+# Structured JSON export for agent reasoning loops
+tanuki ladder --json
+```
+
+#### Workload Identity Token Validation & Cloud Mesh (`tanuki token` & `tanuki nhi`)
+
+Validates modern cloud and workload identity tokens undergoing RFC 8693 OAuth 2.0 Token Exchange to Kerberos tickets:
+- **Zero external runtime dependencies**: Parses and validates JWT claims (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`) using standard library base64 and JSON without network calls.
+- **Supported identity classes**: Evaluates Kubernetes ServiceAccount tokens, AWS IAM Roles Anywhere credentials, SPIFFE SVIDs, and GitHub Actions OIDC tokens.
+- **Security policy auditing**: Detects dangerous wildcard audience scopes (`aud: "*"` or wildcard array elements) and overly broad subject patterns (`system:serviceaccount:*:*`, `arn:aws:iam::*:role/*`, `spiffe://*`).
+- **Token exchange parameter validation**: Verifies RFC 8693 parameters (`grant_type`, `subject_token`, `subject_token_type`, `requested_token_type`, `audience`).
 
 ```bash
 # Validate Kubernetes ServiceAccount or cloud workload JWT
@@ -526,7 +631,20 @@ tanuki nhi inspect <JWT>
 tanuki nhi exchange --subject-token <JWT> --audience https://sts.corp.local
 ```
 
-Export AI Agent Skill Manifest & Operational Contract (`tanuki skill`):
+#### Interactive Terminal UI Wizard (`tanuki -i` / `tanuki --interactive`)
+
+Fast interactive TUI wizard allowing human operators to navigate diagnostic checks, keytab inspection, ticket acquisition, blast radius evaluation, error triage, and cryptographic purge without memorizing CLI syntax:
+
+```bash
+# Launch interactive terminal wizard
+tanuki -i
+# or
+tanuki --interactive
+```
+
+#### AI Agent Skill Manifest & Operational Contract (`tanuki skill`)
+
+Exports the machine-actionable operational contract and tool specification for autonomous AI coding agents:
 
 ```bash
 # Terminal card manifest for human operators
@@ -612,7 +730,8 @@ flowchart TD
 
     subgraph RUST_ENGINE["Rust Systems Core (crates/tanuki-cli)"]
         R_LIB["lib.rs (Zero Unsafe Code)"]
-        R_DOC["doctor/ (Pre-flight sub-5ms)"]
+        R_DOC["doctor/ (Pre-flight sub-0.96ms)"]
+        R_BLAST["blast.rs (Privilege Tiering)"]
         R_NHI["nhi/ (RFC 8693 Validator)"]
         R_KT["keytab/ (RFC 4120 Parser)"]
         R_KCM["kcm/ (CCACHE Extractor)"]
@@ -625,8 +744,9 @@ flowchart TD
 
     subgraph PY_ENGINE["Python Unified Package (tanuki/)"]
         P_CLI["cli.py (Unified CLI and TUI Wizard)"]
-        P_DOC["doctor.py (Pre-flight sub-5ms)"]
+        P_DOC["doctor.py (Pre-flight sub-0.96ms)"]
         P_AUTH["auth.py (ctypes TGT Acquisition)"]
+        P_BLAST["blast.py (Quantitative Blast Radius)"]
         P_NHI["nhi.py (RFC 8693 Token Exchange)"]
         P_TEL["telemetry.py (Auditd and Event IDs)"]
         P_PAC["pac.py (MS-PAC NDR Decoder)"]
@@ -642,10 +762,10 @@ flowchart TD
         S3["references/ (Tactical Ladder, AD CS, NHI)"]
     end
 
-    subgraph VERIFICATION["Empirical Verification (502/502 Tests Passing - 100% Green CI/CD)"]
-        V1["tests/ (Unit Test Suites)"]
-        V2["tests/e2e/ (Tiers 1-4 Scenarios)"]
-        V3["Tier 5 Adversarial Fuzzing"]
+    subgraph VERIFICATION["Empirical Verification (522 Tests Passing - 100% Green CI/CD)"]
+        V1["tests/ (502 Automated Python Tests)"]
+        V2["crates/tanuki-cli/tests/ (20 Rust Integration Tests)"]
+        V3["14-Point Security Audit & Adversarial Fuzzing"]
     end
 
     DIST --> RUST_ENGINE
@@ -660,12 +780,12 @@ flowchart TD
 
 | Subsystem | Primary Location | Key Capabilities & Architecture |
 | :--- | :--- | :--- |
-| **Rust Systems Core** | `crates/tanuki-cli/` | High-performance binary CLI built with `#![forbid(unsafe_code)]`. Houses sub-5ms `doctor`, RFC 8693 token exchange, RFC 4120 keytab parsing, MS-PAC NDR decoding, in-line RBCD parsing, and SSSD CCACHE extraction. |
-| **Python Unified Package** | `tanuki/` | Zero-dependency PEP 621 package providing `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing `fix`, zero-trace `purge`, and unprivileged authenticated/anonymous LDAP queries. |
+| **Rust Systems Core** | `crates/tanuki-cli/` | High-performance binary CLI built with `#![forbid(unsafe_code)]`. Houses sub-0.96ms `doctor`, RFC 8693 token exchange, RFC 4120 keytab parsing, quantitative `blast` radius calculation, MS-PAC NDR decoding, in-line RBCD parsing, and SSSD CCACHE extraction. |
+| **Python Unified Package** | `tanuki/` | Zero-dependency PEP 621 package providing `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, `blast` privilege tiering, self-healing `fix`, zero-trace `purge`, and unprivileged authenticated/anonymous LDAP queries. |
 | **Living-off-the-Land Scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or compiler toolchains. |
 | **Agent Skill Definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
 | **Technical References** | `references/` | Grounded protocol manuals covering Ponytail decision ladder, AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
-| **Verification Harness** | `tests/`, `tests/e2e/` | 502 automated test suites covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing (100% green CI/CD across GitHub Actions). |
+| **Verification Harness** | `tests/`, `crates/tanuki-cli/tests/` | 502 automated Python tests and 20 Rust integration tests (522 total tests) covering unit, boundary, pairwise, real-world scenarios, and adversarial binary fuzzing (100% green CI/CD across GitHub Actions). |
 
 <details>
 <summary><b>View complete directory file tree</b></summary>
@@ -689,6 +809,7 @@ tanuki/
 │       │   ├── lib.rs         # Library entry point (#![forbid(unsafe_code)])
 │       │   ├── main.rs        # CLI entry point and formatters
 │       │   ├── adcs.rs        # Passive ADCS certificate scanner
+│       │   ├── blast.rs       # Quantitative blast radius and privilege tiering
 │       │   ├── config.rs      # Zero-DNS krb5.conf generator
 │       │   ├── fix.rs         # Closed-loop remediation engine
 │       │   ├── ldap.rs        # Unprivileged LDAP & RBCD parser
@@ -696,7 +817,7 @@ tanuki/
 │       │   ├── purge.rs       # NIST SP 800-88 cryptographic shredder
 │       │   ├── shadow.rs      # msDS-KeyCredentialLink shadow credentials
 │       │   ├── util.rs        # Entropy and JSON utilities
-│       │   ├── doctor/        # Sub-5ms pre-flight health diagnostic probe
+│       │   ├── doctor/        # Sub-0.96ms pre-flight health diagnostic probe
 │       │   ├── nhi/           # RFC 8693 workload token validator
 │       │   ├── keytab/        # RFC 4120 keytab binary parser
 │       │   ├── kcm/           # SSSD KCM CCACHE stream extractor
@@ -711,7 +832,7 @@ tanuki/
 │   ├── blast.py               # Privilege tiering and quantitative blast radius engine
 │   ├── cli.py                 # Unified CLI matching Rust commands
 │   ├── config.py              # Zero-DNS krb5.conf generator
-│   ├── doctor.py              # Pre-flight health check engine (<5ms, zero packets)
+│   ├── doctor.py              # Pre-flight health check engine (<0.96ms, zero packets)
 │   ├── fix.py                 # Idempotent remediation & auto-configuration
 │   ├── kcm.py                 # SSSD KCM ticket stream parser
 │   ├── keytab.py              # RFC 4120 keytab parser
@@ -730,13 +851,17 @@ tanuki/
 │   ├── lab-validation-act2-naga-config.png         # Act 2.3: Zero-DNS krb5.conf generator
 │   ├── lab-validation-act2-naga-auth-live.png      # Act 2.4: Unprivileged ctypes TGT acquisition
 │   ├── lab-validation-act2-naga-doctor-pass.png    # Act 2.5: Post-auth doctor pass (AES-256 session)
-│   ├── lab-validation-act2-naga-triage.png         # Act 2.6: Protocol error triage and telemetry
-│   ├── lab-validation-act2-naga-purge.png          # Act 2.7: NIST SP 800-88 zero-trace purge
-│   ├── lab-validation-act3-dc01-event4768.png      # Act 3: Closed-loop Event ID 4768 audit verification
-│   ├── lab-validation-climax-phase1-tgs.png        # Phase 1: Kerberos service ticket (TGS) proof of access
-│   ├── lab-validation-climax-phase2-blast.png      # Phase 2: Privilege tiering and blast radius mapping
-│   ├── lab-validation-climax-phase3-event4769.png  # Phase 3: Closed-loop Event ID 4769 audit verification
-│   ├── lab-validation-climax-phase3-purge.png      # Phase 3: NIST SP 800-88 cryptographic zero-trace purge
+│   ├── lab-validation-act2-naga-ldap-asrep.png     # Act 2.6: Unprivileged LDAP AS-REP roasting reconnaissance
+│   ├── lab-validation-act2-naga-ldap-rbcd.png      # Act 2.7: In-line RBCD security descriptor parsing
+│   ├── lab-validation-act2-naga-pac.png            # Act 2.8: Bounded MS-PAC privilege validation
+│   ├── lab-validation-act2-naga-shadow.png         # Act 2.9: Shadow credential binary inspection
+│   ├── lab-validation-act2-naga-triage.png         # Act 2.10: Protocol error triage and telemetry
+│   ├── lab-validation-act2-naga-purge.png          # Act 2.11: NIST SP 800-88 zero-trace purge
+│   ├── lab-validation-climax-phase1-tgs.png        # Act 3.1: Kerberos service ticket (TGS) proof of access
+│   ├── lab-validation-climax-phase2-blast.png      # Act 3.2: Privilege tiering and blast radius mapping
+│   ├── lab-validation-climax-phase3-purge.png      # Act 3.3: NIST SP 800-88 cryptographic zero-trace purge
+│   ├── lab-validation-act3-dc01-event4768.png      # Act 4.1: Closed-loop Event ID 4768 audit verification
+│   ├── lab-validation-climax-phase3-event4769.png  # Act 4.2: Closed-loop Event ID 4769 audit verification
 │   ├── logo.png                                    # Project logo (transparent background, light mode)
 │   ├── logo-dark.png                               # Project logo (transparent background, dark mode)
 │   └── social-preview.png                          # Repository social preview banner
@@ -753,13 +878,17 @@ tanuki/
 ├── tests/
 │   ├── e2e/                   # Comprehensive end-to-end and scenario test suites
 │   ├── test_adcs.py           # ADCS misconfiguration scanner tests
+│   ├── test_audit_fixes_14.py # 14-point security audit fixes suite
 │   ├── test_auth.py           # Native ctypes Kerberos authentication tests
+│   ├── test_blast.py          # Quantitative blast radius engine tests
 │   ├── test_config.py         # Deterministic krb5.conf generation tests
 │   ├── test_doctor.py         # Pre-flight health check unit tests
 │   ├── test_fix.py            # Automated closed-loop remediation tests
 │   ├── test_kcm_parser.py     # SSSD KCM stream parser tests
 │   ├── test_keytab_inspector.py # Living-off-the-Land keytab tests
 │   ├── test_ldap.py           # Pure socket LDAP and RBCD tests
+│   ├── test_live_investigation.py # Live Active Directory investigation tests
+│   ├── test_mesh.py           # Non-Human Identity mesh federation tests
 │   ├── test_nhi.py            # RFC 8693 workload token validator tests
 │   ├── test_pac.py            # PAC parsing and Type 17 attributes tests
 │   ├── test_purge.py          # NIST SP 800-88 forensic purge tests
@@ -767,6 +896,7 @@ tanuki/
 │   ├── test_security_audit.py # Security bounds and fuzzing tests
 │   ├── test_shadow.py         # msDS-KeyCredentialLink parser tests
 │   ├── test_telemetry.py      # Dual-use detection telemetry unit tests
+│   ├── test_tgs.py            # Kerberos Service Ticket acquisition tests
 │   └── test_unified_cli.py    # Unified CLI command coverage
 ├── SKILL.md                   # Universal skill definition
 ├── AGENTS.md                  # Multi-agent prompt file
