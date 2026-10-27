@@ -404,7 +404,7 @@ def acquire_tgt_via_ctypes(
                                     ctypes.c_int32,
                                 ]
                                 msg_ptr = krb5.krb5_get_error_message(ctx, code)
-                                if isinstance(msg_ptr, int) and msg_ptr != 0:
+                                if msg_ptr:
                                     try:
                                         return ctypes.string_at(msg_ptr).decode("utf-8", errors="replace")
                                     finally:
@@ -1031,7 +1031,7 @@ def acquire_tgs_via_ctypes(
                     krb5.krb5_get_error_message.restype = ctypes.c_void_p
                     krb5.krb5_get_error_message.argtypes = [ctypes.c_void_p, ctypes.c_int32]
                     msg_ptr = krb5.krb5_get_error_message(ctx, code)
-                    if isinstance(msg_ptr, int) and msg_ptr != 0:
+                    if msg_ptr:
                         try:
                             return ctypes.string_at(msg_ptr).decode("utf-8", errors="replace")
                         finally:
