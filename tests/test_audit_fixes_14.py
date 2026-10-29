@@ -637,7 +637,10 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
                     os.chmod(os.path.join(fake_bin, s), 0o755)
                 real_sha = shutil.which("sha256sum")
                 if real_sha:
-                    os.symlink(real_sha, os.path.join(fake_bin, "_real_sha256sum"))
+                    # Wrapper (not symlink) so multicall coreutils (uutils on ubuntu) sees argv[0]=sha256sum.
+                    with open(os.path.join(fake_bin, "_real_sha256sum"), "w", encoding="utf-8", newline="\n") as rf:
+                        rf.write(f'#!/usr/bin/env bash\nexec "{real_sha}" "$@"\n')
+                    os.chmod(os.path.join(fake_bin, "_real_sha256sum"), 0o755)
                 else:
                     real_shasum = shutil.which("shasum")
                     if not real_shasum:
