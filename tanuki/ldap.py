@@ -462,6 +462,7 @@ class LdapClient:
                 else:
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
+                    sys.stderr.write("[!] Warning: TLS certificate validation is disabled (insecure mode).\n")
                 self.sock = context.wrap_socket(raw_sock, server_hostname=self.host)
             else:
                 self.sock = raw_sock
