@@ -398,23 +398,21 @@ tanuki/
 │   ├── __init__.py            # Library exports (v2.0.0)
 │   ├── __main__.py            # python -m tanuki execution
 │   ├── adcs.py                # Passive ADCS template misconfiguration scanner
-│   ├── auth.py                # Unprivileged native Kerberos engine & clock skew
+│   ├── auth.py                # Unprivileged native Kerberos TGT/TGS engine & clock skew
 │   ├── blast.py               # Quantitative blast radius scoring
-│   ├── cli.py                 # Unified CLI argument parser
+│   ├── cli.py                 # Unified CLI argument parser & interactive TUI wizard
 │   ├── config.py              # Zero-DNS krb5.conf generator
 │   ├── doctor.py              # Pre-flight diagnostic engine
 │   ├── fix.py                 # Idempotent self-healing remediation
-│   ├── interactive.py         # Terminal UI wizard
-│   ├── kcm_parser.py          # SSSD KCM database parser
+│   ├── kcm.py                 # SSSD KCM database parser & extractor
 │   ├── keytab.py              # RFC 4120 keytab binary parser
 │   ├── ldap.py                # Unprivileged LDAP client & parser
 │   ├── nhi.py                 # RFC 8693 token exchange & workload identity
 │   ├── pac.py                 # MS-PAC NDR privilege validator
-│   ├── protocol_constants.py  # Kerberos constants & cipher mappings
+│   ├── protocol.py            # Kerberos constants, error triage & decision ladder
 │   ├── purge.py               # NIST SP 800-88 memory zeroization
 │   ├── shadow.py              # msDS-KeyCredentialLink shadow credentials
-│   ├── telemetry.py           # Auditd, Sigma, and Windows Event ID mappings
-│   └── tgs.py                 # Kerberos TGS request engine
+│   └── telemetry.py           # Auditd, Sigma, and Windows Event ID mappings
 ├── tests/                     # 21 Automated Python Unit Test Suites (502 tests)
 │   ├── test_adcs.py
 │   ├── test_audit_fixes_14.py

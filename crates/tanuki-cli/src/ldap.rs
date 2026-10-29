@@ -972,6 +972,10 @@ pub fn query_active_directory_ldap(
                 build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "524288"),
                 vec!["sAMAccountName", "userAccountControl"],
             ),
+            s if s.starts_with("identity:") => (
+                build_ldap_search_filter("sAMAccountName", &s["identity:".len()..]),
+                vec!["sAMAccountName", "objectSid", "primaryGroupID", "userAccountControl"],
+            ),
             _ => (
                 build_ldap_search_filter("objectClass", "*"),
                 vec!["sAMAccountName"],

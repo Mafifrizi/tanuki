@@ -1105,40 +1105,13 @@ def handle_pac(source: Optional[str], json_output: bool, is_file: bool = False) 
 def handle_shadow(source: Optional[str], json_output: bool = False) -> None:
     """Handle tanuki shadow command."""
     if not source:
-        from .shadow import build_synthetic_shadow_blob, parse_key_credential_link, format_shadow_report_terminal
-        res = None
-        try:
-            from .auth import _discover_kdc_from_krb5_conf
-            discovered_realm, discovered_kdc = _discover_kdc_from_krb5_conf("./krb5.conf")
-            if not discovered_kdc:
-                discovered_realm, discovered_kdc = _discover_kdc_from_krb5_conf()
-            if discovered_kdc:
-                from .ldap import query_active_directory_ldap
-                realm_dn = "DC=" + (discovered_realm or "LAB.LOCAL").lower().replace(".", ",DC=")
-                q_res = query_active_directory_ldap(
-                    host=discovered_kdc,
-                    query_type="shadow",
-                    base_dn=realm_dn,
-                    username=f"joko@{discovered_realm}" if discovered_realm else "joko@LAB.LOCAL",
-                    password="Password123!",
-                    timeout=1.5,
-                )
-                if q_res.get("status") == "SUCCESS" and q_res.get("entries"):
-                    live_entry = q_res["entries"][0]
-                    shadow_creds = live_entry.get("shadow_credentials", [])
-                    if shadow_creds and "error" not in shadow_creds[0]:
-                        res = shadow_creds[0]
-        except Exception:
-            res = None
-
-        if res is None:
-            res = parse_key_credential_link(build_synthetic_shadow_blob())
-
-        if json_output:
-            print(json.dumps(res, indent=2))
-        else:
-            print(format_shadow_report_terminal(res))
-        return
+        emit_cli_error(
+            "Error: Shadow Credential input required (file path, raw hex, or DN-Binary string). Example: tanuki shadow ./blob.bin",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
     try:
         from .shadow import parse_key_credential_link, format_shadow_report_terminal
         res = parse_key_credential_link(source)
@@ -1252,45 +1225,13 @@ def handle_adcs(
     is_file: bool = False,
 ) -> None:
     if not source:
-        from .adcs import evaluate_template_misconfigurations, evaluate_ca_misconfigurations, format_adcs_report_terminal
-        default_templates = [
-            {
-                "name": "WebUserAuth",
-                "msPKI-Certificate-Name-Flag": 1,
-                "pKIExtendedKeyUsage": ["1.3.6.1.5.5.7.3.2"],
-                "msPKI-Enrollment-Flag": 0,
-            },
-            {
-                "name": "ESC2-AnyPurpose",
-                "msPKI-Certificate-Name-Flag": 0,
-                "pKIExtendedKeyUsage": ["2.5.29.37.0"],
-            },
-        ]
-        findings = []
-        for t in default_templates:
-            findings.extend(evaluate_template_misconfigurations(t))
-        findings.extend(evaluate_ca_misconfigurations({
-            "ca_name": "LAB-DC01-CA",
-            "editf_san2": True,
-            "http_enrollment_enabled": True,
-        }))
-        rep = {
-            "status": "SUCCESS",
-            "templates_scanned": len(default_templates),
-            "findings_count": len(findings),
-            "findings": findings,
-            "summary": {
-                "critical": sum(1 for f in findings if f.get("severity") == "CRITICAL"),
-                "high": sum(1 for f in findings if f.get("severity") == "HIGH"),
-                "medium": sum(1 for f in findings if f.get("severity") == "MEDIUM"),
-                "total": len(findings),
-            },
-        }
-        if json_output:
-            print(json.dumps(rep, indent=2))
-        else:
-            print(format_adcs_report_terminal(rep))
-        return
+        emit_cli_error(
+            "Error: AD CS source required (templates JSON/LDIF export or an X.509 certificate). Example: tanuki adcs --file ./templates.json",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
     if (
         is_file
         or source.endswith((".json", ".ldif", ".pem", ".crt", ".der", ".txt"))

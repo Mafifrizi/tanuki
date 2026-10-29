@@ -32,7 +32,42 @@ from tanuki.config import generate_krb5_conf, parse_srv_response, write_krb5_con
 from tanuki.keytab import parse_keytab_bytes, parse_keytab_file, parse_keytab_stream
 from tanuki.nhi import b64url_decode, parse_workload_jwt
 from tanuki.purge import run_purge
-from tanuki.shadow import build_synthetic_shadow_blob, parse_key_credential_link
+from tanuki.shadow import parse_key_credential_link
+
+
+def build_synthetic_shadow_blob(
+    version: int = 0x00000200,
+    key_type: str = "RSA",
+    usage: int = 0x01,
+    source: int = 0x00,
+) -> bytes:
+    """Test fixture: build a valid msDS-KeyCredentialLink binary blob per [MS-ADTS] 2.2.20."""
+    blob = bytearray()
+    blob.extend(struct.pack("<I", version))
+    cng_hdr = struct.pack("<4sIIIII", b"RSA1", 2048, 3, 256, 0, 0)
+    pub_exp = b"\x01\x00\x01"
+    modulus = os.urandom(256)
+    modulus = bytes([modulus[0] | 0x80]) + modulus[1:-1] + bytes([modulus[-1] | 0x01])
+    km_bytes = cng_hdr + pub_exp + modulus
+    blob.extend(struct.pack("<HB", len(km_bytes), 0x03))
+    blob.extend(km_bytes)
+    kid = hashlib.sha256(km_bytes).digest()
+    blob.extend(struct.pack("<HB", len(kid), 0x01))
+    blob.extend(kid)
+    blob.extend(struct.pack("<HB", 1, 0x04))
+    blob.append(usage)
+    blob.extend(struct.pack("<HB", 1, 0x05))
+    blob.append(source)
+    dev_guid = bytes.fromhex("11223344556677889900aabbccddeeff")
+    blob.extend(struct.pack("<HB", 16, 0x06))
+    blob.extend(dev_guid)
+    custom_info = bytes([0x01, 0x01])
+    blob.extend(struct.pack("<HB", len(custom_info), 0x07))
+    blob.extend(custom_info)
+    ft_creation = 133918032000000000
+    blob.extend(struct.pack("<HB", 8, 0x09))
+    blob.extend(struct.pack("<Q", ft_creation))
+    return bytes(blob)
 
 
 def _build_keytab_v2_entry(

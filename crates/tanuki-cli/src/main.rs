@@ -274,9 +274,9 @@ fn run_tui_wizard() {
             "14" => {
                 let realm = read_line_prompt("Target Kerberos Realm (e.g. CORP.LOCAL): ").filter(|s| !s.is_empty());
                 let kdc = read_line_prompt("Target Domain Controller / KDC IP: ").filter(|s| !s.is_empty());
-                let out = read_line_prompt("Output config path [/etc/krb5.conf]: ")
+                let out = read_line_prompt("Output config path [./krb5.conf]: ")
                     .filter(|s| !s.is_empty())
-                    .or_else(|| Some("/etc/krb5.conf".to_string()));
+                    .or_else(|| Some("./krb5.conf".to_string()));
                 handle_config(realm, None, kdc, None, out, false, false, Some(300), false, false, None);
             }
             "15" => {
@@ -2944,6 +2944,16 @@ fn is_ccache_path(path: &str) -> bool {
     false
 }
 
+fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
 fn handle_blast(
     source_opt: Option<String>,
     ccache_opt: Option<String>,
@@ -3082,6 +3092,47 @@ fn handle_blast(
     let mut rbcd_target_count = 0;
     if let Some(ref host) = host_opt {
         let base_dn = base_dn_opt.unwrap_or_else(|| "DC=lab,DC=local".to_string());
+
+        // Direct identity lookup for the analyzed principal's real objectSid (recon-independent).
+        if extracted_user_sid.is_none() {
+            let acct = tanuki::extract_ad_account_name(&principal)
+                .trim_end_matches('$')
+                .to_string();
+            if !acct.is_empty() {
+                let id_rep = query_active_directory_ldap(
+                    host,
+                    &format!("identity:{}", acct),
+                    &base_dn,
+                    389,
+                    false,
+                    3,
+                    username_opt.as_deref(),
+                    password_opt.as_deref(),
+                );
+                if id_rep.status == "SUCCESS" {
+                    for entry in &id_rep.entries {
+                        for (k, vals) in &entry.attributes {
+                            if k.eq_ignore_ascii_case("objectSid") {
+                                if let Some(hex) = vals.first() {
+                                    if let Some(sid_bytes) = hex_to_bytes(hex) {
+                                        if let Ok((sid, _)) = tanuki::parse_windows_sid(&sid_bytes, 0, None) {
+                                            extracted_user_sid = Some(sid);
+                                        }
+                                    }
+                                }
+                            } else if k.eq_ignore_ascii_case("primaryGroupID") {
+                                if primary_group_rid.is_none() {
+                                    if let Some(pg) = vals.first().and_then(|v| v.parse::<u32>().ok()) {
+                                        primary_group_rid = Some(pg);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let ldap_rep = query_active_directory_ldap(
             host,
             "all",
@@ -3114,7 +3165,11 @@ fn handle_blast(
                         for (k, vals) in &entry.attributes {
                             if k.eq_ignore_ascii_case("objectSid") {
                                 if let Some(first_sid) = vals.first() {
-                                    extracted_user_sid = Some(first_sid.clone());
+                                    if let Some(sid_bytes) = hex_to_bytes(first_sid) {
+                                        if let Ok((sid, _)) = tanuki::parse_windows_sid(&sid_bytes, 0, None) {
+                                            extracted_user_sid = Some(sid);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3204,7 +3259,7 @@ fn handle_blast(
         has_spn,
         is_dc,
     );
-    let user_sid = extracted_user_sid.unwrap_or_else(|| "S-1-5-21-3524859768-892044447-4268052392-1105".to_string());
+    let user_sid = extracted_user_sid.unwrap_or_else(|| "UNKNOWN".to_string());
 
     let (blast_score, severity, lateral_paths) = evaluate_blast_radius(
         &tier_info,

@@ -355,8 +355,8 @@ def generate_ad_remediations(
 
 def get_event_4769_telemetry(spn: Optional[str] = None, client: Optional[str] = None) -> Dict[str, Any]:
     """Emit Blue Team telemetry and Event ID 4769 correlation data."""
-    service_display = spn or "HTTP/tanuki-app.lab.local"
-    client_display = client or "tanuki-svc@LAB.LOCAL"
+    service_display = spn or "<target-spn>"
+    client_display = client or "<client-principal>"
 
     return {
         "event_id": 4769,
@@ -496,18 +496,49 @@ def run_blast(
             except Exception:
                 pass
 
-    # Default accessible SPNs if none discovered
-    if not accessible_spns:
-        if "/" in principal:
-            accessible_spns.append(principal)
-        else:
-            accessible_spns.append(f"HTTP/tanuki-app.lab.local@{principal.split('@')[-1] if '@' in principal else 'LAB.LOCAL'}")
+    # The principal itself is an accessible SPN only when it actually is one.
+    if not accessible_spns and "/" in principal:
+        accessible_spns.append(principal)
 
     has_spn = ("/" in principal)
 
     # 4. If LDAP host is configured, perform live Active Directory query
     if host:
         try:
+            # Direct lookup of the analyzed principal's real objectSid (recon-independent).
+            if not user_sid:
+                try:
+                    from .ldap import LdapClient, build_ldap_search_filter, probe_tcp_port
+                    from .pac import parse_windows_sid, decode_uac_flags
+                    _acc = extract_ad_account_name(principal).rstrip("$")
+                    _reach, _ = probe_tcp_port(host, 389, timeout=3.0)
+                    if _acc and _reach:
+                        _cli = LdapClient(host=host, port=389, timeout=3.0)
+                        _cli.connect()
+                        if _cli.bind(bind_dn=username or "", password=password):
+                            for _e in _cli.search(
+                                base_dn=base_dn or "DC=lab,DC=local",
+                                filter_bytes=build_ldap_search_filter("sAMAccountName", _acc),
+                                attributes=["sAMAccountName", "objectSid", "primaryGroupID", "userAccountControl"],
+                            ):
+                                _a = _e.get("attributes", {})
+                                _sid = _a.get("objectSid")
+                                if _sid and isinstance(_sid[0], (bytes, bytearray)):
+                                    user_sid, _ = parse_windows_sid(bytes(_sid[0]), 0)
+                                if primary_group_rid is None and _a.get("primaryGroupID"):
+                                    try:
+                                        primary_group_rid = int(_a["primaryGroupID"][0])
+                                    except (ValueError, TypeError):
+                                        pass
+                                if not uac_flags and _a.get("userAccountControl"):
+                                    try:
+                                        uac_flags = decode_uac_flags(int(_a["userAccountControl"][0]))
+                                    except Exception:
+                                        pass
+                                break
+                        _cli.close()
+                except Exception:
+                    pass
             from .ldap import query_active_directory_ldap
             ldap_res = query_active_directory_ldap(
                 host=host,
@@ -534,8 +565,8 @@ def run_blast(
                         if not uac_flags and attrs.get("userAccountControl"):
                             try:
                                 uac_int = int(attrs.get("userAccountControl")[0])
-                                from .ldap import parse_uac_flags
-                                uac_flags = parse_uac_flags(uac_int)
+                                from .pac import decode_uac_flags
+                                uac_flags = decode_uac_flags(uac_int)
                             except Exception:
                                 pass
                         break
@@ -609,7 +640,7 @@ def run_blast(
         "status": "SUCCESS",
         "operation": "BLAST_RADIUS_ANALYSIS",
         "principal": principal,
-        "user_sid": user_sid or "S-1-5-21-3524859768-892044447-4268052392-1105",
+        "user_sid": user_sid or "UNKNOWN",
         "tier": tier_info["tier"],
         "tier_label": tier_info["tier_label"],
         "tier_details": tier_info,
