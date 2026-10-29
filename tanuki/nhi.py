@@ -518,7 +518,7 @@ def format_token_report_terminal(report: Dict[str, Any]) -> str:
     findings = eval_sec.get("findings", [])
     if findings:
         for f in findings:
-            tag = "SAFE" if f.get("severity") == "LOW" else ("WARN" if f.get("severity") == "MEDIUM" else "CRITICAL")
+            tag = {"LOW": "SAFE", "MEDIUM": "WARN", "HIGH": "HIGH", "CRITICAL": "CRITICAL"}.get(f.get("severity"), "CRITICAL")
             lines.append(f"[{tag}] {f.get('code')} : {f.get('message')}")
     else:
         lines.append("[SAFE] All security policies satisfied")

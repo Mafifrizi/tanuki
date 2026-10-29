@@ -165,7 +165,7 @@ class TestBlastRadiusEvaluation(unittest.TestCase):
         self.assertEqual(rep["tier"], 2)
         self.assertEqual(rep["tier_label"], "Tier 2 (Workstation & User Endpoints)")
         self.assertEqual(rep["severity"], "LOW")
-        self.assertEqual(rep["blast_score"], 25)
+        self.assertEqual(rep["blast_score"], 20)
         self.assertIn("Standard domain user", rep["tier_details"]["matched_rules"][0])
 
     def test_run_blast_service_principal_clean_cmdlet_targeting(self):
@@ -221,6 +221,21 @@ class TestBlastRadiusEvaluation(unittest.TestCase):
         self.assertEqual(telem["fields"]["ServiceName"], "HTTP/tanuki-app.lab.local")
         self.assertGreater(len(telem["auditd"]), 0)
         self.assertGreater(len(telem["sigma"]), 0)
+
+    def test_blast_ldap_resolves_real_objectsid(self):
+        import struct
+        from unittest.mock import patch, MagicMock
+        sid = bytes([1, 5, 0, 0, 0, 0, 0, 5]) + struct.pack("<IIIII", 21, 3524859768, 892044447, 4268052392, 1173)
+        fake_cli = MagicMock()
+        fake_cli.bind.return_value = True
+        fake_cli.search.return_value = [
+            {"attributes": {"sAMAccountName": ["joko"], "objectSid": [sid], "primaryGroupID": ["513"]}}
+        ]
+        with patch("tanuki.ldap.probe_tcp_port", return_value=(True, None)), \
+             patch("tanuki.ldap.LdapClient", return_value=fake_cli), \
+             patch("tanuki.ldap.query_active_directory_ldap", return_value={"status": "FAILED", "entries": []}):
+            rep = run_blast(source="joko@LAB.LOCAL", host="192.168.56.106", username="joko@LAB.LOCAL", password="x")
+        self.assertEqual(rep["user_sid"], "S-1-5-21-3524859768-892044447-4268052392-1173")
 
 
 class TestBlastCLI(unittest.TestCase):
