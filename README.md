@@ -18,7 +18,6 @@
   <img src="https://img.shields.io/badge/python-3.10+%20(zero--dep)-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
   <img src="https://img.shields.io/badge/standards-RFC_4120%20%7C%20RFC_8693-orange.svg" alt="RFC Standards">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0">
-  <a href="https://youtu.be/gWVb8126n1o?si=ENhKXe8ATlvp9ZNC"><img src="https://img.shields.io/badge/demo-YouTube-red.svg?logo=youtube&logoColor=white" alt="Demo Video"></a>
 </p>
 
 <p align="center">
