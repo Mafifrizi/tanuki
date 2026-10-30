@@ -8,7 +8,7 @@
 <h1 align="center">Tanuki</h1>
 
 <p align="center">
-  <strong>Autonomous Non-Human Identity & Hybrid Active Directory Operator for Linux Workloads</strong><br>
+  <strong>Operator Non-Human Identity & Hybrid Active Directory Operator for Linux Workloads</strong><br>
   <em>Protocol-first, zero root privileges, zero host configuration footprint, zero noise.</em>
 </p>
 
