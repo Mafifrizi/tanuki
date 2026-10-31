@@ -1,7 +1,7 @@
 ---
 name: tanuki
 version: 2.0.0
-description: Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.
+description: Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.
 author: Tanuki Open Source Initiative
 license: "MIT OR Apache-2.0"
 lineage:

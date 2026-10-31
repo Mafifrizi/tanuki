@@ -33,7 +33,7 @@ fn print_usage() {
     println!();
     print_card_header(
         &format!("Tanuki CLI · Tactical Identity Operator (v{})", env!("CARGO_PKG_VERSION")),
-        Some("Autonomous Non-Human Identity (NHI) & Hybrid Active Directory Engine"),
+        Some("Non-Human Identity (NHI) & Hybrid Active Directory Engine"),
         72,
     );
     println!();
@@ -2277,7 +2277,7 @@ fn handle_skill(json_output: bool) {
         out.push_str("{\n");
         out.push_str("  \"name\": \"tanuki\",\n");
         out.push_str(&format!("  \"version\": \"{}\",\n", env!("CARGO_PKG_VERSION")));
-        out.push_str("  \"description\": \"Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.\",\n");
+        out.push_str("  \"description\": \"Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.\",\n");
         out.push_str("  \"author\": \"Tanuki Open Source Initiative\",\n");
         out.push_str("  \"lineage\": {\n");
         out.push_str("    \"pioneer_unix_tradecraft\": \"Tim Brown (@timb-machine), creator of Linikatz\",\n");

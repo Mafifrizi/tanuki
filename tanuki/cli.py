@@ -44,7 +44,7 @@ TANUKI_BANNER = r""" _____     _     _   _   _   _   _  __   _____
 def _build_usage_text() -> str:
     header_lines = render_card_header(
         f"Tanuki CLI · Tactical Identity Operator (v{__version__})",
-        "Autonomous Non-Human Identity (NHI) & Hybrid Active Directory Engine",
+        "Non-Human Identity (NHI) & Hybrid Active Directory Engine",
     )
     return (
         TANUKI_BANNER
@@ -1432,7 +1432,7 @@ def handle_skill(json_output: bool) -> None:
     manifest = {
         "name": "tanuki",
         "version": __version__,
-        "description": "Autonomous Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.",
+        "description": "Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.",
         "author": "Tanuki Open Source Initiative",
         "lineage": {
             "pioneer_unix_tradecraft": "Tim Brown (@timb-machine), creator of Linikatz",

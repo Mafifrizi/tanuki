@@ -1,6 +1,6 @@
 # Contributing to Tanuki
 
-Thank you for your interest in contributing to Tanuki. Tanuki is an autonomous Non-Human Identity (NHI) and Active Directory operator for Linux workloads, built around dual-engine architecture: a pure Python standard library core and a memory-safe static Rust binary.
+Thank you for your interest in contributing to Tanuki. Tanuki is a Non-Human Identity (NHI) and Active Directory operator for Linux workloads, built around dual-engine architecture: a pure Python standard library core and a memory-safe static Rust binary.
 
 We welcome contributions ranging from protocol parsing enhancements and triage dictionary expansions to documentation, tests, and shell autocompletion.
 

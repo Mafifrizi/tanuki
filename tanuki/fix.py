@@ -1,6 +1,6 @@
 """Idempotent Closed-Loop Self-Healing Engine (tanuki fix).
 
-Autonomous remediation of Linux Active Directory pre-flight defects:
+Closed-loop remediation of Linux Active Directory pre-flight defects:
 - Fixes insecure keytab file permissions (0600) for owner-owned files.
 - Generates optimal unprivileged krb5.conf with udp_preference_limit = 0 and hypervisor clockskew.
 - Preserves existing configuration files with atomic .bak backups before modification.
