@@ -781,6 +781,26 @@ pub fn query_active_directory_ldap(
     password: Option<&str>,
 ) -> LdapReport {
     let effective_port = if use_ssl && port == 389 { 636 } else { port };
+    // The zero-dependency Rust engine has no TLS stack. Refuse --ssl rather than send the
+    // simple-bind credentials in cleartext to the LDAPS port under a false "secure" flag.
+    if use_ssl {
+        return LdapReport {
+            status: "CONNECTION_FAILED".to_string(),
+            host: host.to_string(),
+            port: effective_port,
+            query_type: query_type.to_string(),
+            base_dn: base_dn.to_string(),
+            count: 0,
+            entries: Vec::new(),
+            message: None,
+            error: Some(
+                "LDAPS (--ssl) is not supported by the zero-dependency Rust engine (no TLS stack). \
+Refusing to transmit credentials in cleartext. Use the Python engine \
+(python -m tanuki ldap --ssl --secure | --verify-ca <PATH>) or tunnel LDAP over stunnel/SSH."
+                    .to_string(),
+            ),
+        };
+    }
     let timeout = Duration::from_secs(timeout_secs);
     let socket_addr = match format!("{}:{}", host, effective_port).to_socket_addrs() {
         Ok(mut addrs) => match addrs.next() {
