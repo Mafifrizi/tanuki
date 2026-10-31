@@ -3089,7 +3089,8 @@ fn handle_blast(
     }
 
     // 5. Query LDAP if host provided
-    let mut rbcd_target_count = 0;
+    let mut rbcd_targets: Vec<String> = Vec::new();
+    let mut owns_spn = false;
     if let Some(ref host) = host_opt {
         let base_dn = base_dn_opt.unwrap_or_else(|| "DC=lab,DC=local".to_string());
 
@@ -3218,6 +3219,7 @@ fn handle_blast(
                         for (k, vals) in &entry.attributes {
                             if k.eq_ignore_ascii_case("servicePrincipalName") {
                                 for spn in vals {
+                                    owns_spn = true;
                                     if !accessible_spns.contains(spn) {
                                         accessible_spns.push(spn.clone());
                                     }
@@ -3227,19 +3229,31 @@ fn handle_blast(
                     }
                 } else if entry.query_category == "rbcd" {
                     if !candidate_sids.is_empty() {
+                        // The DACL is stored raw (hex) under msDS-AllowedToActOnBehalfOfOtherIdentity;
+                        // decode it and match trustee SIDs, same as the ldap command does (parity with Python).
                         let mut matches_trustee = false;
+                        let mut target_name = String::from("unknown");
                         for (k, vals) in &entry.attributes {
-                            if k.eq_ignore_ascii_case("allowed_trustee_sids") {
-                                for v in vals {
-                                    if candidate_sids.iter().any(|cs| cs == v) {
-                                        matches_trustee = true;
-                                        break;
+                            if k.eq_ignore_ascii_case("sAMAccountName") {
+                                if let Some(first) = vals.first() {
+                                    target_name = first.clone();
+                                }
+                            } else if k.eq_ignore_ascii_case("msDS-AllowedToActOnBehalfOfOtherIdentity") {
+                                if let Some(hex_val) = vals.first() {
+                                    if let Some(raw_bytes) = hex_to_bytes(hex_val) {
+                                        if let Ok(rbcd) = tanuki::parse_rbcd_security_descriptor(&raw_bytes) {
+                                            if rbcd.allowed_trustee_sids.iter()
+                                                .any(|t| candidate_sids.iter().any(|cs| cs == t))
+                                            {
+                                                matches_trustee = true;
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                         if matches_trustee {
-                            rbcd_target_count += 1;
+                            rbcd_targets.push(target_name);
                         }
                     }
                 }
@@ -3247,7 +3261,9 @@ fn handle_blast(
         }
     }
 
-    let has_spn = principal.contains('/') || !accessible_spns.is_empty();
+    // has_spn = identity INTRINSICALLY owns an SPN (principal is an SPN, or LDAP found one on its account).
+    // A user-supplied --spn is a lateral TARGET, not an owned SPN, so it must not inflate the tier (parity with Python blast.py).
+    let has_spn = principal.contains('/') || owns_spn;
     let is_dc = principal.ends_with("$@LAB.LOCAL") || principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
 
     let tier_info = classify_identity_tier(
@@ -3265,14 +3281,14 @@ fn handle_blast(
         &tier_info,
         &uac_flags,
         &accessible_spns,
-        rbcd_target_count,
+        &rbcd_targets,
     );
 
     let remediation_recipes = generate_ad_remediations(
         &principal,
         &tier_info,
         &uac_flags,
-        rbcd_target_count,
+        &rbcd_targets,
         &accessible_spns,
     );
 

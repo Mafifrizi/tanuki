@@ -478,7 +478,7 @@ fn test_blast_tier_classification_and_radius_rust() {
         &t1,
         &["TRUSTED_FOR_DELEGATION".to_string()],
         &["HTTP/tanuki-app.lab.local".to_string()],
-        1,
+        &["tanuki-svc".to_string()],
     );
     assert!(score >= 85);
     assert_eq!(severity, "CRITICAL");
@@ -492,7 +492,7 @@ fn test_blast_remediations_and_json_parity_rust() {
         "tanuki-nhi@LAB.LOCAL",
         &t1,
         &[],
-        1,
+        &["tanuki-svc".to_string()],
         &["HTTP/tanuki-app.lab.local".to_string()],
     );
     assert!(!recipes.is_empty());
@@ -508,7 +508,7 @@ fn test_blast_remediations_and_json_parity_rust() {
         "HTTP/tanuki-app.lab.local@LAB.LOCAL",
         &t1,
         &[],
-        1,
+        &["tanuki-svc".to_string()],
         &["HTTP/tanuki-app.lab.local".to_string()],
     );
     assert!(spn_recipes.iter().any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("tanuki-app") && !r.powershell.contains("\"HTTP\"")));

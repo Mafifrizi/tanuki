@@ -106,6 +106,8 @@ OPTIONS:
     --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
     --query <TYPE>      LDAP query category (spn, asreproast, rbcd, shadow, unconstrained, all)
     --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
+    --secure            Verify the LDAPS certificate against the system trust store (with --ssl)
+    --verify-ca <PATH>  Verify the LDAPS certificate against a specific CA bundle / pin the DC CA (with --ssl)
     --live              Execute live HTTP POST token exchange client (RFC 8693)
     --endpoint <URL>    STS endpoint URL for live token exchange
     --json              Output structured JSON for agent and pipeline consumption
@@ -1273,6 +1275,8 @@ def handle_ldap(
     json_output: bool,
     username: Optional[str] = None,
     password: Optional[str] = None,
+    verify_ssl: bool = False,
+    ca_cert: Optional[str] = None,
 ) -> None:
     if not host:
         emit_cli_error(
@@ -1280,6 +1284,23 @@ def handle_ldap(
             reason_code="MISSING_ARGUMENT",
             category="USAGE_ERROR",
             exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    if (verify_ssl or ca_cert) and not use_ssl:
+        emit_cli_error(
+            "Error: --secure/--verify-ca require LDAPS; add --ssl.",
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    if ca_cert and not os.path.isfile(ca_cert):
+        emit_cli_error(
+            f"Error: CA bundle not found: {ca_cert}",
+            reason_code="MISSING_RESOURCE",
+            category="RESOURCE_MISSING",
+            exit_code=EXIT_RESOURCE_MISSING,
+            target=ca_cert,
             json_output=json_output,
         )
     effective_port = 636 if use_ssl and port == 389 else port
@@ -1291,6 +1312,8 @@ def handle_ldap(
         use_ssl=use_ssl,
         username=username,
         password=password,
+        verify_ssl=verify_ssl or bool(ca_cert),
+        ca_cert=ca_cert,
     )
     if json_output:
         print(json.dumps(rep, indent=2, default=lambda o: o.hex() if isinstance(o, bytes) else str(o)))
@@ -1536,6 +1559,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     base_dn_opt: Optional[str] = None
     port_opt: int = 389
     ssl_opt: bool = False
+    secure_opt: bool = False
+    verify_ca_opt: Optional[str] = None
     live_opt: bool = False
     endpoint_opt: Optional[str] = None
     fast_opt: bool = False
@@ -1704,6 +1729,12 @@ def main(argv: Optional[List[str]] = None) -> None:
                 i += 1
         elif arg == "--ssl":
             ssl_opt = True
+        elif arg == "--secure":
+            secure_opt = True
+        elif arg == "--verify-ca":
+            if i + 1 < len(argv):
+                verify_ca_opt = argv[i + 1]
+                i += 1
         elif arg == "--live":
             live_opt = True
         elif arg == "--endpoint":
@@ -1892,6 +1923,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             json_output=global_json,
             username=username_opt,
             password=password_opt,
+            verify_ssl=secure_opt,
+            ca_cert=verify_ca_opt,
         )
     elif command == "token":
         token_arg = positional_args[0] if positional_args else None
