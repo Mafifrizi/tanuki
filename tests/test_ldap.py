@@ -306,6 +306,18 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("result code 49", client.last_error)
         self.assertIn("data 52e", client.last_error)
 
+    def test_ldap_client_verify_ssl_reachable(self):
+        """A CA bundle (or --secure) must make certificate verification reachable (security fix)."""
+        from tanuki.ldap import LdapClient
+        # Default LDAPS is insecure (recon default).
+        self.assertFalse(LdapClient("dc", 636, use_ssl=True).verify_ssl)
+        # --secure turns on verification.
+        self.assertTrue(LdapClient("dc", 636, use_ssl=True, verify_ssl=True).verify_ssl)
+        # --verify-ca <path> implies verification and pins the CA.
+        pinned = LdapClient("dc", 636, use_ssl=True, ca_cert="/etc/ssl/dc-ca.pem")
+        self.assertTrue(pinned.verify_ssl)
+        self.assertEqual(pinned.ca_cert, "/etc/ssl/dc-ca.pem")
+
 
 if __name__ == "__main__":
     unittest.main()

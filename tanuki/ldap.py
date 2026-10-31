@@ -438,12 +438,15 @@ class LdapClient:
         use_ssl: bool = False,
         timeout: float = 5.0,
         verify_ssl: bool = False,
+        ca_cert: Optional[str] = None,
     ) -> None:
         self.host = host
         self.port = port
         self.use_ssl = use_ssl
         self.timeout = timeout
-        self.verify_ssl = verify_ssl
+        # A CA bundle path implies verification (pin against that CA).
+        self.verify_ssl = verify_ssl or bool(ca_cert)
+        self.ca_cert = ca_cert
         self.sock: Optional[socket.socket] = None
         self.msg_counter = 1
         self.connected = False
@@ -459,10 +462,16 @@ class LdapClient:
                 if self.verify_ssl:
                     context.check_hostname = True
                     context.verify_mode = ssl.CERT_REQUIRED
+                    if self.ca_cert:
+                        context.load_verify_locations(cafile=self.ca_cert)
                 else:
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
-                    sys.stderr.write("[!] Warning: TLS certificate validation is disabled (insecure mode).\n")
+                    sys.stderr.write(
+                        "[!] WARNING: LDAPS certificate validation is DISABLED (CERT_NONE). "
+                        "An on-path attacker can intercept this bind and steal the credentials. "
+                        "Use --secure (system trust store) or --verify-ca <PATH> (pin the DC CA) for a verified channel.\n"
+                    )
                 self.sock = context.wrap_socket(raw_sock, server_hostname=self.host)
             else:
                 self.sock = raw_sock
@@ -607,6 +616,8 @@ def query_active_directory_ldap(
     timeout: float = 3.0,
     username: Optional[str] = None,
     password: Optional[str] = None,
+    verify_ssl: bool = False,
+    ca_cert: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute Active Directory diagnostic queries (SPN, AS-REP Roast, RBCD, Shadow Credentials, Unconstrained)."""
     effective_port = 636 if use_ssl and port == 389 else port
@@ -625,7 +636,7 @@ def query_active_directory_ldap(
             "count": 0,
         }
 
-    client = LdapClient(host=host, port=effective_port, use_ssl=use_ssl, timeout=timeout)
+    client = LdapClient(host=host, port=effective_port, use_ssl=use_ssl, timeout=timeout, verify_ssl=verify_ssl, ca_cert=ca_cert)
     results: List[Dict[str, Any]] = []
 
     attr_map = {

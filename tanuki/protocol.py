@@ -295,8 +295,13 @@ def calculate_clock_drift(kdc_time: int, local_time: Optional[float] = None) -> 
     return abs(int(kdc_time - now))
 
 
-def calculate_remediated_clockskew(drift: int, padding: int = 60) -> int:
-    """Auto-synthesize clockskew tolerance: drift + 60 seconds padding."""
-    return int(drift + padding)
+def calculate_remediated_clockskew(drift: int, padding: int = 60, max_skew: int = 300) -> int:
+    """Auto-synthesize clockskew tolerance: drift + padding, capped at max_skew.
+
+    The drift derives from a KDC-supplied stime, which can be attacker-influenced when a
+    KRB-ERROR is fed via `tanuki fix --krb-error`. Capping at the Kerberos standard 300s
+    default prevents a malicious KDC from widening the host's clock-skew/replay window.
+    """
+    return int(min(max(drift + padding, 0), max_skew))
 
 

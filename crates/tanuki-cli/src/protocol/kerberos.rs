@@ -375,7 +375,9 @@ pub fn calculate_clock_drift(kdc_time: u64, local_time: u64) -> u64 {
 }
 
 pub fn calculate_remediated_clockskew(drift: u64, padding: u64) -> u32 {
-    (drift + padding) as u32
+    // Cap at the Kerberos standard 300s default so an attacker-influenced KDC stime
+    // (via `tanuki fix --krb-error`) cannot widen the host clock-skew/replay window.
+    std::cmp::min(drift + padding, 300) as u32
 }
 
 #[cfg(test)]
@@ -405,8 +407,11 @@ mod tests {
         assert!(parsed.is_some());
         let drift = calculate_clock_drift(parsed.unwrap(), parsed.unwrap() + 450);
         assert_eq!(drift, 450);
+        // Normal sub-cap path: drift + padding passes through.
+        assert_eq!(calculate_remediated_clockskew(120, 60), 180);
+        // Clamp: 450 + 60 = 510 is capped to the 300s Kerberos maximum.
         let skew = calculate_remediated_clockskew(drift, 60);
-        assert_eq!(skew, 510);
+        assert_eq!(skew, 300);
     }
 
     #[test]

@@ -612,10 +612,10 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
     };
     if uac_raw == 0 && data.len() >= struct_start + 120 {
         uac_raw = u32::from_le_bytes([
-            data[struct_start + 116],
-            data[struct_start + 117],
-            data[struct_start + 118],
-            data[struct_start + 119],
+            data[uac_offset],
+            data[uac_offset + 1],
+            data[uac_offset + 2],
+            data[uac_offset + 3],
         ]);
     }
 
