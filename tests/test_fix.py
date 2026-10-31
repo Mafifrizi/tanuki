@@ -128,8 +128,11 @@ class TestSelfHealingFix(unittest.TestCase):
         # Drift with fixed local_time: t + 350
         drift = calculate_clock_drift(t, local_time=float(t + 350))
         self.assertEqual(drift, 350)
+        # drift 350 + 60 padding = 410, clamped to the 300s Kerberos maximum (security fix)
         remediated = calculate_remediated_clockskew(drift, padding=60)
-        self.assertEqual(remediated, 410)
+        self.assertEqual(remediated, 300)
+        # Sub-cap values still pass through with padding
+        self.assertEqual(calculate_remediated_clockskew(120, padding=60), 180)
 
     def test_run_fix_with_krb_error_synthesizes_clockskew(self):
         from tanuki.protocol import parse_krb_error_stime
@@ -157,8 +160,8 @@ class TestSelfHealingFix(unittest.TestCase):
             for line in content.splitlines():
                 if "clockskew" in line:
                     val = int(line.split("=")[1].strip())
-                    # Should be approx 500 + 60 = 560 (tolerance 540-580)
-                    self.assertTrue(540 <= val <= 580, f"Expected clockskew ~560, got {val}")
+                    # 500 + 60 = 560 is clamped to the 300s Kerberos maximum (security fix)
+                    self.assertEqual(val, 300, f"Expected clamped clockskew 300, got {val}")
 
     def test_parse_krb_error_stime_fractional_and_iso(self):
         from tanuki.protocol import parse_krb_error_stime

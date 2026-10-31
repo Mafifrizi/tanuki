@@ -182,7 +182,7 @@ pub fn evaluate_blast_radius(
     tier_info: &TierInfo,
     delegation_flags: &[String],
     accessible_spns: &[String],
-    rbcd_target_count: usize,
+    rbcd_targets: &[String],
 ) -> (u32, String, Vec<LateralPath>) {
     let upper_flags: Vec<String> = delegation_flags.iter().map(|f| f.to_ascii_uppercase()).collect();
     let mut score = tier_info.base_score;
@@ -208,14 +208,16 @@ pub fn evaluate_blast_radius(
         });
     }
 
-    if rbcd_target_count > 0 {
-        score += std::cmp::min((rbcd_target_count as u32) * 15, 30);
-        lateral_paths.push(LateralPath {
-            vector: "Resource-Based Constrained Delegation (RBCD) Pivot".to_string(),
-            risk: "Identity SID matches DACL on reachable computer accounts".to_string(),
-            impact: "Takeover of host via S4U2Proxy impersonation".to_string(),
-            target: Some("Target Computers".to_string()),
-        });
+    if !rbcd_targets.is_empty() {
+        score += std::cmp::min((rbcd_targets.len() as u32) * 15, 30);
+        for t in rbcd_targets {
+            lateral_paths.push(LateralPath {
+                vector: "Resource-Based Constrained Delegation (RBCD) Pivot".to_string(),
+                risk: format!("Identity SID matches DACL on {} (msDS-AllowedToActOnBehalfOfOtherIdentity)", t),
+                impact: format!("Takeover of host {} via S4U2Proxy impersonation", t),
+                target: Some(t.clone()),
+            });
+        }
     }
 
     if !accessible_spns.is_empty() {
@@ -273,19 +275,19 @@ pub fn generate_ad_remediations(
     principal: &str,
     tier_info: &TierInfo,
     delegation_flags: &[String],
-    rbcd_target_count: usize,
+    rbcd_targets: &[String],
     accessible_spns: &[String],
 ) -> Vec<RemediationRecipe> {
     let mut recipes = Vec::new();
     let upper_flags: Vec<String> = delegation_flags.iter().map(|f| f.to_ascii_uppercase()).collect();
     let clean_account = extract_ad_account_name(principal);
 
-    if rbcd_target_count > 0 {
+    for t in rbcd_targets {
         recipes.push(RemediationRecipe {
             category: "DELEGATION_HARDENING".to_string(),
-            title: format!("Revoke Unauthorized RBCD Access on target computers ({})", clean_account),
+            title: format!("Revoke Unauthorized RBCD Access on {}", t),
             description: "Clear msDS-AllowedToActOnBehalfOfOtherIdentity attribute to block S4U2Proxy lateral pivot.".to_string(),
-            powershell: "Set-ADComputer -Identity \"<TARGET_COMPUTER>\" -Clear \"msDS-AllowedToActOnBehalfOfOtherIdentity\"".to_string(),
+            powershell: format!("Set-ADComputer -Identity \"{}\" -Clear \"msDS-AllowedToActOnBehalfOfOtherIdentity\"", t),
         });
     }
 
