@@ -81,7 +81,7 @@ class DoctorReport:
         )
         lines: List[str] = []
         lines.extend(render_card_header(
-            "TANUKI PRE-FLIGHT DOCTOR (v2.0.0)",
+            "TANUKI PRE-FLIGHT DOCTOR (v2.1.0)",
             f"Host: {hostname} · Mode: Passive Diagnostic (0 network packets)",
         ))
         lines.append("")
