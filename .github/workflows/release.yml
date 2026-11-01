@@ -68,12 +68,12 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          tag_name="${{ github.ref_name }}"
-          if ! gh release view "$tag_name" >/dev/null 2>&1; then
-            gh release create "$tag_name" --title "$tag_name" --generate-notes
+          if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
           fi
-          gh release upload "$tag_name" dist/* --clobber || true
+          gh release upload "$TAG_NAME" dist/* --clobber || true
 
   publish-container:
     name: Build and Publish Container to GitHub Packages (GHCR)
@@ -150,10 +150,10 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          tag_name="${{ github.ref_name }}"
-          if ! gh release view "$tag_name" >/dev/null 2>&1; then
-            gh release create "$tag_name" --title "$tag_name" --generate-notes
+          if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
           fi
-          gh release upload "$tag_name" release_assets/* --clobber || true
+          gh release upload "$TAG_NAME" release_assets/* --clobber || true
 

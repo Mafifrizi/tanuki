@@ -74,9 +74,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          tag_name="${{ github.ref_name }}"
-          if ! gh release view "$tag_name" >/dev/null 2>&1; then
-            gh release create "$tag_name" --title "$tag_name" --generate-notes
+          if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
           fi
-          gh release upload "$tag_name" dist-musl/* --clobber
+          gh release upload "$TAG_NAME" dist-musl/* --clobber

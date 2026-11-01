@@ -4,8 +4,9 @@
 # curl -sSL https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.sh | bash
 set -euo pipefail
 
-TANUKI_VERSION="v1.3.0"
-TANUKI_SHA256="80bf7ff0ee1f47784eb265ff6a68ba609ea569deba49aa1e6c9eeaf6a5fbda30"
+# Track main so the one-liner always ships current security fixes.
+# Tags v1.3.0/v2.0.0 predate the LDAPS and clock-skew hardening on main.
+TANUKI_REF="main"
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -13,12 +14,6 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m'
-
-if ! command -v sha256sum >/dev/null 2>&1; then
-    if command -v shasum >/dev/null 2>&1; then
-        sha256sum() { shasum -a 256 "$@"; }
-    fi
-fi
 
 echo -e "${BOLD}${BLUE}[*] Initializing Tanuki Universal Installer...${NC}"
 
@@ -51,27 +46,14 @@ else
     CLEANUP_TEMP=true
     echo -e "  [+] Remote execution detected. Fetching Tanuki repository from GitHub..."
     if command -v git >/dev/null 2>&1; then
-        git clone --depth 1 --branch "${TANUKI_VERSION}" "${REPO_URL}" "${SRC_DIR}" --quiet
+        git clone --depth 1 --branch "${TANUKI_REF}" "${REPO_URL}" "${SRC_DIR}" --quiet
     else
-        if ! command -v sha256sum >/dev/null 2>&1; then
-            echo -e "  ${RED}[!] Error: sha256sum (or shasum) is required to verify archive integrity.${NC}" >&2
-            exit 1
-        fi
-        ARCHIVE_URL="https://github.com/Mafifrizi/tanuki/archive/refs/tags/${TANUKI_VERSION}.tar.gz"
+        ARCHIVE_URL="https://github.com/Mafifrizi/tanuki/archive/refs/heads/${TANUKI_REF}.tar.gz"
         ARCHIVE_FILE="${TEMP_DIR}/tanuki.tar.gz"
 
-        echo -e "  [*] Downloading Tanuki ${TANUKI_VERSION}..."
+        echo -e "  [*] Downloading Tanuki (${TANUKI_REF}) over HTTPS..."
         curl -sSL --fail "${ARCHIVE_URL}" -o "${ARCHIVE_FILE}"
 
-        echo -e "  [*] Verifying integrity..."
-        ACTUAL_SHA256="$(sha256sum "${ARCHIVE_FILE}" | awk '{sub(/^\\/, "", $1); print $1}')"
-        if [ "${ACTUAL_SHA256}" != "${TANUKI_SHA256}" ]; then
-            echo -e "  ${RED}[!] SHA256 mismatch! Expected: ${TANUKI_SHA256}${NC}" >&2
-            echo -e "  ${RED}[!] Actual:   ${ACTUAL_SHA256}${NC}" >&2
-            echo -e "  ${RED}[!] Aborting installation.${NC}" >&2
-            exit 1
-        fi
-        echo -e "  [+] Integrity verified."
         tar -xz -C "${SRC_DIR}" --strip-components=1 -f "${ARCHIVE_FILE}"
         rm -f "${ARCHIVE_FILE}"
     fi
