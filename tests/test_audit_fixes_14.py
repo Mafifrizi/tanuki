@@ -412,7 +412,7 @@ class TestFinding03ONofollowEloopSymlinkGuard(unittest.TestCase):
 
 
 class TestFinding04InstallScriptIntegrity(unittest.TestCase):
-    EXPECTED_SHA256 = "80bf7ff0ee1f47784eb265ff6a68ba609ea569deba49aa1e6c9eeaf6a5fbda30"
+    EXPECTED_SHA256 = "25d8b2c567117a68e04e79df0c48897152e1ccb46a74e65adbfcd8a5d18c2dd6"
 
     def setUp(self):
         self.repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -502,7 +502,7 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
         self.assertNotIn(b"\r", raw_bytes)
         content = raw_bytes.decode("utf-8")
 
-        self.assertIn('TANUKI_VERSION="v1.3.0"', content)
+        self.assertIn('TANUKI_VERSION="v2.1.0"', content)
         self.assertIn(f'TANUKI_SHA256="{self.EXPECTED_SHA256}"', content)
         self.assertRegex(content, r'TANUKI_SHA256="[0-9a-f]{64}"')
         self.assertNotIn("archive/refs/heads/main.tar.gz", content)

@@ -4,8 +4,8 @@
 # curl -sSL https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.sh | bash
 set -euo pipefail
 
-TANUKI_VERSION="v1.3.0"
-TANUKI_SHA256="80bf7ff0ee1f47784eb265ff6a68ba609ea569deba49aa1e6c9eeaf6a5fbda30"
+TANUKI_VERSION="v2.1.0"
+TANUKI_SHA256="25d8b2c567117a68e04e79df0c48897152e1ccb46a74e65adbfcd8a5d18c2dd6"
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
