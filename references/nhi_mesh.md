@@ -1,4 +1,4 @@
-# Non-Human Identity (NHI) & Workload Federation (2026-2030 Architecture)
+# Non-Human Identity (NHI) & Workload Federation 
 
 Strategic guide to evaluating ephemeral machine identities, AI agent credentials, and hybrid federation pathways operating on Linux substrates.
 
