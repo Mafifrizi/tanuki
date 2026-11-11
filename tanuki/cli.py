@@ -1380,7 +1380,12 @@ def run_tui_wizard() -> None:
         elif choice == "6":
             host = input("Target DC IP/Host: ").strip()
             q = input("Query type (spn/asreproast/rbcd/shadow/unconstrained/all) [all]: ").strip() or "all"
-            handle_ldap(host=host, query_type=q, base_dn="DC=corp,DC=local", port=389, use_ssl=False, json_output=False)
+            realm = input("AD Realm (e.g. CORP.LOCAL): ").strip()
+            bdn = ",".join(f"DC={p}" for p in realm.split(".") if p)
+            if not bdn:
+                print("[USAGE ERROR] Error: Realm required to derive the LDAP base DN.")
+            else:
+                handle_ldap(host=host, query_type=q, base_dn=bdn, port=389, use_ssl=False, json_output=False)
         elif choice == "7":
             src = input("Templates JSON or Certificate path: ").strip()
             handle_adcs(src, json_output=False)
@@ -1945,10 +1950,18 @@ def main(argv: Optional[List[str]] = None) -> None:
             r_parts = [p.strip() for p in realm_opt.strip().split(".") if p.strip()]
             if r_parts:
                 effective_base_dn = ",".join(f"DC={p}" for p in r_parts)
+        if not effective_base_dn:
+            emit_cli_error(
+                "Error: LDAP base DN required: pass --base-dn, or --realm to derive it. Example: tanuki ldap --host dc01 --realm CORP.LOCAL",
+                reason_code="MISSING_ARGUMENT",
+                category="USAGE_ERROR",
+                exit_code=EXIT_USAGE_ERROR,
+                json_output=global_json,
+            )
         handle_ldap(
             host=target_host,
             query_type=query_opt or "spn",
-            base_dn=effective_base_dn or "DC=corp,DC=local",
+            base_dn=effective_base_dn,
             port=port_opt,
             use_ssl=ssl_opt,
             json_output=global_json,

@@ -190,7 +190,7 @@ def evaluate_blast_radius(
     flags = [f.upper() for f in (delegation_flags or [])]
     spns = list(accessible_spns or [])
     rbcd = list(rbcd_targets or [])
-    dcs = list(domain_controllers or ["DC01.lab.local"])
+    dcs = list(domain_controllers or [])
 
     score = tier_info.get("base_score", 20)
     lateral_paths: List[Dict[str, Any]] = []
@@ -504,6 +504,10 @@ def run_blast(
 
     # 4. If LDAP host is configured, perform live Active Directory query
     if host:
+        # Derive the search base from the principal's realm; never guess a lab/corp domain.
+        realm = principal.split("@", 1)[1] if "@" in principal else ""
+        effective_base_dn = base_dn or ",".join(f"DC={p}" for p in realm.split(".") if p)
+        live_ok = False
         try:
             # Direct lookup of the analyzed principal's real objectSid (recon-independent).
             if not user_sid:
@@ -512,12 +516,13 @@ def run_blast(
                     from .pac import parse_windows_sid, decode_uac_flags
                     _acc = extract_ad_account_name(principal).rstrip("$")
                     _reach, _ = probe_tcp_port(host, 389, timeout=3.0)
-                    if _acc and _reach:
+                    if _acc and _reach and effective_base_dn:
                         _cli = LdapClient(host=host, port=389, timeout=3.0)
                         _cli.connect()
                         if _cli.bind(bind_dn=username or "", password=password):
+                            live_ok = True
                             for _e in _cli.search(
-                                base_dn=base_dn or "DC=lab,DC=local",
+                                base_dn=effective_base_dn,
                                 filter_bytes=build_ldap_search_filter("sAMAccountName", _acc),
                                 attributes=["sAMAccountName", "objectSid", "primaryGroupID", "userAccountControl"],
                             ):
@@ -543,11 +548,12 @@ def run_blast(
             ldap_res = query_active_directory_ldap(
                 host=host,
                 query_type="all",
-                base_dn=base_dn or "DC=lab,DC=local",
+                base_dn=effective_base_dn,
                 username=username,
                 password=password,
-            )
+            ) if effective_base_dn else {"status": "FAILED"}
             if ldap_res.get("status") == "SUCCESS":
+                live_ok = True
                 clean_acc = extract_ad_account_name(principal).lower().rstrip("$")
                 for entry in ldap_res.get("entries", []):
                     attrs = entry.get("attributes", {})
@@ -603,6 +609,11 @@ def run_blast(
                             })
         except Exception:
             pass
+        if not live_ok:
+            sys.stderr.write(
+                "[!] WARNING: live AD lookup against {} failed; blast is showing a "
+                "name-heuristic estimate only, not live AD data.\n".format(host)
+            )
 
     # Classify Tier
     tier_info = classify_identity_tier(

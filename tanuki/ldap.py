@@ -610,7 +610,7 @@ def probe_tcp_port(host: str, port: int = 389, timeout: float = 3.0) -> Tuple[bo
 def query_active_directory_ldap(
     host: str,
     query_type: str = "spn",
-    base_dn: str = "DC=corp,DC=local",
+    base_dn: str = "",
     port: int = 389,
     use_ssl: bool = False,
     timeout: float = 3.0,

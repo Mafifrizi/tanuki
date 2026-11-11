@@ -384,7 +384,7 @@ pub fn format_blast_report_terminal(report: &BlastReport) -> String {
 
     out.push_str("\n[+] Blue Team Telemetry Correlation (Security Event ID 4769):\n");
     out.push_str("    |- Event ID       : 4769 (Kerberos Service Ticket Request)\n");
-    let spn_display = report.accessible_spns.first().map(|s| s.as_str()).unwrap_or("HTTP/tanuki-app.lab.local");
+    let spn_display = report.accessible_spns.first().map(|s| s.as_str()).unwrap_or("<target-spn>");
     out.push_str(&format!("    |- Service Name   : {}\n", spn_display));
     out.push_str("    |- Ticket Enctype : 0x12 (AES-256-CTS-HMAC-SHA1-96)\n");
     out.push_str("    |- Auditd Rule    : -w /tmp/krb5cc_* -p rwa -k krb5_ccache_tgs_access\n");
@@ -457,7 +457,7 @@ pub fn blast_report_to_json(report: &BlastReport) -> String {
     out.push_str("  ],\n");
 
     // Telemetry block
-    let spn_first = report.accessible_spns.first().map(|s| s.as_str()).unwrap_or("HTTP/tanuki-app.lab.local");
+    let spn_first = report.accessible_spns.first().map(|s| s.as_str()).unwrap_or("<target-spn>");
     out.push_str("  \"telemetry\": {\n");
     out.push_str("    \"event_id\": 4769,\n");
     out.push_str("    \"event_name\": \"Kerberos Service Ticket Request\",\n");

@@ -237,7 +237,13 @@ fn run_tui_wizard() {
                     Some(s) if !s.is_empty() => s,
                     _ => "all".to_string(),
                 };
-                handle_ldap(Some(host), &q, "DC=corp,DC=local", 389, false, false, None, None);
+                let realm = read_line_prompt("AD Realm (e.g. CORP.LOCAL): ").unwrap_or_default();
+                let bdn = realm.split('.').filter(|s| !s.is_empty()).map(|p| format!("DC={}", p)).collect::<Vec<_>>().join(",");
+                if bdn.is_empty() {
+                    println!("[USAGE ERROR] Error: Realm required to derive the LDAP base DN.");
+                } else {
+                    handle_ldap(Some(host), &q, &bdn, 389, false, false, None, None);
+                }
             }
             "7" => {
                 let src = read_line_prompt("Templates JSON or Certificate path: ").unwrap_or_default();
@@ -1084,18 +1090,31 @@ fn main() {
         "ldap" => {
             let host = host_opt.or_else(|| positional_args.first().cloned());
             let query = query_opt.unwrap_or_else(|| "spn".to_string());
-            let base_dn = base_dn_opt.unwrap_or_else(|| {
-                if let Some(r) = realm_opt.as_deref() {
+            let base_dn = base_dn_opt.clone().or_else(|| {
+                realm_opt.as_deref().and_then(|r| {
                     let parts: Vec<&str> = r.trim().split('.').filter(|s| !s.is_empty()).collect();
-                    if !parts.is_empty() {
-                        parts.iter().map(|p| format!("DC={}", p)).collect::<Vec<_>>().join(",")
+                    if parts.is_empty() {
+                        None
                     } else {
-                        "DC=corp,DC=local".to_string()
+                        Some(parts.iter().map(|p| format!("DC={}", p)).collect::<Vec<_>>().join(","))
                     }
-                } else {
-                    "DC=corp,DC=local".to_string()
-                }
+                })
             });
+            let base_dn = match base_dn {
+                Some(b) => b,
+                None => {
+                    emit_cli_error(
+                        "Error: LDAP base DN required: pass --base-dn, or --realm to derive it. Example: tanuki ldap --host dc01 --realm CORP.LOCAL",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
+                    unreachable!()
+                }
+            };
             let default_port = if ssl_opt { 636 } else { 389 };
             let port = port_opt.unwrap_or(default_port);
             handle_ldap(
@@ -3120,7 +3139,21 @@ fn handle_blast(
     let mut rbcd_targets: Vec<String> = Vec::new();
     let mut owns_spn = false;
     if let Some(ref host) = host_opt {
-        let base_dn = base_dn_opt.unwrap_or_else(|| "DC=lab,DC=local".to_string());
+        // Derive the search base from the principal's realm; never guess a lab domain.
+        let base_dn = base_dn_opt.unwrap_or_else(|| {
+            principal
+                .rsplit_once('@')
+                .map(|(_, realm)| {
+                    realm
+                        .split('.')
+                        .filter(|s| !s.is_empty())
+                        .map(|p| format!("DC={}", p))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .unwrap_or_default()
+        });
+        let mut live_ok = false;
 
         // Direct identity lookup for the analyzed principal's real objectSid (recon-independent).
         if extracted_user_sid.is_none() {
@@ -3139,6 +3172,7 @@ fn handle_blast(
                     password_opt.as_deref(),
                 );
                 if id_rep.status == "SUCCESS" {
+                    live_ok = true;
                     for entry in &id_rep.entries {
                         for (k, vals) in &entry.attributes {
                             if k.eq_ignore_ascii_case("objectSid") {
@@ -3173,6 +3207,7 @@ fn handle_blast(
             password_opt.as_deref(),
         );
         if ldap_rep.status == "SUCCESS" {
+            live_ok = true;
             let clean_acc = tanuki::extract_ad_account_name(&principal)
                 .trim_end_matches('$')
                 .to_ascii_lowercase();
@@ -3287,12 +3322,18 @@ fn handle_blast(
                 }
             }
         }
+        if !live_ok {
+            eprintln!(
+                "[!] WARNING: live AD lookup against {} failed; blast is showing a name-heuristic estimate only, not live AD data.",
+                host
+            );
+        }
     }
 
     // has_spn = identity INTRINSICALLY owns an SPN (principal is an SPN, or LDAP found one on its account).
     // A user-supplied --spn is a lateral TARGET, not an owned SPN, so it must not inflate the tier (parity with Python blast.py).
     let has_spn = principal.contains('/') || owns_spn;
-    let is_dc = principal.ends_with("$@LAB.LOCAL") || principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
+    let is_dc = principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
 
     let tier_info = classify_identity_tier(
         &principal,
