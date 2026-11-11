@@ -1111,8 +1111,7 @@ fn main() {
                         None,
                         None,
                         global_json,
-                    );
-                    unreachable!()
+                    )
                 }
             };
             let default_port = if ssl_opt { 636 } else { 389 };
