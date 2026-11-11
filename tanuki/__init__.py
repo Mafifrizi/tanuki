@@ -1,6 +1,6 @@
 """Tanuki: Protocol-First Linux Active Directory & Kerberos Triage Engine."""
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 __author__ = "Mafifrizi"
 __all__ = [
     "parse_keytab_bytes",
