@@ -999,8 +999,21 @@ fn main() {
     }
 
     let command = explicit_command.unwrap_or_else(|| {
-        if file_opt.is_some() || !positional_args.is_empty() {
+        if file_opt.is_some() {
             "keytab".to_string()
+        } else if let Some(first) = positional_args.first() {
+            // A lone bare word (no path separator, not a keytab/ccache file) is a
+            // mistyped command, not a keytab path. Fall through to "Unknown command".
+            let looks_like_keytab_path = first.contains('/')
+                || first.contains('\\')
+                || first.ends_with(".keytab")
+                || first.ends_with(".ccache")
+                || std::path::Path::new(first).is_file();
+            if looks_like_keytab_path {
+                "keytab".to_string()
+            } else {
+                first.clone()
+            }
         } else {
             "help".to_string()
         }
@@ -1130,6 +1143,21 @@ fn main() {
         }
         "blast" => {
             let target_source = positional_args.first().or(file_opt.as_ref()).cloned();
+            if target_source.is_none()
+                && keytab_opt.is_none()
+                && ccache_opt.is_none()
+                && host_opt.is_none()
+            {
+                emit_cli_error(
+                    "Error: Blast requires an identity input: a principal, keytab, ccache, PAC, or --host for LDAP lookup. Example: tanuki blast jdoe@CORP.LOCAL",
+                    "MISSING_ARGUMENT",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    None,
+                    None,
+                    global_json,
+                );
+            }
             handle_blast(
                 target_source.clone(),
                 ccache_opt,

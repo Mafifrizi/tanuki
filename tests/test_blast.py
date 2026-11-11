@@ -243,7 +243,7 @@ class TestBlastCLI(unittest.TestCase):
 
     def test_cli_blast_json(self):
         proc = subprocess.run(
-            [sys.executable, "-m", "tanuki", "blast", "--json"],
+            [sys.executable, "-m", "tanuki", "blast", "jdoe@LAB.LOCAL", "--json"],
             capture_output=True,
             text=True,
         )
@@ -258,7 +258,7 @@ class TestBlastCLI(unittest.TestCase):
 
     def test_cli_blast_terminal_no_em_dashes(self):
         proc = subprocess.run(
-            [sys.executable, "-m", "tanuki", "blast"],
+            [sys.executable, "-m", "tanuki", "blast", "jdoe@LAB.LOCAL"],
             capture_output=True,
             text=True,
         )

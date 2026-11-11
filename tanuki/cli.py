@@ -948,7 +948,7 @@ def handle_token(
         report = validate_jwt_workload(raw_token, expected_aud=audience, expected_iss=issuer)
     except Exception as exc:
         emit_cli_error(
-            f"Error parsing token: {exc}",
+            "Error parsing token",
             reason_code="CORRUPT_DATA",
             category="PARSE_FAILURE",
             exit_code=EXIT_PARSE_FAILURE,
@@ -1805,7 +1805,30 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     command = explicit_command
     if command is None:
-        if file_opt or positional_args:
+        if file_opt:
+            command = "keytab"
+        elif positional_args:
+            first = positional_args[0]
+            if first == "help":
+                print_usage()
+                return
+            # A lone bare word (no path separator, not a keytab/ccache file) is a
+            # mistyped command, not a keytab path. Default to keytab only for real paths.
+            looks_like_keytab_path = (
+                "/" in first
+                or "\\" in first
+                or first.endswith((".keytab", ".ccache"))
+                or os.path.isfile(first)
+            )
+            if not looks_like_keytab_path:
+                emit_cli_error(
+                    f"Unknown command: {first}",
+                    reason_code="UNKNOWN_COMMAND",
+                    category="USAGE_ERROR",
+                    exit_code=EXIT_USAGE_ERROR,
+                    target=first,
+                    json_output=global_json,
+                )
             command = "keytab"
         else:
             print_usage()
@@ -1847,6 +1870,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         )
     elif command == "blast":
         target_source = file_opt or (positional_args[0] if positional_args else None)
+        if not (target_source or keytab_opt or ccache_opt or host_opt):
+            emit_cli_error(
+                "Error: Blast requires an identity input: a principal, keytab, ccache, PAC, or --host for LDAP lookup. Example: tanuki blast jdoe@CORP.LOCAL",
+                reason_code="MISSING_ARGUMENT",
+                category="USAGE_ERROR",
+                exit_code=EXIT_USAGE_ERROR,
+                json_output=global_json,
+            )
         handle_blast(
             source=target_source,
             ccache_path=ccache_opt,
