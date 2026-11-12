@@ -3012,7 +3012,7 @@ fn handle_blast(
     spn_opt: Option<String>,
     json_output: bool,
 ) {
-    let mut principal = "unknown@CORP.LOCAL".to_string();
+    let mut principal = "UNKNOWN".to_string();
     let mut extracted_user_sid: Option<String> = None;
     let mut primary_group_rid: Option<u32> = None;
     let mut group_rids: Vec<u32> = Vec::new();
@@ -3117,7 +3117,7 @@ fn handle_blast(
         if let Ok(bytes) = fs::read(cc_path) {
             let (def_p, cc_spns) = parse_ccache_principal_and_spns(&bytes);
             if let Some(p) = def_p {
-                if !p.is_empty() && principal == "unknown@CORP.LOCAL" {
+                if !p.is_empty() && principal == "UNKNOWN" {
                     principal = p;
                 }
             }

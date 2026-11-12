@@ -996,7 +996,15 @@ def handle_nhi(
                     exit_code=EXIT_USAGE_ERROR,
                     json_output=json_output,
                 )
-            ep = endpoint_url or "https://sts.corp.local/oauth/v2/token"
+            if not endpoint_url:
+                emit_cli_error(
+                    "Error: --endpoint required for live token exchange. Example: tanuki nhi exchange --live --endpoint https://sts.example.com/oauth/v2/token",
+                    reason_code="MISSING_ARGUMENT",
+                    category="USAGE_ERROR",
+                    exit_code=EXIT_USAGE_ERROR,
+                    json_output=json_output,
+                )
+            ep = endpoint_url
             live_res = exchange_token_live(
                 endpoint=ep,
                 subject_token=sub_tok,

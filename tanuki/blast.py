@@ -410,7 +410,7 @@ def run_blast(
     password: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute complete Privilege Tiering and Blast Radius analysis."""
-    principal = "unknown@CORP.LOCAL"
+    principal = "UNKNOWN"
     user_sid = None
     primary_group_rid = None
     group_rids: List[int] = []
