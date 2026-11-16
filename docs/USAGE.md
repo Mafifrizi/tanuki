@@ -232,7 +232,7 @@ tanuki pac ./ticket.pac --json
 
 ## 12. Active Directory Shadow Credentials dissection (`tanuki shadow`)
 
-Dissects Active Directory Shadow Credentials (`msDS-KeyCredentialLink` binary structures per [[MS-ADTS] 2.2.20](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/934b1257-8975-4993-97ea-e8a00350d750)), decoding Next Generation Cryptography (NGC) and FIDO credential entries, KeyID, key usage, source flags, and creation timestamps.
+Dissects Active Directory Shadow Credentials (`msDS-KeyCredentialLink` binary structures per [MS-ADTS] 2.2.20), decoding Next Generation Cryptography (NGC) and FIDO credential entries, KeyID, key usage, source flags, and creation timestamps.
 
 ```bash
 # Dissect a raw binary Shadow Credential file

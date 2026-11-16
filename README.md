@@ -88,78 +88,25 @@ Both engines share the same command surface and flags. Full usage, every flag, a
 | Command | Purpose |
 | :--- | :--- |
 | `tanuki doctor` | Pre-flight diagnostics across domain config, credentials, network, and OPSEC telemetry (`--opsec`) |
-| `tanuki auth` | Unprivileged userspace TGT acquisition with in-memory clock skew healing and FAST armoring (`--fast`, `--armor-cache`, [RFC 6113]) |
+| `tanuki auth` | Unprivileged userspace TGT acquisition with clock skew healing and FAST armoring (`--fast`) |
 | `tanuki tgs` | Kerberos service ticket acquisition for a target SPN |
 | `tanuki blast` | Quantitative blast radius scoring, privilege tiering, and PowerShell remediation recipes |
-| `tanuki ldap` | Unprivileged LDAP recon (`--query spn \| asreproast \| rbcd \| shadow \| unconstrained \| all`, [MS-ADTS] 2.2.20) |
+| `tanuki ldap` | Unprivileged LDAP recon (`--query spn \| asreproast \| rbcd \| shadow \| unconstrained \| all`) |
 | `tanuki adcs` | Passive AD CS template scanner for ESC1 through ESC11 |
-| `tanuki keytab` | Inspect binary keytab files ([RFC 4120]), principals, KVNOs, and modern AES kinit syntax |
-| `tanuki config` | Zero-DNS unprivileged `krb5.conf` generator with AES enforcement (`--enforce-aes`) and FAST armoring (`--fast`, `--armor-cache`, [RFC 6113]) |
-| `tanuki pac` | Decode and audit MS-PAC authorization data, group SIDs, and privilege flags ([MS-PAC]) |
-| `tanuki shadow` | Dissect Active Directory Shadow Credentials (`msDS-KeyCredentialLink` per [MS-ADTS] 2.2.20) |
+| `tanuki keytab` | Inspect binary keytab files, principals, KVNOs, and encryption types |
+| `tanuki kcm` | Extract and triage SSSD KCM credential cache streams from local databases |
+| `tanuki pac` | Decode and audit MS-PAC authorization data, group SIDs, and privilege flags |
+| `tanuki shadow` | Dissect Active Directory Shadow Credentials (`msDS-KeyCredentialLink`, [MS-ADTS] 2.2.20) |
+| `tanuki config` | Zero-DNS unprivileged `krb5.conf` generator (`--enforce-aes`, `--fast`, `--stdout`) |
 | `tanuki fix` | Idempotent closed-loop remediation (`--dry-run` to preview) |
 | `tanuki purge` | NIST SP 800-88 cryptographic memory and credential-cache zeroization |
-| `tanuki kcm` | Extract and triage SSSD KCM credential cache streams from local databases |
-| `tanuki triage` | Kerberos/SSSD protocol error resolution dictionary and FAST armoring guidance ([RFC 6113]) |
-| `tanuki ladder` | Display the 5-rung Tactical Decision Ladder and agent operational contract |
-| `tanuki token` | Parse and validate Non-Human Identity (NHI) workload JWTs ([RFC 7519] / [RFC 8693]) |
-| `tanuki nhi` | Non-Human Identity inspection ([RFC 7519]), OAuth 2.0 token exchange ([RFC 8693]), and cloud mesh discovery |
+| `tanuki triage` | Kerberos and SSSD protocol error resolution dictionary with Blue Team telemetry |
+| `tanuki ladder` | Display the 5-rung Tactical Decision Ladder and OPSEC contract |
+| `tanuki token` | Parse and validate workload identity JWTs ([RFC 7519]) |
+| `tanuki nhi` | Non-Human Identity operations: `inspect`, `exchange` ([RFC 8693]), `mesh`, and `scan` |
 | `tanuki skill` | Export the agent skill manifest (`--json` for machine-actionable schema) |
 
 Add `--json` to any command for structured output. Run `tanuki -i` for the interactive wizard.
-
-### Command Reference & Core Syntax
-
-Below is the usage syntax, primary options, and protocol specifications for key commands and subcommands:
-
-- **`tanuki doctor`**: Pre-flight diagnostics across domain config, credentials, network, and OPSEC telemetry.
-  - **Syntax**: `tanuki doctor [OPTIONS] [KEYTAB_PATH]`
-  - **Options**: `--opsec` (include live host OPSEC sensor probe for active endpoint hooks, auditd rules, and eBPF monitors), `--keytab <PATH>`, `--krb5-conf <PATH>`, `--sssd-pipe <PATH>`, `--sssd-pid <PATH>`, `--secrets-path <PATH>`, `--ccache <PATH>`, `--ad-enctypes <HEX>`, `--ad-kvno <INT>`, `--json`.
-
-- **`tanuki auth`**: Unprivileged userspace Kerberos TGT acquisition with in-memory clock skew healing and Kerberos Flexible Authentication Secure Tunneling (FAST) armoring ([RFC 6113]).
-  - **Syntax**: `tanuki auth --keytab <PATH> [OPTIONS]`
-  - **Options**: `--fast` (enable RFC 6113 FAST armoring), `--armor-cache <PATH>` (specify armor credential cache path for FAST armoring), `--keytab <PATH>`, `--principal <P>`, `--ccache <PATH>`, `--krb5-conf <PATH>`, `--kdc <HOST_OR_IP>`, `--json`.
-
-- **`tanuki fix`**: Idempotent closed-loop self-healing remediation (clock skew clamped to 300s maximum per Kerberos replay standard).
-  - **Syntax**: `tanuki fix [OPTIONS]`
-  - **Options**: `--dry-run` (simulate remediation without applying changes to disk or host configuration), `--keytab <PATH>`, `--realm <REALM>`, `--kdc <HOST_OR_IP>`, `--krb5-conf <PATH>`, `--ccache <PATH>`, `--clock-skew <SECS>`, `--krb-error <ERR>`, `--json`.
-
-- **`tanuki config`**: Zero-DNS unprivileged Kerberos `krb5.conf` generator targeting Domain Controllers directly by IP without modifying system files.
-  - **Syntax**: `tanuki config --realm <REALM> --kdc <HOST_OR_IP> [OPTIONS]`
-  - **Options**: `--enforce-aes` (strictly enforce modern AES-128/256 encryption and reject legacy RC4 ciphers), `--fast` (enable RFC 6113 FAST armoring: `fast_req_armoring = true`), `--armor-cache <PATH>` (specify armor credential cache path for FAST armoring per [RFC 6113]), `--realm <REALM>`, `--kdc <HOST_OR_IP>`, `--admin-server <HOST_OR_IP>`, `-o, --out <PATH>`, `--keytab <PATH>`, `--clock-skew <SECS>`, `--stdout`, `--json`.
-
-- **`tanuki keytab`**: Inspect binary keytab files per [RFC 4120], extracting principal entries, Key Version Numbers (KVNO), encryption types, and modern AES `kinit` commands.
-  - **Syntax**: `tanuki keytab <PATH> [OPTIONS]` or `tanuki keytab -f <PATH> [OPTIONS]`
-  - **Options**: `-f, --file <PATH>`, `--json`.
-
-- **`tanuki kcm`**: Extract and triage Kerberos credential cache (ccache) streams from local SSSD Kerberos Credential Manager (KCM) databases (`secrets.ldb`) or default cache paths.
-  - **Syntax**: `tanuki kcm [OPTIONS]` or `tanuki kcm [PATH] [OPTIONS]`
-  - **Options**: `-f, --file <PATH>`, `-o, --out <PATH>` (default: `./extracted_ccache`), `--json`.
-
-- **`tanuki pac`**: Decode and audit Microsoft Privilege Attribute Certificate (MS-PAC) binary authorization data per [MS-PAC] and [MS-DTYP].
-  - **Syntax**: `tanuki pac <PATH_OR_HEX> [OPTIONS]` or `tanuki pac -f <PATH> [OPTIONS]`
-  - **Options**: `-f, --file <PATH>`, `--json`.
-
-- **`tanuki shadow`**: Dissect Active Directory Shadow Credentials (`msDS-KeyCredentialLink` binary structures per [MS-ADTS] 2.2.20), parsing NGC/FIDO key material, KeyID, usage flags, and source metadata.
-  - **Syntax**: `tanuki shadow <INPUT> [OPTIONS]` or `tanuki shadow -f <PATH> [OPTIONS]`
-  - **Options**: `-f, --file <PATH>`, `--json`.
-
-- **`tanuki triage`**: Query pre-compiled Kerberos, Active Directory, and SSSD protocol error dictionary for root causes, tactical resolutions, detection telemetry, and [RFC 6113] FAST armoring requirements (`KDC_ERR_PREAUTH_REQUIRED_FOR_FAST` / code 93).
-  - **Syntax**: `tanuki triage [QUERY] [OPTIONS]`
-  - **Options**: `[QUERY]` (error code, Event ID, or keyword; omit to list entire dictionary), `--json`.
-
-- **`tanuki ladder`**: Display the 5-rung Tactical Decision Ladder (Diagnose -> Authenticate -> Authorize -> Assess -> Purge) and deterministic military-brief output contract: `[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]`.
-  - **Syntax**: `tanuki ladder [OPTIONS]`
-  - **Options**: `--json`.
-
-- **`tanuki token`**: Parse and validate Non-Human Identity (NHI) workload identity JSON Web Tokens (JWT) per [RFC 7519] and [RFC 8693] with zero external dependencies, assessing claims, expiration, and audience/issuer constraints.
-  - **Syntax**: `tanuki token <TOKEN> [OPTIONS]` or `tanuki token -f <PATH> [OPTIONS]`
-  - **Options**: `-f, --file <PATH>`, `-a, --audience <AUD>`, `--issuer <ISS>` / `-i <ISS>`, `--json`.
-
-- **`tanuki nhi`**: Non-Human Identity (NHI) operations suite for workload JWT inspection ([RFC 7519]), OAuth 2.0 Token Exchange ([RFC 8693]), live STS exchange, and cloud mesh discovery (`inspect`, `exchange`, `mesh`/`ingest`, `scan`).
-  - **Syntax**: `tanuki nhi <SUBCOMMAND> [OPTIONS]`
-  - **Subcommands**: `inspect [TOKEN]`, `exchange [OPTIONS]`, `mesh` (or `ingest`), `scan`.
-  - **Options**: `-f, --file <PATH>`, `-a, --audience <AUD>`, `--issuer <ISS>`, `--live` (execute live HTTP POST token exchange), `--endpoint <URL>` (STS endpoint URL), `--subject-token <TOKEN>`, `--subject-token-type <TYPE>`, `--requested-token-type <TYPE>`, `--grant-type <TYPE>`, `--json`.
 
 ### The decision ladder
 
