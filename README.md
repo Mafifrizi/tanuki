@@ -15,7 +15,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.1.3-blue.svg" alt="Version 2.1.3">
   <img src="https://img.shields.io/badge/rust-1.75+%20(1.8MB%20musl)-dea584.svg?logo=rust&logoColor=white" alt="Rust Systems Core">
-  <img src="https://img.shields.io/badge/python-3.10+%20(zero--dep)-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
+  <img src="https://img.shields.io/badge/python-3.10+%20-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
   <img src="https://img.shields.io/badge/standards-RFC_4120%20%7C%20RFC_6113%20%7C%20RFC_7519%20%7C%20RFC_8693-orange.svg" alt="RFC Standards">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0">
 </p>
