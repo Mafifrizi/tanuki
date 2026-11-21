@@ -725,6 +725,119 @@ fn test_cli_ldap_tls_flags_and_keytab_redaction() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+#[test]
+fn test_m1_hardening_adcs_json_exchange_url_and_enctype16() {
+    use std::process::Command;
+
+    let bin = env!("CARGO_BIN_EXE_tanuki");
+    let temp_dir = std::env::temp_dir().join(format!("tanuki_m1_hardening_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    // 1. AD CS JSON AST parser handles escaped values, nested templates array, and hex flags
+    let adcs_path = temp_dir.join("templates.json");
+    let adcs_json = r#"{
+  "templates": [
+    {
+      "cn": "Escaped\"Template",
+      "msPKI-Certificate-Name-Flag": "0x1",
+      "msPKI-Enrollment-Flag": 0,
+      "msPKI-RA-Signature": 0,
+      "pKIExtendedKeyUsage": ["1.3.6.1.5.5.7.3.2"],
+      "low_privileged_writers": []
+    }
+  ]
+}"#;
+    std::fs::write(&adcs_path, adcs_json).unwrap();
+    let adcs_out = Command::new(bin)
+        .args(["adcs", adcs_path.to_str().unwrap(), "--json"])
+        .output()
+        .expect("run tanuki adcs --json");
+    assert!(adcs_out.status.success());
+    let adcs_str = String::from_utf8_lossy(&adcs_out.stdout);
+    assert!(adcs_str.contains("\"vector\": \"ESC1\""));
+
+    // 2. Exchange URL parser rejects userinfo@host credentials
+    let userinfo_rep = tanuki::exchange_token_live(
+        "http://good.local@127.0.0.1:9/oauth/token",
+        "tok",
+        None,
+        None,
+        None,
+        None,
+    );
+    assert_eq!(userinfo_rep.status, "ERROR");
+    assert_eq!(userinfo_rep.error.as_deref(), Some("invalid_endpoint"));
+
+    // 3. Enctype 16 (des3-cbc-sha1) flagged as weak in ticket/ccache audit
+    let mut ccache = vec![0x05, 0x04, 0x00, 0x00];
+    let write_princ = |buf: &mut Vec<u8>, realm: &str, comps: &[&str]| {
+        buf.extend_from_slice(&1u32.to_be_bytes());
+        buf.extend_from_slice(&(comps.len() as u32).to_be_bytes());
+        buf.extend_from_slice(&(realm.len() as u32).to_be_bytes());
+        buf.extend_from_slice(realm.as_bytes());
+        for c in comps {
+            buf.extend_from_slice(&(c.len() as u32).to_be_bytes());
+            buf.extend_from_slice(c.as_bytes());
+        }
+    };
+    write_princ(&mut ccache, "CORP.LOCAL", &["host"]);
+    write_princ(&mut ccache, "CORP.LOCAL", &["host"]);
+    write_princ(&mut ccache, "CORP.LOCAL", &["krbtgt", "CORP.LOCAL"]);
+    ccache.extend_from_slice(&16u16.to_be_bytes()); // des3-cbc-sha1
+    ccache.extend_from_slice(&2u32.to_be_bytes());
+    ccache.extend_from_slice(&[0xaa, 0xbb]);
+    ccache.extend_from_slice(&1000u32.to_be_bytes());
+    ccache.extend_from_slice(&1000u32.to_be_bytes());
+    ccache.extend_from_slice(&2000000000u32.to_be_bytes());
+    ccache.extend_from_slice(&2000000000u32.to_be_bytes());
+    ccache.push(0);
+    ccache.extend_from_slice(&0u32.to_be_bytes());
+    ccache.extend_from_slice(&0u32.to_be_bytes());
+    ccache.extend_from_slice(&0u32.to_be_bytes());
+    ccache.extend_from_slice(&0u32.to_be_bytes());
+    ccache.extend_from_slice(&0u32.to_be_bytes());
+    let cc_path = temp_dir.join("des3.ccache");
+    std::fs::write(&cc_path, &ccache).unwrap();
+    let doc_out = Command::new(bin)
+        .args(["doctor", "--ccache", cc_path.to_str().unwrap(), "--json"])
+        .output()
+        .expect("run tanuki doctor --ccache");
+    let doc_str = String::from_utf8_lossy(&doc_out.stdout);
+    assert!(doc_str.contains("\"has_weak_enctypes\": true"), "doc_str={}", doc_str);
+
+    // 4. Rust --use-ctypes fails explicitly rather than silently falling back
+    let ctypes_out = Command::new(bin)
+        .args(["auth", "--use-ctypes", "--json"])
+        .output()
+        .expect("run tanuki auth --use-ctypes");
+    assert_eq!(ctypes_out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&ctypes_out.stdout).contains("UNSUPPORTED_RUST_FLAG"));
+
+    // 5. Symlink ccache rejected by tgs even without --keytab
+    #[cfg(unix)]
+    {
+        let real_cc = temp_dir.join("real.ccache");
+        let link_cc = temp_dir.join("link.ccache");
+        std::fs::write(&real_cc, &ccache).unwrap();
+        std::os::unix::fs::symlink(&real_cc, &link_cc).unwrap();
+        let tgs_out = Command::new(bin)
+            .args([
+                "tgs",
+                "HTTP/app.corp.local@CORP.LOCAL",
+                "--ccache",
+                link_cc.to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .expect("run tanuki tgs with symlink ccache");
+        assert_eq!(tgs_out.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&tgs_out.stdout).contains("SYMLINK_REJECTED"));
+    }
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
 
 
 

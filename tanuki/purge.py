@@ -164,7 +164,7 @@ class PurgeReport:
         lines: List[str] = []
         lines.extend(render_card_header(
             "TANUKI FORENSIC ZERO-TRACE PURGE",
-            f"NIST SP 800-88 Compliant Shredding · Multi-Pass Overwrite & fsync",
+            "NIST SP 800-88 Compliant Shredding · Multi-Pass Overwrite & fsync",
         ))
 
         use_uni = supports_unicode()
@@ -183,14 +183,14 @@ class PurgeReport:
             lines.append("[*] Disk Artifacts: No active ticket caches or temporary configs found to purge.")
 
         if self.cleared_env:
-            lines.append(f"[+] Sanitized Process Environment:")
+            lines.append("[+] Sanitized Process Environment:")
             for idx, var in enumerate(self.cleared_env):
                 is_last = idx == len(self.cleared_env) - 1
                 branch = l_branch if is_last else t_branch
                 lines.append(f"    {branch} Unset variable: {var}")
             lines.append("    [*] Shell Guidance: Run 'unset KRB5_CONFIG KRB5CCNAME' to synchronize shell.")
 
-        lines.append(f"[+] Memory Hygiene: Target credential buffers sanitized and ephemeral chunk memory zeroized.")
+        lines.append("[+] Memory Hygiene: Target credential buffers sanitized and ephemeral chunk memory zeroized.")
         lines.append("")
         lines.append(f"OVERALL PURGE STATUS: {self.status} (Zero operational forensic trace remaining)")
         return "\n".join(lines)

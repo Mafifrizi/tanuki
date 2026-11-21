@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-import tanuki
 from tanuki.auth import acquire_tgs, acquire_tgs_via_ctypes
 from tests.e2e.fixtures import build_synthetic_keytab
 

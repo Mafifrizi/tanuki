@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.4-blue.svg" alt="Version 2.1.4">
+  <img src="https://img.shields.io/badge/version-2.1.5-blue.svg" alt="Version 2.1.5">
   <img src="https://img.shields.io/badge/rust-1.75+%20(1.8MB%20musl)-dea584.svg?logo=rust&logoColor=white" alt="Rust Systems Core">
   <img src="https://img.shields.io/badge/python-3.10+%20-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
   <img src="https://img.shields.io/badge/standards-RFC_4120%20%7C%20RFC_6113%20%7C%20RFC_7519%20%7C%20RFC_8693-orange.svg" alt="RFC Standards">
@@ -114,17 +114,17 @@ Tanuki follows a fixed 5-rung tactical decision ladder to prevent privilege esca
 
 | Rung | Action | Description |
 | :---: | :--- | :--- |
-| **0** | DIAGNOSE | Pre-flight audit of credentials, enctypes, and network paths |
-| **1** | AUTHENTICATE | Userspace AS-REQ TGT negotiation with clock skew tolerance |
-| **2** | AUTHORIZE | TGS service ticket acquisition for verified SPN endpoints |
-| **3** | ASSESS | Quantitative blast radius calculation and tier scoring |
-| **4** | PURGE | Cryptographic memory zeroization (NIST SP 800-88) |
+| **1** | LOCAL PASSIVE TRIAGE | Inspect /etc/krb5.conf, /var/lib/sss/secrets/, and /etc/krb5.keytab with zero network noise |
+| **2** | ZERO-NOISE OPSEC FILTER | Enforce AES-256 or PKINIT and reject legacy RC4-HMAC and broad spraying |
+| **3** | MACHINE IDENTITY REUSE | Leverage the local host account (HOST$) before seeking human credentials |
+| **4** | SURGICAL PATHFINDING | Evaluate Shadow Credentials, AD CS ESC1/ESC8, and RBCD paths |
+| **5** | DETERMINISTIC ONE-LINER | Emit target, prerequisite, tactical command, telemetry, and OPSEC rationale |
 
 ---
 
 ## Validation
 
-Tanuki is validated against live hybrid infrastructure: an unprivileged Kali workstation (UID 1000) connecting directly to a Windows Server 2022 Domain Controller (DC01.lab.local), proving each rung end to end through to Blue Team forensic telemetry on the DC. It also ships 500+ Python unit tests and 48 Rust tests (library, binary CLI, and integration), all green.
+Tanuki is validated against live hybrid infrastructure: an unprivileged Kali workstation (UID 1000) connecting directly to a Windows Server 2022 Domain Controller (DC01.lab.local), proving each rung end to end through to Blue Team forensic telemetry on the DC. It also ships 500+ Python unit tests and 49 Rust tests (library, binary CLI, and integration), all green.
 
 See the full milestone walkthrough with terminal proofs in [docs/VALIDATION.md](docs/VALIDATION.md).
 

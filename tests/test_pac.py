@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from tanuki.pac import (
     DOMAIN_ADMINS_RID,
-    ENTERPRISE_ADMINS_RID,
     PAC_CLIENT_INFO,
     PAC_LOGON_INFO,
     PacDecodeError,

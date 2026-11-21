@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use super::types::CheckResult;
-use crate::util::escape_json;
+use crate::util::{escape_json, open_regular_nofollow, read_regular_nofollow_bounded};
 
 pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -> CheckResult {
     let pid_candidates = [sssd_pid, "/run/sssd.pid", "/var/run/sssd.pid"];
@@ -11,16 +11,15 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -
 
     for pid_path in &pid_candidates {
         let p = Path::new(pid_path);
-        if p.is_file() {
-            if let Ok(text) = fs::read_to_string(p) {
-                let trimmed = text.trim();
-                if let Ok(pid) = trimmed.parse::<u32>() {
-                    let proc_dir = format!("/proc/{}", pid);
-                    if Path::new(&proc_dir).exists() {
-                        daemon_running = true;
-                        found_pid = Some(pid);
-                        break;
-                    }
+        if let Ok((bytes, _)) = read_regular_nofollow_bounded(p, 4096) {
+            let text = String::from_utf8_lossy(&bytes);
+            let trimmed = text.trim();
+            if let Ok(pid) = trimmed.parse::<u32>() {
+                let proc_dir = format!("/proc/{}", pid);
+                if Path::new(&proc_dir).exists() {
+                    daemon_running = true;
+                    found_pid = Some(pid);
+                    break;
                 }
             }
         }
@@ -53,24 +52,20 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -
     let pipe_path = Path::new(sssd_pipe);
     let mut kcm_socket_active = false;
 
-    if pipe_path.exists() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileTypeExt;
-            if let Ok(meta) = fs::metadata(pipe_path) {
+    if let Ok(meta) = fs::symlink_metadata(pipe_path) {
+        if !meta.file_type().is_symlink() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileTypeExt;
                 if meta.file_type().is_socket() {
                     kcm_socket_active = true;
                 }
             }
         }
-        #[cfg(not(unix))]
-        {
-            kcm_socket_active = false;
-        }
     }
 
     let target_secrets = secrets_path.unwrap_or("/var/lib/sss/secrets/secrets.ldb");
-    let (secrets_status, secrets_error) = match fs::File::open(target_secrets) {
+    let (secrets_status, secrets_error) = match open_regular_nofollow(Path::new(target_secrets)) {
         Ok(_) => ("READABLE".to_string(), None),
         Err(e) => {
             if e.kind() == std::io::ErrorKind::PermissionDenied {

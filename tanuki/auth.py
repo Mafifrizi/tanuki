@@ -205,7 +205,7 @@ def acquire_tgt_via_ctypes(
                 try:
                     proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
                     if proc.returncode == 0:
-                        res_dict = {
+                        res_dict: Dict[str, Any] = {
                             "status": "SUCCESS",
                             "method": "static-binary",
                             "principal": principal,
@@ -545,7 +545,9 @@ def acquire_tgt(
     found_principals: List[str] = []
     try:
         entries = parse_keytab_file(keytab_path)
-        found_principals = list(dict.fromkeys(e.get("principal") for e in entries if e.get("principal")))
+        found_principals = list(
+            dict.fromkeys(str(p) for e in entries if (p := e.get("principal")))
+        )
     except Exception as exc:
         return {
             "status": "ERROR",

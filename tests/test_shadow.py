@@ -14,9 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from tanuki.shadow import (
     ShadowCredentialDecodeError,
     format_shadow_report_terminal,
-    parse_cng_public_key,
     parse_filetime_to_iso,
-    parse_guid_bytes,
     parse_key_credential_link,
 )
 

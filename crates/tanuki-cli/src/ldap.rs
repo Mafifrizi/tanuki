@@ -457,7 +457,7 @@ impl LdapReport {
         out.push_str(&format!("[+] Discovered Active Directory Objects ({} entries):\n\n", self.entries.len()));
         for (idx, e) in self.entries.iter().enumerate() {
             let is_last = idx == self.entries.len() - 1;
-            let sam = e.attributes.iter().find(|(k, _)| k == "sAMAccountName")
+            let sam = e.attributes.iter().find(|(k, _)| k.eq_ignore_ascii_case("sAMAccountName"))
                 .and_then(|(_, v)| v.first().cloned())
                 .unwrap_or_else(|| e.dn.clone());
 
@@ -496,7 +496,7 @@ impl LdapReport {
             }
 
             for (a_name, a_vals) in &e.attributes {
-                if a_name != "sAMAccountName" {
+                if !a_name.eq_ignore_ascii_case("sAMAccountName") {
                     let is_binary_attr = matches!(
                         a_name.to_ascii_lowercase().as_str(),
                         "msds-allowedtoactonbehalfofotheridentity"
@@ -823,7 +823,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
             return LdapReport {
                 status: "CONNECTION_FAILED".to_string(),
                 host: host.to_string(),
-                port,
+                port: effective_port,
                 query_type: query_type.to_string(),
                 base_dn: base_dn.to_string(),
                 count: 0,
@@ -841,7 +841,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
             return LdapReport {
                 status: "CONNECTION_FAILED".to_string(),
                 host: host.to_string(),
-                port,
+                port: effective_port,
                 query_type: query_type.to_string(),
                 base_dn: base_dn.to_string(),
                 count: 0,
@@ -849,7 +849,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
                 message: None,
                 error: Some(format!(
                     "Port {} unreachable on host '{}' ({}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: ssh -L 8888:{}:88 user@pivot -N / ssh -L {}:{}:{} user@pivot -N",
-                    port, host, e, host, port, host, port
+                    effective_port, host, e, host, effective_port, host, effective_port
                 )),
             };
         }
@@ -865,7 +865,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
         return LdapReport {
             status: "CONNECTION_FAILED".to_string(),
             host: host.to_string(),
-            port,
+            port: effective_port,
             query_type: query_type.to_string(),
             base_dn: base_dn.to_string(),
             count: 0,
@@ -882,7 +882,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
             return LdapReport {
                 status: "BIND_FAILED".to_string(),
                 host: host.to_string(),
-                port,
+                port: effective_port,
                 query_type: query_type.to_string(),
                 base_dn: base_dn.to_string(),
                 count: 0,
@@ -902,7 +902,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
         return LdapReport {
             status: "BIND_FAILED".to_string(),
             host: host.to_string(),
-            port,
+            port: effective_port,
             query_type: query_type.to_string(),
             base_dn: base_dn.to_string(),
             count: 0,
@@ -947,7 +947,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
         return LdapReport {
             status: "BIND_FAILED".to_string(),
             host: host.to_string(),
-            port,
+            port: effective_port,
             query_type: query_type.to_string(),
             base_dn: base_dn.to_string(),
             count: 0,
@@ -1016,7 +1016,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
                     return LdapReport {
                         status: "SEARCH_FAILED".to_string(),
                         host: host.to_string(),
-                        port,
+                        port: effective_port,
                         query_type: query_type.to_string(),
                         base_dn: base_dn.to_string(),
                         count: 0,
@@ -1041,7 +1041,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
                     return LdapReport {
                         status: "SEARCH_FAILED".to_string(),
                         host: host.to_string(),
-                        port,
+                        port: effective_port,
                         query_type: query_type.to_string(),
                         base_dn: base_dn.to_string(),
                         count: 0,
@@ -1063,7 +1063,7 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
     LdapReport {
         status: "SUCCESS".to_string(),
         host: host.to_string(),
-        port,
+        port: effective_port,
         query_type: query_type.to_string(),
         base_dn: base_dn.to_string(),
         count: all_entries.len(),

@@ -70,7 +70,7 @@ def ber_encode_length(length: int) -> bytes:
     """Encode length into ASN.1 BER format."""
     if length < 0x80:
         return bytes([length])
-    len_bytes = []
+    len_bytes: List[int] = []
     temp = length
     while temp > 0:
         len_bytes.insert(0, temp & 0xFF)
@@ -87,7 +87,7 @@ def ber_encode_int(val: int) -> bytes:
     """Encode signed integer into ASN.1 BER INTEGER."""
     if val == 0:
         return ber_encode_tlv(TAG_INTEGER, b"\x00")
-    b = []
+    b: List[int] = []
     temp = val
     if val > 0:
         while temp > 0:

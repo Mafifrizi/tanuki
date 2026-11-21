@@ -138,6 +138,15 @@ pub fn shred_file(path: &str) -> ShredResult {
         }
     }
 
+    #[cfg(unix)]
+    let (pinned_dev, pinned_ino) = {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino())
+    };
+    #[cfg(not(unix))]
+    let (pinned_dev, pinned_ino) = (0u64, 0u64);
+    let _ = (pinned_dev, pinned_ino);
+
     let len = meta.len();
     if len > 0 {
         let mut opts = OpenOptions::new();
@@ -153,6 +162,35 @@ pub fn shred_file(path: &str) -> ShredResult {
                 };
             }
         };
+
+        let fmeta = match file.metadata() {
+            Ok(m) => m,
+            Err(_) => {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
+        };
+        if !fmeta.file_type().is_file() {
+            return ShredResult {
+                path: path.to_string(),
+                status: "ERROR".to_string(),
+                bytes_shredded: 0,
+            };
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if fmeta.dev() != pinned_dev || fmeta.ino() != pinned_ino {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
+        }
 
         let chunk_size = 4096;
 
@@ -228,11 +266,64 @@ pub fn shred_file(path: &str) -> ShredResult {
         let mut opts = OpenOptions::new();
         opts.write(true);
         crate::util::apply_nofollow(&mut opts);
-        if opts.open(p).is_err() {
+        let file = match opts.open(p) {
+            Ok(f) => f,
+            Err(_) => {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
+        };
+        if let Ok(fmeta) = file.metadata() {
+            if !fmeta.file_type().is_file() {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if fmeta.dev() != pinned_dev || fmeta.ino() != pinned_ino {
+                    return ShredResult {
+                        path: path.to_string(),
+                        status: "ERROR".to_string(),
+                        bytes_shredded: 0,
+                    };
+                }
+            }
+        }
+    }
+
+    match fs::symlink_metadata(p) {
+        Ok(pre_unlink) => {
+            if pre_unlink.file_type().is_symlink() || !pre_unlink.file_type().is_file() {
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: len,
+                };
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if pre_unlink.dev() != pinned_dev || pre_unlink.ino() != pinned_ino {
+                    return ShredResult {
+                        path: path.to_string(),
+                        status: "ERROR".to_string(),
+                        bytes_shredded: len,
+                    };
+                }
+            }
+        }
+        Err(_) => {
             return ShredResult {
                 path: path.to_string(),
-                status: "ERROR".to_string(),
-                bytes_shredded: 0,
+                status: "UNLINK_FAILED".to_string(),
+                bytes_shredded: len,
             };
         }
     }

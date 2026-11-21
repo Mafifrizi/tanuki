@@ -95,6 +95,7 @@ OPTIONS:
     --krb5-conf <PATH>  Target krb5.conf path for doctor/fix
     --sssd-pipe <PATH>  Target SSSD KCM pipe socket path for doctor
     --sssd-pid <PATH>   Target SSSD pid path for doctor
+    --secrets-path <PATH> Target SSSD secrets database path for doctor
     --ccache <PATH>     Target ccache path for doctor/auth/fix
     --ad-enctypes <HEX> Active Directory msDS-SupportedEncryptionTypes for doctor
     --ad-kvno <INT>     Active Directory msDS-KeyVersionNumber for doctor
@@ -104,9 +105,12 @@ OPTIONS:
     --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
     --query <TYPE>      LDAP query category (spn, asreproast, rbcd, shadow, unconstrained, all)
     --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
+    --port <PORT>       Target LDAP port (default: 389, or 636 with --ssl)
+    --ssl               Enable LDAPS TLS transport
     --secure            Verify the LDAPS certificate against the system trust store (with --ssl)
     --verify-ca <PATH>  Verify the LDAPS certificate against a specific CA bundle / pin the DC CA (with --ssl)
     --insecure          Disable LDAPS certificate verification (CERT_NONE; requires --ssl)
+    --use-ctypes        Use libkrb5/libgssapi ctypes bridge instead of kinit
     --live              Execute live HTTP POST token exchange client (RFC 8693)
     --endpoint <URL>    STS endpoint URL for live token exchange
     --json              Output structured JSON for agent and pipeline consumption
@@ -135,7 +139,7 @@ def emit_cli_error(
     telemetry: Optional[dict] = None,
 ) -> NoReturn:
     if json_output:
-        payload = {
+        payload: Dict[str, Any] = {
             "status": "REFUSED" if exit_code == EXIT_POLICY_STOP else "ERROR",
             "reason_code": reason_code,
             "category": category,
@@ -391,7 +395,7 @@ def handle_doctor(
     ad_supported_enctypes: Optional[int] = None,
     ad_kvno: Optional[int] = None,
 ) -> None:
-    kwargs = {}
+    kwargs: Dict[str, Any] = {}
     if keytab_path:
         kwargs["keytab_path"] = keytab_path
     if krb5_conf:
@@ -1436,8 +1440,8 @@ def run_tui_wizard() -> None:
             f = input("KCM database path (optional): ").strip() or None
             handle_kcm(f, "./extracted_ccache", False)
         elif choice == "10":
-            q = input("Error code or query (blank for all): ").strip() or None
-            handle_triage(q, False)
+            err_q: Optional[str] = input("Error code or query (blank for all): ").strip() or None
+            handle_triage(err_q, False)
         elif choice == "11":
             handle_ladder(False)
         elif choice == "12":
@@ -1547,7 +1551,7 @@ def handle_skill(json_output: bool) -> None:
     print(f"    {manifest['output_standard']}")
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: Optional[List[str]] = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
@@ -1559,17 +1563,17 @@ def main(argv: Optional[List[str]] = None) -> None:
     if not argv:
         if sys.stdin.isatty() and sys.stdout.isatty():
             run_tui_wizard()
-            return
+            return EXIT_SUCCESS
         print_usage()
         sys.exit(EXIT_USAGE_ERROR)
 
     if len(argv) == 1 and argv[0] in ("-i", "--interactive"):
         run_tui_wizard()
-        return
+        return EXIT_SUCCESS
 
     if "--interactive" in argv and not any(a in known_subcommands for a in argv):
         run_tui_wizard()
-        return
+        return EXIT_SUCCESS
 
     global_json = "--json" in argv
     explicit_command: Optional[str] = None
@@ -1635,23 +1639,23 @@ def main(argv: Optional[List[str]] = None) -> None:
         arg = argv[i]
         if arg in ("-h", "--help"):
             print_usage()
-            return
+            return EXIT_SUCCESS
         elif arg in ("-V", "--version"):
             print(f"tanuki {__version__}")
-            return
+            return EXIT_SUCCESS
         elif arg == "--json":
             global_json = True
         elif arg == "--interactive":
             if not explicit_command:
                 run_tui_wizard()
-                return
+                return EXIT_SUCCESS
         elif arg in ("-i", "--issuer"):
             if i + 1 < len(argv) and not argv[i + 1].startswith("-"):
                 issuer_opt = argv[i + 1]
                 i += 1
             elif not explicit_command and not any(a in known_subcommands for a in argv):
                 run_tui_wizard()
-                return
+                return EXIT_SUCCESS
             else:
                 emit_cli_error(
                     "Option requires an argument: -i/--issuer",
@@ -1955,7 +1959,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             first = positional_args[0]
             if first == "help":
                 print_usage()
-                return
+                return EXIT_SUCCESS
             # A lone bare word (no path separator, not a keytab/ccache file) is a
             # mistyped command, not a keytab path. Default to keytab only for real paths.
             looks_like_keytab_path = (

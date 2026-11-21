@@ -1,14 +1,13 @@
 """Unit tests for Idempotent Closed-Loop Self-Healing Engine (tanuki fix)."""
 
 import os
-import stat
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from tanuki.fix import FixReport, run_fix
+from tanuki.fix import run_fix
 
 
 class TestSelfHealingFix(unittest.TestCase):
@@ -135,7 +134,6 @@ class TestSelfHealingFix(unittest.TestCase):
         self.assertEqual(calculate_remediated_clockskew(120, padding=60), 180)
 
     def test_run_fix_with_krb_error_synthesizes_clockskew(self):
-        from tanuki.protocol import parse_krb_error_stime
         import time
 
         # Generate a KRB-ERROR stime 500 seconds in the future

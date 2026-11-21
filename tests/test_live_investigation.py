@@ -12,12 +12,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from tanuki.config import generate_krb5_conf, write_krb5_conf_file
 from tanuki.ldap import (
-    BINARY_AD_ATTRIBUTES,
     LDAP_RESP_BIND,
     LDAP_RESP_SEARCH_DONE,
     LDAP_RESP_SEARCH_ENTRY,
     TAG_ENUMERATED,
-    TAG_SEQUENCE,
     ber_encode_int,
     ber_encode_sequence,
     ber_encode_string,
@@ -31,7 +29,7 @@ from tanuki.pac import (
     parse_rbcd_security_descriptor,
     parse_windows_sid,
 )
-from tanuki.protocol import ERROR_DICTIONARY, find_error_resolution
+from tanuki.protocol import find_error_resolution
 
 
 class TestEventIdTriageLookup(unittest.TestCase):

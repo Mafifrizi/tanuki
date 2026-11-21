@@ -328,12 +328,24 @@ fn parse_http_url(url: &str) -> Result<(String, String, u16, String), String> {
     if scheme_low != "http" && scheme_low != "https" {
         return Err(format!("Unsupported or disallowed URL scheme: '{}'", scheme));
     }
-    let (authority, path_part) = match rest.find('/') {
+    let split_idx = rest.find(['/', '?', '#']);
+    let (authority, tail) = match split_idx {
         Some(idx) => (&rest[..idx], &rest[idx..]),
         None => (rest, "/"),
     };
+    let tail_no_frag = tail.split('#').next().unwrap_or("/");
+    let path_part = if tail_no_frag.is_empty() {
+        "/".to_string()
+    } else if tail_no_frag.starts_with('/') {
+        tail_no_frag.to_string()
+    } else {
+        format!("/{}", tail_no_frag)
+    };
     if authority.is_empty() {
         return Err("URL is missing a target host".to_string());
+    }
+    if authority.contains('@') {
+        return Err("URL userinfo credentials are not permitted in exchange endpoint".to_string());
     }
     let default_port = if scheme_low == "https" { 443 } else { 80 };
     let (host, port) = if authority.starts_with('[') {
@@ -359,7 +371,7 @@ fn parse_http_url(url: &str) -> Result<(String, String, u16, String), String> {
     if host.is_empty() || port == 0 {
         return Err("URL is missing a valid target host or port".to_string());
     }
-    Ok((scheme_low, host, port, path_part.to_string()))
+    Ok((scheme_low, host, port, path_part))
 }
 
 fn raw_http_request(

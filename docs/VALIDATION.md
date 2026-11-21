@@ -46,4 +46,4 @@ Forensic verification inspecting the Windows Server 2022 Security Event log, pro
 
 ## Automated test coverage
 
-Beyond the live lab run, Tanuki ships a full automated suite: 500+ Python unit tests and 48 Rust tests (library, binary CLI, and integration), covering unit, boundary, pairwise, and live-wire scenarios. The Rust core builds with zero compiler warnings under #![forbid(unsafe_code)].
+Beyond the live lab run, Tanuki ships a full automated suite: 500+ Python unit tests and 49 Rust tests (library, binary CLI, and integration), covering unit, boundary, pairwise, and live-wire scenarios. The Rust core builds with zero compiler warnings under #![forbid(unsafe_code)].

@@ -46,7 +46,7 @@ pub fn sha256_digest(data: &[u8]) -> [u8; 32] {
     }
     msg.extend_from_slice(&bit_len.to_be_bytes());
 
-    for chunk in msg.chunks_exact(64) {
+    for chunk in msg.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
         for i in 0..16 {
             w[i] = u32::from_be_bytes([
@@ -116,10 +116,34 @@ pub fn sha256_digest(data: &[u8]) -> [u8; 32] {
 pub fn fill_dynamic_entropy(buf: &mut [u8]) -> Result<(), String> {
     #[cfg(unix)]
     {
-        let mut f = std::fs::File::open("/dev/urandom")
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let lmeta = fs::symlink_metadata("/dev/urandom")
+            .map_err(|e| format!("Failed to stat /dev/urandom: {}", e))?;
+        if lmeta.file_type().is_symlink() || !lmeta.file_type().is_char_device() {
+            return Err("Refusing untrusted /dev/urandom: expected character device".to_string());
+        }
+        let mut opts = OpenOptions::new();
+        opts.read(true);
+        apply_nofollow(&mut opts);
+        let mut f = opts
+            .open("/dev/urandom")
             .map_err(|e| format!("Failed to open /dev/urandom: {}", e))?;
-        f.read_exact(buf)
-            .map_err(|e| format!("Failed to read cryptographic entropy from /dev/urandom: {}", e))?;
+        let fmeta = f
+            .metadata()
+            .map_err(|e| format!("Failed to fstat /dev/urandom: {}", e))?;
+        if !fmeta.file_type().is_char_device()
+            || fmeta.dev() != lmeta.dev()
+            || fmeta.ino() != lmeta.ino()
+        {
+            return Err("Refusing /dev/urandom after device identity mismatch".to_string());
+        }
+        if let Err(e) = f.read_exact(buf) {
+            buf.fill(0);
+            return Err(format!(
+                "Failed to read cryptographic entropy from /dev/urandom: {}",
+                e
+            ));
+        }
         Ok(())
     }
     #[cfg(not(unix))]
@@ -150,19 +174,67 @@ pub fn apply_nofollow(opts: &mut OpenOptions) {
     }
 }
 
-pub fn read_bytes_nofollow(path: &Path) -> io::Result<Vec<u8>> {
-    if let Ok(meta) = fs::symlink_metadata(path) {
-        if meta.file_type().is_symlink() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Refusing to read symbolic link: {}", path.display()),
-            ));
-        }
+pub fn open_regular_nofollow(path: &Path) -> io::Result<(fs::File, fs::Metadata)> {
+    let lmeta = fs::symlink_metadata(path)?;
+    if lmeta.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Refusing to read symbolic link: {}", path.display()),
+        ));
+    }
+    if !lmeta.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Refusing to read non-regular file: {}", path.display()),
+        ));
     }
     let mut opts = OpenOptions::new();
     opts.read(true);
     apply_nofollow(&mut opts);
-    let mut file = opts.open(path)?;
+    let file = opts.open(path)?;
+    let fmeta = file.metadata()?;
+    if !fmeta.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Refusing to read non-regular file: {}", path.display()),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if fmeta.dev() != lmeta.dev() || fmeta.ino() != lmeta.ino() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("File identity changed during open: {}", path.display()),
+            ));
+        }
+    }
+    Ok((file, fmeta))
+}
+
+pub fn read_regular_nofollow_bounded(
+    path: &Path,
+    max_bytes: usize,
+) -> io::Result<(Vec<u8>, fs::Metadata)> {
+    let (file, fmeta) = open_regular_nofollow(path)?;
+    let mut buf = Vec::new();
+    file.take((max_bytes as u64).saturating_add(1))
+        .read_to_end(&mut buf)?;
+    if buf.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "File '{}' exceeds maximum allowed size ({} bytes)",
+                path.display(),
+                max_bytes
+            ),
+        ));
+    }
+    Ok((buf, fmeta))
+}
+
+pub fn read_bytes_nofollow(path: &Path) -> io::Result<Vec<u8>> {
+    let (mut file, _) = open_regular_nofollow(path)?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
     Ok(buf)
@@ -251,6 +323,9 @@ mod tests {
     #[test]
     fn test_resolve_current_uid() {
         let uid = resolve_current_uid();
-        assert!(uid > 0 || uid == 0);
+        #[cfg(not(unix))]
+        assert_eq!(uid, 1000);
+        #[cfg(unix)]
+        assert_eq!(uid, resolve_current_uid());
     }
 }

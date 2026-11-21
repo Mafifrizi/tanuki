@@ -19,8 +19,6 @@ from tanuki.nhi import (
     parse_workload_jwt,
     validate_jwt_workload,
     validate_token_exchange,
-    JwtValidationReport,
-    TokenValidationReport,
 )
 
 

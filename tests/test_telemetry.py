@@ -10,8 +10,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from tanuki.protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
 from tanuki.telemetry import (
     ERROR_TELEMETRY,
-    EVENT_DESCRIPTIONS,
-    LADDER_TELEMETRY,
     OPERATIONAL_REMEDIATIONS,
     format_telemetry_inline,
     format_telemetry_terminal,

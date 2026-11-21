@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from tanuki.kcm import scan_for_ccache_blobs, try_parse_default_principal
+from tanuki.kcm import scan_for_ccache_blobs
 
 
 class TestKCMParser(unittest.TestCase):

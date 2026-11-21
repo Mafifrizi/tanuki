@@ -24,22 +24,16 @@ if _E2E_DIR not in sys.path:
 
 try:
     from tests.e2e.fixtures import (
-        REPO_ROOT,
         build_multi_entry_keytab,
-        build_synthetic_ccache,
         build_synthetic_jwt,
         build_synthetic_keytab,
-        build_synthetic_krb5_conf,
         run_tanuki_cli,
     )
 except ImportError:
     from fixtures import (
-        REPO_ROOT,
         build_multi_entry_keytab,
-        build_synthetic_ccache,
         build_synthetic_jwt,
         build_synthetic_keytab,
-        build_synthetic_krb5_conf,
         run_tanuki_cli,
     )
 

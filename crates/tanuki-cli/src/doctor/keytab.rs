@@ -1,93 +1,101 @@
-use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use super::types::CheckResult;
 use crate::keytab::parse_keytab_bytes;
-use crate::util::escape_json;
+use crate::util::{escape_json, read_regular_nofollow_bounded};
 
 pub fn audit_keytab(keytab_path: &str) -> CheckResult {
     let p = Path::new(keytab_path);
-    let (p_exists, stat_err_kind) = match fs::metadata(p) {
-        Ok(_) => (true, None),
-        Err(e) => (false, Some(e.kind())),
-    };
-
-    if !p_exists {
-        if stat_err_kind == Some(std::io::ErrorKind::PermissionDenied) {
-            let rec = format!(
-                "Grant POSIX ACL (setfacl -m u:<user>:r {}), group delegation (0640), or use unprivileged NHI token exchange (tanuki token / RFC 8693) into KRB5CCNAME=FILE:/tmp/krb5cc_<uid>_tanuki or KEYRING:persistent:<uid>",
-                keytab_path
-            );
+    let (data, fmeta) = match read_regular_nofollow_bounded(p, 10 * 1024 * 1024) {
+        Ok(res) => res,
+        Err(e) => {
+            if e.kind() == ErrorKind::NotFound {
+                return CheckResult {
+                    name: "keytab_permissions".to_string(),
+                    status: "N_A".to_string(),
+                    details: format!("Keytab file not found: {}", keytab_path),
+                    recommendation: Some(format!("Join domain or generate keytab at {}", keytab_path)),
+                    remaining_seconds: None,
+                    extra_fields: vec![
+                        ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                        ("exists".to_string(), "false".to_string()),
+                        ("readable".to_string(), "false".to_string()),
+                        ("valid_format".to_string(), "false".to_string()),
+                        ("error_code".to_string(), "\"ENOENT\"".to_string()),
+                    ],
+                };
+            }
+            if e.kind() == ErrorKind::PermissionDenied {
+                let rec = format!(
+                    "Grant POSIX ACL (setfacl -m u:<user>:r {}), group delegation (0640), or use unprivileged NHI token exchange (tanuki token / RFC 8693) into KRB5CCNAME=FILE:/tmp/krb5cc_<uid>_tanuki or KEYRING:persistent:<uid>",
+                    keytab_path
+                );
+                return CheckResult {
+                    name: "keytab_permissions".to_string(),
+                    status: "FAIL".to_string(),
+                    details: format!("Read access denied (EACCES): {}", keytab_path),
+                    recommendation: Some(rec),
+                    remaining_seconds: None,
+                    extra_fields: vec![
+                        ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                        ("exists".to_string(), "true".to_string()),
+                        ("readable".to_string(), "false".to_string()),
+                        ("valid_format".to_string(), "false".to_string()),
+                        ("error_code".to_string(), "\"EACCES\"".to_string()),
+                    ],
+                };
+            }
+            let error_code = if e.kind() == ErrorKind::InvalidInput {
+                "SYMLINK_REJECTED"
+            } else {
+                "IO_ERROR"
+            };
             return CheckResult {
                 name: "keytab_permissions".to_string(),
                 status: "FAIL".to_string(),
-                details: format!("Read access denied (EACCES): {}", keytab_path),
-                recommendation: Some(rec),
+                details: format!("Refusing or unable to read keytab: {}", e),
+                recommendation: Some(format!("Ensure {} is a readable regular file", keytab_path)),
                 remaining_seconds: None,
                 extra_fields: vec![
                     ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
                     ("exists".to_string(), "true".to_string()),
                     ("readable".to_string(), "false".to_string()),
                     ("valid_format".to_string(), "false".to_string()),
-                    ("error_code".to_string(), "\"EACCES\"".to_string()),
+                    ("error_code".to_string(), format!("\"{}\"", error_code)),
                 ],
             };
         }
-        return CheckResult {
-            name: "keytab_permissions".to_string(),
-            status: "N_A".to_string(),
-            details: format!("Keytab file not found: {}", keytab_path),
-            recommendation: Some(format!("Join domain or generate keytab at {}", keytab_path)),
-            remaining_seconds: None,
-            extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
-                ("exists".to_string(), "false".to_string()),
-                ("readable".to_string(), "false".to_string()),
-                ("valid_format".to_string(), "false".to_string()),
-                ("error_code".to_string(), "\"ENOENT\"".to_string()),
-            ],
-        };
-    }
+    };
 
     #[cfg(unix)]
     let (permissions_str, is_secure_permissions, perm_status, perm_rec, perm_issue) = {
         use std::os::unix::fs::PermissionsExt;
-        match fs::metadata(p) {
-            Ok(meta) => {
-                let mode = meta.permissions().mode();
-                let octal = format!("{:04o}", mode & 0o777);
-                let world_readable = (mode & 0o004) != 0;
-                let world_writable = (mode & 0o002) != 0;
-                let group_readable = (mode & 0o040) != 0;
+        let mode = fmeta.permissions().mode();
+        let octal = format!("{:04o}", mode & 0o777);
+        let world_readable = (mode & 0o004) != 0;
+        let world_writable = (mode & 0o002) != 0;
+        let group_readable = (mode & 0o040) != 0;
 
-                if world_readable || world_writable {
-                    let desc = if world_writable { "world-writable" } else { "world-readable" };
-                    (
-                        octal,
-                        false,
-                        "FAIL",
-                        Some(format!("chmod 0600 {}", keytab_path)),
-                        Some(format!("Insecure permissions: {}", desc)),
-                    )
-                } else if group_readable {
-                    (
-                        octal,
-                        false,
-                        "WARN",
-                        Some(format!("chmod 0600 {}", keytab_path)),
-                        Some("Group-readable permissions conditional on service ownership".to_string()),
-                    )
-                } else {
-                    (octal, true, "PASS", None, None)
-                }
-            }
-            Err(e) => (
-                "0000".to_string(),
+        if world_readable || world_writable {
+            let desc = if world_writable { "world-writable" } else { "world-readable" };
+            (
+                octal,
                 false,
                 "FAIL",
-                None,
-                Some(format!("Failed to read metadata: {}", e)),
-            ),
+                Some(format!("chmod 0600 {}", keytab_path)),
+                Some(format!("Insecure permissions: {}", desc)),
+            )
+        } else if group_readable {
+            (
+                octal,
+                false,
+                "WARN",
+                Some(format!("chmod 0600 {}", keytab_path)),
+                Some("Group-readable permissions conditional on service ownership".to_string()),
+            )
+        } else {
+            (octal, true, "PASS", None, None)
         }
     };
 
@@ -98,46 +106,15 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
         &str,
         Option<String>,
         Option<String>,
-    ) = (
-        "N/A (Windows platform)".to_string(),
-        true,
-        "PASS",
-        None,
-        None,
-    );
-
-    let data = match fs::read(p) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let error_code = if e.kind() == std::io::ErrorKind::PermissionDenied {
-                "EACCES"
-            } else if e.kind() == std::io::ErrorKind::NotFound {
-                "ENOENT"
-            } else {
-                "IO_ERROR"
-            };
-            let rec = if error_code == "EACCES" {
-                format!(
-                    "Grant POSIX ACL (setfacl -m u:<user>:r {}), group delegation (0640), or use unprivileged NHI token exchange (tanuki token / RFC 8693) into KRB5CCNAME=FILE:/tmp/krb5cc_<uid>_tanuki or KEYRING:persistent:<uid>",
-                    keytab_path
-                )
-            } else {
-                format!("Ensure read permissions for {}", keytab_path)
-            };
-            return CheckResult {
-                name: "keytab_permissions".to_string(),
-                status: "FAIL".to_string(),
-                details: format!("Read access denied: {}", e),
-                recommendation: Some(rec),
-                remaining_seconds: None,
-                extra_fields: vec![
-                    ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
-                    ("exists".to_string(), "true".to_string()),
-                    ("readable".to_string(), "false".to_string()),
-                    ("error_code".to_string(), format!("\"{}\"", error_code)),
-                ],
-            };
-        }
+    ) = {
+        let _ = &fmeta;
+        (
+            "N/A (Windows platform)".to_string(),
+            true,
+            "PASS",
+            None,
+            None,
+        )
     };
 
     if data.is_empty() {
@@ -215,7 +192,7 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                 if !enctypes.contains(&e.enctype_name) {
                     enctypes.push(e.enctype_name.clone());
                 }
-                if matches!(e.keytype, 1 | 2 | 3 | 23) {
+                if matches!(e.keytype, 1 | 2 | 3 | 16 | 23) {
                     has_weak = true;
                 }
             }

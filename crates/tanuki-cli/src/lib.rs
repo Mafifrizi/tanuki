@@ -55,6 +55,7 @@ pub use shadow::{
     parse_key_credential_link, shadow_report_to_json, KeyMaterialInfo, ShadowCredentialReport,
 };
 pub use util::{
-    apply_nofollow, escape_json, fill_dynamic_entropy, read_bytes_nofollow, resolve_current_uid,
-    sha256_digest, write_bytes_nofollow,
+    apply_nofollow, escape_json, fill_dynamic_entropy, open_regular_nofollow,
+    read_bytes_nofollow, read_regular_nofollow_bounded, resolve_current_uid, sha256_digest,
+    write_bytes_nofollow,
 };

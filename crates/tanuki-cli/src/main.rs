@@ -95,7 +95,14 @@ OPTIONS:
     --host <HOST_OR_IP> Target Active Directory domain controller for LDAP
     --query <TYPE>      LDAP query category (spn, asreproast, rbcd, shadow, unconstrained, all)
     --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
-    --port <PORT>       Target LDAP port (default: 389)
+    --port <PORT>       Target LDAP port (default: 389, or 636 with --ssl)
+    --ssl               Enable LDAPS TLS transport (Python engine only)
+    --secure            Verify the LDAPS certificate against the system trust store (with --ssl)
+    --verify-ca <PATH>  Verify the LDAPS certificate against a specific CA bundle (with --ssl)
+    --insecure          Disable LDAPS certificate verification (CERT_NONE; requires --ssl)
+    --use-ctypes        Use libkrb5/libgssapi ctypes bridge instead of kinit (Python engine only)
+    --live              Execute live HTTP POST token exchange client (RFC 8693)
+    --endpoint <URL>    STS endpoint URL for live token exchange
     --json              Output structured JSON for agent and pipeline consumption
     -h, --help          Print help information
     -V, --version       Print version information"#
@@ -359,6 +366,7 @@ fn main() {
     let mut base_dn_opt: Option<String> = None;
     let mut port_opt: Option<u16> = None;
     let mut ssl_opt = false;
+    let mut use_ctypes_opt = false;
     let mut secure_opt = false;
     let mut insecure_opt = false;
     let mut verify_ca_opt: Option<String> = None;
@@ -851,7 +859,7 @@ fn main() {
                 }
             }
             "--use-ctypes" => {
-                // Accepted for Python CLI engine parity
+                use_ctypes_opt = true;
             }
             "--enforce-aes" => {
                 enforce_aes_opt = true;
@@ -1195,6 +1203,17 @@ fn main() {
             );
         }
         "auth" => {
+            if use_ctypes_opt {
+                emit_cli_error(
+                    "Option --use-ctypes is only supported by the Python engine (python3 -m tanuki auth --use-ctypes); the Rust binary requires host kinit.",
+                    "UNSUPPORTED_RUST_FLAG",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    None,
+                    Some("Run 'python3 -m tanuki auth --use-ctypes ...' to use libkrb5/libgssapi ctypes."),
+                    global_json,
+                );
+            }
             let resolved_princ = principal_opt.or(short_p_opt);
             if spn_opt.is_some() {
                 handle_tgs(
@@ -1214,6 +1233,17 @@ fn main() {
             }
         }
         "tgs" => {
+            if use_ctypes_opt {
+                emit_cli_error(
+                    "Option --use-ctypes is only supported by the Python engine (python3 -m tanuki tgs --use-ctypes); the Rust binary requires host kinit/kvno.",
+                    "UNSUPPORTED_RUST_FLAG",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    None,
+                    Some("Run 'python3 -m tanuki tgs --use-ctypes ...' to use libkrb5/libgssapi ctypes."),
+                    global_json,
+                );
+            }
             let target_spn = spn_opt.or_else(|| positional_args.first().cloned());
             let target_kt = keytab_opt.or(file_opt);
             let target_ccache = ccache_opt.or(out_opt);
@@ -2848,6 +2878,20 @@ fn handle_tgs(
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
         .unwrap_or(fallback_cc);
 
+    if let Ok(meta) = fs::symlink_metadata(&ccache) {
+        if meta.file_type().is_symlink() {
+            emit_cli_error(
+                &format!("Refusing to use symbolic link as credential cache: {}", ccache),
+                "SYMLINK_REJECTED",
+                "SECURITY_VIOLATION",
+                EXIT_POLICY_STOP,
+                Some(&ccache),
+                None,
+                json_output,
+            );
+        }
+    }
+
     if let Some(ref kt) = keytab_path_opt {
         if !Path::new(kt).exists() {
             emit_cli_error(
@@ -2859,19 +2903,6 @@ fn handle_tgs(
                 None,
                 json_output,
             );
-        }
-        if let Ok(meta) = fs::symlink_metadata(&ccache) {
-            if meta.file_type().is_symlink() {
-                emit_cli_error(
-                    &format!("Refusing to write credential cache to symbolic link: {}", ccache),
-                    "SYMLINK_REJECTED",
-                    "SECURITY_VIOLATION",
-                    EXIT_POLICY_STOP,
-                    Some(&ccache),
-                    None,
-                    json_output,
-                );
-            }
         }
         let resolved_princ = match &principal_opt {
             Some(p) => Some(p.clone()),

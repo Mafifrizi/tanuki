@@ -851,17 +851,17 @@ def discover_cloud_mesh(
     imds_res = fetch_imds_token(imds_base_url=base_imds, timeout=timeout)
     if imds_res.get("status") == "SUCCESS":
         token_str = imds_res.get("token")
-        val_rep = None
+        imds_val_rep: Optional[Any] = None
         if token_str and "." in token_str:
             try:
-                val_rep = validate_jwt_workload(token_str)
+                imds_val_rep = validate_jwt_workload(token_str)
             except Exception:
                 pass
         discovered.append({
             "source": imds_res.get("provider"),
             "token": token_str,
             "details": imds_res.get("details"),
-            "jwt_report": val_rep,
+            "jwt_report": imds_val_rep,
         })
 
     return {

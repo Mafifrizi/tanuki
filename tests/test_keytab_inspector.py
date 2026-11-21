@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from tanuki.keytab import parse_keytab_stream, ENCTYPE_MAP
+from tanuki.keytab import parse_keytab_stream
 
 
 def make_entry_bytes(realm: bytes, components: list, key_data: bytes, keytype: int = 18, vno8: int = 1, vno32: int = 1):

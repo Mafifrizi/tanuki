@@ -45,6 +45,13 @@ impl JsonValue {
         }
     }
 
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            JsonValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
     pub fn as_array(&self) -> Option<&Vec<JsonValue>> {
         match self {
             JsonValue::Array(a) => Some(a),

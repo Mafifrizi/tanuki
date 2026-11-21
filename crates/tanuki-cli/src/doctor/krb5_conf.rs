@@ -1,30 +1,29 @@
-use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use super::types::CheckResult;
-use crate::util::escape_json;
+use crate::util::{escape_json, read_regular_nofollow_bounded};
 
 pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
     let p = Path::new(krb5_conf_path);
-    if !p.exists() {
-        return CheckResult {
-            name: "realm_capitalization".to_string(),
-            status: "N_A".to_string(),
-            details: format!("Configuration file not found: {}", krb5_conf_path),
-            recommendation: Some(format!(
-                "Install krb5-user or configure {} (unprivileged: generate via 'tanuki config' and export KRB5_CONFIG)",
-                krb5_conf_path
-            )),
-            remaining_seconds: None,
-            extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
-                ("exists".to_string(), "false".to_string()),
-            ],
-        };
-    }
-
-    let content = match fs::read_to_string(p) {
-        Ok(s) => s,
+    let content = match read_regular_nofollow_bounded(p, 1024 * 1024) {
+        Ok((bytes, _)) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            return CheckResult {
+                name: "realm_capitalization".to_string(),
+                status: "N_A".to_string(),
+                details: format!("Configuration file not found: {}", krb5_conf_path),
+                recommendation: Some(format!(
+                    "Install krb5-user or configure {} (unprivileged: generate via 'tanuki config' and export KRB5_CONFIG)",
+                    krb5_conf_path
+                )),
+                remaining_seconds: None,
+                extra_fields: vec![
+                    ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                    ("exists".to_string(), "false".to_string()),
+                ],
+            };
+        }
         Err(e) => {
             return CheckResult {
                 name: "realm_capitalization".to_string(),

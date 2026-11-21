@@ -7,7 +7,6 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from tanuki.keytab import parse_keytab_stream
-from tanuki.kcm import scan_for_ccache_blobs
 
 
 class TestRustCompatibility(unittest.TestCase):

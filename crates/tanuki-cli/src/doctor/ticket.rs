@@ -127,7 +127,7 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
         if !enctypes.contains(&enc_name) {
             enctypes.push(enc_name);
         }
-        if enctype == 23 || enctype == 1 || enctype == 2 || enctype == 3 {
+        if matches!(enctype, 1 | 2 | 3 | 16 | 23) {
             has_weak_enctypes = true;
         }
         tickets_count += 1;

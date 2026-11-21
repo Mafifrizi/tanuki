@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from tanuki.purge import PurgeReport, run_purge, shred_file, zeroize_buffer
+from tanuki.purge import run_purge, shred_file, zeroize_buffer
 
 
 class TestZeroTracePurge(unittest.TestCase):

@@ -31,28 +31,17 @@ from tanuki.doctor import (
     check_keytab,
     check_krb5_conf,
     check_sssd,
-    check_ticket_lifetime,
     diagnose_system,
     parse_ccache_stream,
     parse_proc_keys,
 )
 from tanuki.nhi import (
-    b64url_decode,
-    decode_jwt_segment,
-    detect_identity_type,
-    format_exchange_report_terminal,
-    format_token_report_terminal,
-    parse_workload_jwt,
     validate_jwt_workload,
     validate_token_exchange,
 )
 from tanuki.protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
 from tanuki.telemetry import (
-    ERROR_TELEMETRY,
-    LADDER_TELEMETRY,
-    OPERATIONAL_REMEDIATIONS,
     format_telemetry_inline,
-    format_telemetry_terminal,
 )
 
 

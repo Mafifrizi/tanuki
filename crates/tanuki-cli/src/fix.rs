@@ -308,80 +308,93 @@ pub fn run_fix(
                 details: format!("Refusing to overwrite symbolic link backup: {}.bak", target_conf),
                 backup: None,
             });
-        } else if let Ok(mut optimal_content) = generate_krb5_conf(&r, k, None, Some(effective_skew), false, false, None) {
-            let existing_content = crate::util::read_bytes_nofollow(Path::new(target_conf))
-                .ok()
-                .and_then(|b| String::from_utf8(b).ok());
-            if let Some(ref existing) = existing_content {
-                let mut preserved: Vec<&str> = Vec::new();
-                let mut in_preserved = false;
-                for line in existing.lines() {
-                    let st = line.trim();
-                    if st.starts_with('[') && st.ends_with(']') && st.len() > 2 {
-                        let sec = st[1..st.len() - 1].trim().to_ascii_lowercase();
-                        in_preserved = !matches!(sec.as_str(), "libdefaults" | "realms" | "domain_realm");
+        } else {
+            match generate_krb5_conf(&r, k, None, Some(effective_skew), false, false, None) {
+                Ok(mut optimal_content) => {
+                    let existing_content = crate::util::read_bytes_nofollow(Path::new(target_conf))
+                        .ok()
+                        .and_then(|b| String::from_utf8(b).ok());
+                    if let Some(ref existing) = existing_content {
+                        let mut preserved: Vec<&str> = Vec::new();
+                        let mut in_preserved = false;
+                        for line in existing.lines() {
+                            let st = line.trim();
+                            if st.starts_with('[') && st.ends_with(']') && st.len() > 2 {
+                                let sec = st[1..st.len() - 1].trim().to_ascii_lowercase();
+                                in_preserved = !matches!(sec.as_str(), "libdefaults" | "realms" | "domain_realm");
+                            }
+                            if in_preserved {
+                                preserved.push(line);
+                            }
+                        }
+                        while let Some(last) = preserved.last() {
+                            if last.trim().is_empty() {
+                                preserved.pop();
+                            } else {
+                                break;
+                            }
+                        }
+                        if !preserved.is_empty() {
+                            optimal_content = format!(
+                                "{}\n\n{}\n",
+                                optimal_content.trim_end_matches('\n'),
+                                preserved.join("\n")
+                            );
+                        }
                     }
-                    if in_preserved {
-                        preserved.push(line);
-                    }
-                }
-                while let Some(last) = preserved.last() {
-                    if last.trim().is_empty() {
-                        preserved.pop();
+                    if existing_content.as_deref() == Some(&optimal_content) {
+                        actions.push(FixAction {
+                            action: "krb5_configuration".to_string(),
+                            target: Some(target_conf.to_string()),
+                            status: "IDEMPOTENT_SKIPPED".to_string(),
+                            details: "Configuration already optimal with udp_preference_limit=0 and clockskew".to_string(),
+                            backup: None,
+                        });
+                    } else if dry_run {
+                        actions.push(FixAction {
+                            action: "krb5_configuration".to_string(),
+                            target: Some(target_conf.to_string()),
+                            status: "PROPOSED".to_string(),
+                            details: "Would create .bak and write optimal unprivileged krb5.conf".to_string(),
+                            backup: None,
+                        });
                     } else {
-                        break;
+                        let mut backup_path = None;
+                        if let Some(ref existing) = existing_content {
+                            if crate::util::write_bytes_nofollow(Path::new(&bak), existing.as_bytes(), 0o644).is_ok() {
+                                backup_path = Some(bak);
+                            }
+                        }
+                        match crate::util::write_bytes_nofollow(Path::new(target_conf), optimal_content.as_bytes(), 0o644) {
+                            Ok(_) => {
+                                actions.push(FixAction {
+                                    action: "krb5_configuration".to_string(),
+                                    target: Some(target_conf.to_string()),
+                                    status: "APPLIED".to_string(),
+                                    details: format!("Generated unprivileged krb5.conf (clockskew={}s)", effective_skew),
+                                    backup: backup_path,
+                                });
+                            }
+                            Err(e) => {
+                                actions.push(FixAction {
+                                    action: "krb5_configuration".to_string(),
+                                    target: Some(target_conf.to_string()),
+                                    status: "ERROR".to_string(),
+                                    details: format!("Failed to write configuration: {}", e),
+                                    backup: backup_path,
+                                });
+                            }
+                        }
                     }
                 }
-                if !preserved.is_empty() {
-                    optimal_content = format!(
-                        "{}\n\n{}\n",
-                        optimal_content.trim_end_matches('\n'),
-                        preserved.join("\n")
-                    );
-                }
-            }
-            if existing_content.as_deref() == Some(&optimal_content) {
-                actions.push(FixAction {
-                    action: "krb5_configuration".to_string(),
-                    target: Some(target_conf.to_string()),
-                    status: "IDEMPOTENT_SKIPPED".to_string(),
-                    details: "Configuration already optimal with udp_preference_limit=0 and clockskew".to_string(),
-                    backup: None,
-                });
-            } else if dry_run {
-                actions.push(FixAction {
-                    action: "krb5_configuration".to_string(),
-                    target: Some(target_conf.to_string()),
-                    status: "PROPOSED".to_string(),
-                    details: "Would create .bak and write optimal unprivileged krb5.conf".to_string(),
-                    backup: None,
-                });
-            } else {
-                let mut backup_path = None;
-                if let Some(ref existing) = existing_content {
-                    if crate::util::write_bytes_nofollow(Path::new(&bak), existing.as_bytes(), 0o644).is_ok() {
-                        backup_path = Some(bak);
-                    }
-                }
-                match crate::util::write_bytes_nofollow(Path::new(target_conf), optimal_content.as_bytes(), 0o644) {
-                    Ok(_) => {
-                        actions.push(FixAction {
-                            action: "krb5_configuration".to_string(),
-                            target: Some(target_conf.to_string()),
-                            status: "APPLIED".to_string(),
-                            details: format!("Generated unprivileged krb5.conf (clockskew={}s)", effective_skew),
-                            backup: backup_path,
-                        });
-                    }
-                    Err(e) => {
-                        actions.push(FixAction {
-                            action: "krb5_configuration".to_string(),
-                            target: Some(target_conf.to_string()),
-                            status: "ERROR".to_string(),
-                            details: format!("Failed to write configuration: {}", e),
-                            backup: backup_path,
-                        });
-                    }
+                Err(e) => {
+                    actions.push(FixAction {
+                        action: "krb5_configuration".to_string(),
+                        target: Some(target_conf.to_string()),
+                        status: "ERROR".to_string(),
+                        details: format!("Failed to generate optimal krb5.conf: {}", e),
+                        backup: None,
+                    });
                 }
             }
         }

@@ -726,7 +726,7 @@ def check_sssd(
         result["recommendation"] = "Verify KCM responder configuration in /etc/sssd/sssd.conf"
     elif not result["daemon_running"] and result["kcm_socket_active"]:
         result["status"] = "WARN"
-        result["details"] = f"KCM socket exists but SSSD daemon is not running"
+        result["details"] = "KCM socket exists but SSSD daemon is not running"
         result["recommendation"] = "Start SSSD daemon: systemctl start sssd"
     else:
         result["status"] = "WARN"
@@ -814,7 +814,7 @@ def parse_ccache_stream(stream: Any) -> Optional[Dict[str, Any]]:
     def _finalize_ticket(bt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if bt is None:
             return None
-        has_weak = any(t.get("enctype") in (1, 2, 3, 23) for t in all_tickets)
+        has_weak = any(t.get("enctype") in (1, 2, 3, 16, 23) for t in all_tickets)
         enctype_names = list(dict.fromkeys(t["enctype_name"] for t in all_tickets))
         res = dict(bt)
         res["tickets"] = all_tickets

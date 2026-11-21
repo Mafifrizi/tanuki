@@ -6,7 +6,7 @@ import unittest
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from tanuki.keytab import parse_keytab_stream, MAX_COMPONENTS
+from tanuki.keytab import parse_keytab_stream
 from tanuki.kcm import scan_for_ccache_blobs, save_recovered_ticket
 from tanuki.adcs import (
     parse_x509_der,

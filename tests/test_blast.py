@@ -1,23 +1,18 @@
 """Unit Tests for Tanuki Active Directory Privilege Tiering and Blast Radius Engine."""
 
 import json
-import os
 import subprocess
 import sys
-import tempfile
 import unittest
 
-import tanuki
 from tanuki.blast import (
     classify_identity_tier,
     evaluate_blast_radius,
     extract_ad_account_name,
-    format_blast_report_terminal,
     generate_ad_remediations,
     get_event_4769_telemetry,
     run_blast,
 )
-from tests.e2e.fixtures import build_synthetic_keytab
 
 
 class TestBlastTierClassification(unittest.TestCase):

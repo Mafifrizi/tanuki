@@ -540,7 +540,7 @@ def run_blast(
                 except Exception:
                     pass
             from .ldap import query_active_directory_ldap
-            ldap_res = query_active_directory_ldap(
+            ldap_res: Dict[str, Any] = query_active_directory_ldap(
                 host=host,
                 query_type="all",
                 base_dn=effective_base_dn,

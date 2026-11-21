@@ -276,7 +276,7 @@ tanuki triage KDC_ERR_ETYPE_NOSUPP --json
 
 ## 14. 5-rung Tactical Decision Ladder (tanuki ladder)
 
-Displays the fixed 5-rung Tactical Decision Ladder (Diagnose -> Authenticate -> Authorize -> Assess -> Purge) enforcing disciplined agent Standard Operating Procedures (SOP), zero-noise OPSEC standards, and military-brief command output standards: [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE].
+Displays the fixed 5-rung Tactical Decision Ladder (Local Passive Triage -> Zero-Noise OPSEC Filter -> Machine Identity Reuse -> Surgical Pathfinding -> Deterministic One-Liner) enforcing disciplined agent Standard Operating Procedures (SOP), zero-noise OPSEC standards, and military-brief command output standards: [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE].
 
 ```bash
 # Display the 5-rung Tactical Decision Ladder in human-readable format

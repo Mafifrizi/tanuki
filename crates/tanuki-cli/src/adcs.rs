@@ -91,139 +91,62 @@ impl AdcsReport {
     }
 }
 
-fn extract_json_str(obj_str: &str, key: &str) -> Option<String> {
-    let pattern = format!("\"{}\"", key);
-    let pos = obj_str.find(&pattern)?;
-    let colon_pos = obj_str[pos + pattern.len()..].find(':')? + pos + pattern.len();
-    let quote_start = obj_str[colon_pos + 1..].find('"')? + colon_pos + 1;
-    let quote_end = obj_str[quote_start + 1..].find('"')? + quote_start + 1;
-    Some(obj_str[quote_start + 1..quote_end].to_string())
+use crate::nhi::jwt::{parse_json, JsonValue};
+
+fn json_get_str(obj: &JsonValue, key: &str) -> Option<String> {
+    obj.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-fn extract_json_u32(obj_str: &str, key: &str) -> Option<u32> {
-    let pattern = format!("\"{}\"", key);
-    let pos = obj_str.find(&pattern)?;
-    let colon_pos = obj_str[pos + pattern.len()..].find(':')? + pos + pattern.len();
-    let slice = obj_str[colon_pos + 1..].trim_start();
-    if let Some(stripped) = slice.strip_prefix('"') {
-        let str_val: String = stripped.chars().take_while(|&c| c != '"').collect();
-        let clean = str_val.trim();
+fn json_get_u32(obj: &JsonValue, key: &str) -> Option<u32> {
+    let val = obj.get(key)?;
+    if let Some(i) = val.as_i64() {
+        return u32::try_from(i).ok();
+    }
+    if let Some(s) = val.as_str() {
+        let clean = s.trim();
         if let Some(hex_part) = clean.strip_prefix("0x").or_else(|| clean.strip_prefix("0X")) {
             return u32::from_str_radix(hex_part, 16).ok();
         }
         return clean.parse::<u32>().ok();
     }
-    if let Some(hex_part) = slice.strip_prefix("0x").or_else(|| slice.strip_prefix("0X")) {
-        let hex_str: String = hex_part.chars().take_while(|c| c.is_ascii_hexdigit()).collect();
-        return u32::from_str_radix(&hex_str, 16).ok();
-    }
-    let num_str: String = slice.chars().take_while(|c| c.is_ascii_digit()).collect();
-    num_str.parse::<u32>().ok()
+    None
 }
 
-fn extract_json_bool(obj_str: &str, key: &str) -> Option<bool> {
-    let pattern = format!("\"{}\"", key);
-    let pos = obj_str.find(&pattern)?;
-    let colon_pos = obj_str[pos + pattern.len()..].find(':')? + pos + pattern.len();
-    let slice = obj_str[colon_pos + 1..].trim_start();
-    if slice.starts_with("true") {
-        Some(true)
-    } else if slice.starts_with("false") {
-        Some(false)
-    } else {
-        None
-    }
+fn json_get_bool(obj: &JsonValue, key: &str) -> Option<bool> {
+    obj.get(key).and_then(|v| v.as_bool())
 }
 
-fn extract_json_str_array(obj_str: &str, key: &str) -> Vec<String> {
+fn json_get_str_array(obj: &JsonValue, key: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let pattern = format!("\"{}\"", key);
-    if let Some(pos) = obj_str.find(&pattern) {
-        if let Some(colon_pos) = obj_str[pos + pattern.len()..].find(':') {
-            let start = pos + pattern.len() + colon_pos;
-            if let Some(bracket_start) = obj_str[start..].find('[') {
-                if let Some(bracket_end) = obj_str[start + bracket_start..].find(']') {
-                    let array_content = &obj_str[start + bracket_start + 1..start + bracket_start + bracket_end];
-                    let mut in_str = false;
-                    let mut cur = String::new();
-                    for c in array_content.chars() {
-                        if c == '"' {
-                            if in_str {
-                                out.push(cur.clone());
-                                cur.clear();
-                                in_str = false;
-                            } else {
-                                in_str = true;
-                            }
-                        } else if in_str {
-                            cur.push(c);
-                        }
-                    }
-                }
+    if let Some(arr) = obj.get(key).and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(s) = item.as_str() {
+                out.push(s.to_string());
             }
         }
+    } else if let Some(s) = obj.get(key).and_then(|v| v.as_str()) {
+        out.push(s.to_string());
     }
     out
 }
 
-fn split_json_objects(text: &str) -> Vec<&str> {
-    let trimmed = text.trim();
-    if trimmed.starts_with('{') {
-        if let Some(tmpl_pos) = trimmed.find("\"templates\"") {
-            if let Some(arr_start) = trimmed[tmpl_pos..].find('[') {
-                let abs_arr_start = tmpl_pos + arr_start;
-                if let Some(arr_end) = trimmed.rfind(']') {
-                    if arr_end > abs_arr_start {
-                        return split_json_objects_inner(&trimmed[abs_arr_start + 1..arr_end]);
-                    }
-                }
+fn extract_json_objects<'a>(root: &'a JsonValue) -> Vec<&'a JsonValue> {
+    match root {
+        JsonValue::Array(items) => items
+            .iter()
+            .filter(|v| matches!(v, JsonValue::Object(_)))
+            .collect(),
+        JsonValue::Object(_) => {
+            if let Some(arr) = root.get("templates").and_then(|v| v.as_array()) {
+                arr.iter()
+                    .filter(|v| matches!(v, JsonValue::Object(_)))
+                    .collect()
+            } else {
+                vec![root]
             }
         }
+        _ => Vec::new(),
     }
-    split_json_objects_inner(text)
-}
-
-fn split_json_objects_inner(text: &str) -> Vec<&str> {
-    let mut objects = Vec::new();
-    let mut depth = 0;
-    let mut start_idx = None;
-    let mut in_string = false;
-    let mut escape = false;
-
-    for (idx, ch) in text.char_indices() {
-        if in_string {
-            if escape {
-                escape = false;
-            } else if ch == '\\' {
-                escape = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-        } else {
-            match ch {
-                '"' => in_string = true,
-                '{' => {
-                    if depth == 0 {
-                        start_idx = Some(idx);
-                    }
-                    depth += 1;
-                }
-                '}' => {
-                    if depth > 0 {
-                        depth -= 1;
-                        if depth == 0 {
-                            if let Some(s) = start_idx {
-                                objects.push(&text[s..=idx]);
-                                start_idx = None;
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    objects
 }
 
 fn encode_oid_to_der_bytes(oid_str: &str) -> Vec<u8> {
@@ -534,22 +457,22 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                     remediation: "Review certificate issuance and usage constraints.".to_string(),
                 });
             }
-        } else {
-            let objects = split_json_objects(&content);
+        } else if let Ok(root_json) = parse_json(&content) {
+            let objects = extract_json_objects(&root_json);
             if !objects.is_empty() {
                 for obj in objects {
-                    let editf = extract_json_bool(obj, "EDITF_ATTRIBUTESUBJECTALTNAME2")
-                        .or_else(|| extract_json_bool(obj, "editf_san2"))
+                    let editf = json_get_bool(obj, "EDITF_ATTRIBUTESUBJECTALTNAME2")
+                        .or_else(|| json_get_bool(obj, "editf_san2"))
                         .unwrap_or(false);
-                    let http_en = extract_json_bool(obj, "http_enrollment_enabled").unwrap_or(false);
-                    let rpc_no_priv = extract_json_bool(obj, "rpc_enrollment_without_packet_privacy").unwrap_or(false);
-                    let cert_map = extract_json_u32(obj, "CertificateMappingMethods");
-                    let low_mgrs = extract_json_str_array(obj, "low_privileged_ca_managers");
-                    let mut pki_writers = extract_json_str_array(obj, "low_privileged_pki_writers");
+                    let http_en = json_get_bool(obj, "http_enrollment_enabled").unwrap_or(false);
+                    let rpc_no_priv = json_get_bool(obj, "rpc_enrollment_without_packet_privacy").unwrap_or(false);
+                    let cert_map = json_get_u32(obj, "CertificateMappingMethods");
+                    let low_mgrs = json_get_str_array(obj, "low_privileged_ca_managers");
+                    let mut pki_writers = json_get_str_array(obj, "low_privileged_pki_writers");
                     if pki_writers.is_empty() {
-                        pki_writers = extract_json_str_array(obj, "low_privileged_ca_writers");
+                        pki_writers = json_get_str_array(obj, "low_privileged_ca_writers");
                     }
-                    let vuln_pki_acl = extract_json_bool(obj, "vulnerable_pki_acl").unwrap_or(false);
+                    let vuln_pki_acl = json_get_bool(obj, "vulnerable_pki_acl").unwrap_or(false);
                     let has_ca_keys = editf
                         || http_en
                         || rpc_no_priv
@@ -557,52 +480,53 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                         || !low_mgrs.is_empty()
                         || !pki_writers.is_empty()
                         || vuln_pki_acl
-                        || extract_json_str(obj, "ca_name").is_some();
+                        || json_get_str(obj, "ca_name").is_some();
 
-                    let has_template_keys = obj.contains("\"msPKI-Certificate-Name-Flag\"")
-                        || obj.contains("\"msPKI-Enrollment-Flag\"")
-                        || obj.contains("\"pKIExtendedKeyUsage\"")
-                        || obj.contains("\"name_flags\"")
-                        || obj.contains("\"enrollment_flags\"");
+                    let has_template_keys = obj.get("msPKI-Certificate-Name-Flag").is_some()
+                        || obj.get("msPKI-Enrollment-Flag").is_some()
+                        || obj.get("pKIExtendedKeyUsage").is_some()
+                        || obj.get("name_flags").is_some()
+                        || obj.get("enrollment_flags").is_some();
 
                     if has_ca_keys && !has_template_keys {
-                        let ca_name = extract_json_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
-                        let epa = extract_json_bool(obj, "extended_protection_enabled").unwrap_or(false);
-                        let https = extract_json_bool(obj, "https_enforced").unwrap_or(false);
+                        let ca_name = json_get_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
+                        let epa = json_get_bool(obj, "extended_protection_enabled").unwrap_or(false);
+                        let https = json_get_bool(obj, "https_enforced").unwrap_or(false);
                         let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, &pki_writers, vuln_pki_acl, http_en, epa, https, cert_map, rpc_no_priv);
                         all_findings.extend(ca_f);
                     } else {
                         scanned_count += 1;
-                        let name = extract_json_str(obj, "cn")
-                            .or_else(|| extract_json_str(obj, "displayName"))
-                            .or_else(|| extract_json_str(obj, "name"))
-                            .or_else(|| extract_json_str(obj, "template_name"))
-                            .or_else(|| extract_json_str(obj, "TemplateName"))
+                        let name = json_get_str(obj, "cn")
+                            .or_else(|| json_get_str(obj, "displayName"))
+                            .or_else(|| json_get_str(obj, "name"))
+                            .or_else(|| json_get_str(obj, "template_name"))
+                            .or_else(|| json_get_str(obj, "TemplateName"))
                             .unwrap_or_else(|| format!("Template-{}", scanned_count));
-                        let name_flags = extract_json_u32(obj, "msPKI-Certificate-Name-Flag")
-                            .or_else(|| extract_json_u32(obj, "name_flags"))
+                        let name_flags = json_get_u32(obj, "msPKI-Certificate-Name-Flag")
+                            .or_else(|| json_get_u32(obj, "name_flags"))
                             .unwrap_or(0);
-                        let enroll_flags = extract_json_u32(obj, "msPKI-Enrollment-Flag")
-                            .or_else(|| extract_json_u32(obj, "enrollment_flags"))
+                        let enroll_flags = json_get_u32(obj, "msPKI-Enrollment-Flag")
+                            .or_else(|| json_get_u32(obj, "enrollment_flags"))
                             .unwrap_or(0);
-                        let ra_sigs = extract_json_u32(obj, "msPKI-RA-Signature")
-                            .or_else(|| extract_json_u32(obj, "authorized_signatures"))
-                            .or_else(|| extract_json_u32(obj, "ra_signatures"))
+                        let ra_sigs = json_get_u32(obj, "msPKI-RA-Signature")
+                            .or_else(|| json_get_u32(obj, "authorized_signatures"))
+                            .or_else(|| json_get_u32(obj, "ra_signatures"))
                             .unwrap_or(0);
-                        let ekus = extract_json_str_array(obj, "pKIExtendedKeyUsage");
-                        let writers = extract_json_str_array(obj, "low_privileged_writers");
+                        let ekus = json_get_str_array(obj, "pKIExtendedKeyUsage");
+                        let writers = json_get_str_array(obj, "low_privileged_writers");
                         let f = evaluate_template(&name, name_flags, enroll_flags, ra_sigs, &ekus, &writers);
                         all_findings.extend(f);
                         if has_ca_keys {
-                            let ca_name = extract_json_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
-                            let epa = extract_json_bool(obj, "extended_protection_enabled").unwrap_or(false);
-                            let https = extract_json_bool(obj, "https_enforced").unwrap_or(false);
+                            let ca_name = json_get_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
+                            let epa = json_get_bool(obj, "extended_protection_enabled").unwrap_or(false);
+                            let https = json_get_bool(obj, "https_enforced").unwrap_or(false);
                             let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, &pki_writers, vuln_pki_acl, http_en, epa, https, cert_map, rpc_no_priv);
                             all_findings.extend(ca_f);
                         }
                     }
                 }
-            } else {
+            }
+        } else {
                 scanned_count = 1;
                 let mut name_flags = 0;
                 if content.contains("CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT") {
@@ -616,9 +540,8 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                 if content.contains(OID_CLIENT_AUTH) || content.contains("Client Auth") {
                     ekus.push(OID_CLIENT_AUTH.to_string());
                 }
-                let f = evaluate_template("Template-1", name_flags, enroll_flags, 0, &ekus, &[]);
-                all_findings.extend(f);
-            }
+            let f = evaluate_template("Template-1", name_flags, enroll_flags, 0, &ekus, &[]);
+            all_findings.extend(f);
         }
     }
 

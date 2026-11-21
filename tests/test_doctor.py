@@ -9,7 +9,6 @@ import time
 import unittest
 from unittest.mock import patch
 
-import tanuki
 from tanuki.doctor import (
     DoctorReport,
     check_enctype_kvno_sync,
@@ -19,7 +18,6 @@ from tanuki.doctor import (
     check_ticket_lifetime,
     diagnose_system,
     parse_ccache_stream,
-    parse_proc_keys,
 )
 
 

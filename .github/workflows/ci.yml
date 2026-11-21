@@ -27,6 +27,13 @@ jobs:
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Rust Formatting & Clippy
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Execute Rust Tests
         run: cargo test --workspace

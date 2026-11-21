@@ -1,4 +1,5 @@
 use super::types::CheckResult;
+use crate::util::escape_json;
 use std::env;
 use std::fs;
 
@@ -69,7 +70,7 @@ pub fn audit_host_tools() -> CheckResult {
             remaining_seconds: None,
             extra_fields: vec![
                 ("kinit_present".to_string(), "true".to_string()),
-                ("kinit_path".to_string(), format!("\"{}\"", path)),
+                ("kinit_path".to_string(), format!("\"{}\"", escape_json(&path))),
             ],
         }
     } else {

@@ -8,9 +8,8 @@ import sys
 import tempfile
 import unittest
 
-import tanuki
 from tanuki.config import generate_krb5_conf, write_krb5_conf_file
-from tanuki.doctor import check_host_tools, check_krb5_conf, diagnose_system
+from tanuki.doctor import check_host_tools, check_krb5_conf
 
 
 class TestKrb5ConfigGenerator(unittest.TestCase):

@@ -11,8 +11,6 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import tanuki
-from tanuki.cli import main as cli_main
-from tanuki.protocol import DECISION_LADDER, ERROR_DICTIONARY, find_error_resolution
 
 
 def build_synthetic_keytab(realm: str, principal_comps: list, key_bytes: bytes, keytype: int = 18, kvno: int = 3) -> bytes:
