@@ -1,10 +1,10 @@
 # Tanuki Command Reference
 
-Full usage for every Tanuki command. Both engines share the same command surface and flags, so these examples work with the Rust binary (`tanuki`) and the Python engine (`python3 -m tanuki`).
+Full usage for every Tanuki command. Both engines share the same command surface and flags, so these examples work with the Rust binary (tanuki) and the Python engine (python3 -m tanuki).
 
-For a high-level overview, see the [README](../README.md). For the protocol decision model, see [`references/tactical_ladder.md`](../references/tactical_ladder.md).
+For a high-level overview, see the [README](../README.md). For the protocol decision model, see [references/tactical_ladder.md](../references/tactical_ladder.md).
 
-## 1. Pre-flight health diagnostics (`tanuki doctor`)
+## 1. Pre-flight health diagnostics (tanuki doctor)
 
 Runs 10 diagnostic checks across domain configuration, credentials, network connectivity, and OPSEC telemetry (<5ms execution).
 
@@ -28,7 +28,7 @@ tanuki doctor --keytab /path/to/identity.keytab --ad-enctypes 0x18 --ad-kvno 3
 tanuki doctor --sssd-pipe /var/lib/sss/pipes/kcm --sssd-pid /var/run/sssd.pid --secrets-path /var/lib/sss/secrets/secrets.ldb
 ```
 
-## 2. Unprivileged userspace TGT authentication (`tanuki auth`)
+## 2. Unprivileged userspace TGT authentication (tanuki auth)
 
 Acquires a Kerberos Ticket Granting Ticket (TGT) using local keytab credentials, with automatic principal detection, in-memory clock skew healing, and Kerberos Flexible Authentication Secure Tunneling (FAST) armoring per [RFC 6113].
 
@@ -46,7 +46,7 @@ tanuki auth --keytab /path/to/identity.keytab --fast --armor-cache /tmp/krb5cc_a
 tanuki auth --keytab /path/to/identity.keytab --kdc 192.168.56.106 --json
 ```
 
-## 3. Kerberos service ticket acquisition (`tanuki tgs`)
+## 3. Kerberos service ticket acquisition (tanuki tgs)
 
 Requests Kerberos Service Tickets (TGS-REQ) for target Service Principal Names using cached credentials or a direct keytab exchange.
 
@@ -61,7 +61,7 @@ tanuki tgs --spn HTTP/web-service.domain.local --keytab /path/to/identity.keytab
 tanuki tgs --spn MSSQLSvc/db01.domain.local:1433 --keytab /path/to/identity.keytab --ccache /tmp/krb5cc_sql
 ```
 
-## 4. Quantitative blast radius engine (`tanuki blast`)
+## 4. Quantitative blast radius engine (tanuki blast)
 
 Evaluates machine identity blast radius, calculates the risk tier (Tier 0, Tier 1, Tier 2), and emits copy-paste PowerShell remediation recipes.
 
@@ -79,7 +79,7 @@ tanuki blast --keytab /path/to/identity.keytab --host dc01.domain.local --base-d
 tanuki blast --keytab /path/to/identity.keytab --spn HTTP/app.domain.local --json
 ```
 
-## 5. Idempotent closed-loop remediation (`tanuki fix`)
+## 5. Idempotent closed-loop remediation (tanuki fix)
 
 Applies deterministic self-healing fixes to environment misconfigurations. Synthesized Kerberos clock skew is clamped to the standard 300 second maximum so a drift value can never widen the host replay window.
 
@@ -100,7 +100,7 @@ tanuki fix --krb-error KRB_AP_ERR_SKEW --clock-skew 180 --dry-run
 tanuki fix --keytab /path/to/identity.keytab --krb5-conf ./krb5.conf --ccache /tmp/krb5cc_1000 --dry-run
 ```
 
-## 6. NIST SP 800-88 cryptographic memory purge (`tanuki purge`)
+## 6. NIST SP 800-88 cryptographic memory purge (tanuki purge)
 
 Executes a multi-pass cryptographic overwrite and zeroization across credential caches and memory buffers in accordance with NIST SP 800-88 Rev. 1 guidelines.
 
@@ -115,7 +115,7 @@ tanuki purge --target /tmp/krb5cc_1000
 tanuki purge --all --json
 ```
 
-## 7. Passive AD CS certificate and template scanner (`tanuki adcs`)
+## 7. Passive AD CS certificate and template scanner (tanuki adcs)
 
 Audits Active Directory Certificate Services (AD CS) certificate templates for ESC1 through ESC11 misconfigurations.
 
@@ -130,9 +130,9 @@ tanuki adcs --file /path/to/cert.pem
 tanuki adcs --file /path/to/template.json --json
 ```
 
-## 8. Unprivileged and authenticated Active Directory LDAP (`tanuki ldap`)
+## 8. Unprivileged and authenticated Active Directory LDAP (tanuki ldap)
 
-Reconnaissance across domain partitions for Kerberos SPNs, AS-REP roasting targets, RBCD delegation, shadow credentials (`msDS-KeyCredentialLink` per [MS-ADTS] 2.2.20), and unconstrained delegation. Query categories are selected with `--query`: `spn`, `asreproast`, `rbcd`, `shadow`, `unconstrained`, or `all`.
+Reconnaissance across domain partitions for Kerberos SPNs, AS-REP roasting targets, RBCD delegation, shadow credentials (msDS-KeyCredentialLink per [MS-ADTS] 2.2.20), and unconstrained delegation. Query categories are selected with --query: spn, asreproast, rbcd, shadow, unconstrained, or all.
 
 ```bash
 # Audit Kerberos Service Principal Names
@@ -159,7 +159,7 @@ tanuki ldap --host dc01.domain.local --port 389 --realm CORP.LOCAL --query spn
 
 ### Verified LDAPS (credentialed queries)
 
-Plain LDAP on port 389 sends the simple-bind credentials in cleartext. When you pass a username and password, use a verified LDAPS channel.
+Plain LDAP on port 389 sends the simple-bind credentials in cleartext. When you pass a username and password, use a verified LDAPS channel. In the Python engine, --ssl verifies the Domain Controller certificate by default (or pins a CA bundle via --verify-ca), with --insecure available only as an explicit opt-out.
 
 ```bash
 # Verify the DC certificate against the system trust store (-u/--username, -p/--password)
@@ -169,13 +169,17 @@ python3 -m tanuki ldap --host dc01.domain.local --ssl --secure \
 # Pin a specific DC CA bundle
 python3 -m tanuki ldap --host dc01.domain.local --ssl --verify-ca ./dc-ca.pem \
   -u svc@DOMAIN.LOCAL -p '<password>' --query rbcd
+
+# Explicitly opt out of certificate verification on lab self-signed endpoints
+python3 -m tanuki ldap --host dc01.domain.local --ssl --insecure \
+  -u svc@DOMAIN.LOCAL -p '<password>' --query rbcd
 ```
 
-The zero-dependency Rust engine has no TLS stack, so `tanuki ldap --ssl` refuses to run (exit 3) rather than send credentials in cleartext. Use the Python engine for verified LDAPS, or tunnel LDAP over stunnel or SSH.
+The zero-dependency Rust engine has no TLS stack, so tanuki ldap --ssl refuses to run (exit 3) rather than send credentials in cleartext. Use the Python engine for verified LDAPS, or tunnel LDAP over stunnel or SSH.
 
-## 9. Binary keytab inspection (`tanuki keytab`)
+## 9. Binary keytab inspection (tanuki keytab)
 
-Inspects binary Kerberos keytab files per [RFC 4120], extracting principals, Key Version Numbers (KVNO), encryption types, and key lengths, and generating recommended non-interactive modern AES `kinit` commands.
+Inspects binary Kerberos keytab files per [RFC 4120], extracting principals, Key Version Numbers (KVNO), encryption types, and key lengths, and generating recommended non-interactive modern AES kinit commands.
 
 ```bash
 # Inspect keytab entries and view modern AES kinit recommendation
@@ -189,9 +193,9 @@ tanuki keytab --file /path/to/identity.keytab
 tanuki keytab /path/to/identity.keytab --json
 ```
 
-## 10. SSSD KCM credential cache extraction (`tanuki kcm`)
+## 10. SSSD KCM credential cache extraction (tanuki kcm)
 
-Scans and extracts Kerberos credential cache (ccache) streams from local SSSD Kerberos Credential Manager (KCM) databases (`secrets.ldb`) or default system cache locations.
+Scans and extracts Kerberos credential cache (ccache) streams from local SSSD Kerberos Credential Manager (KCM) databases (secrets.ldb) or default system cache locations.
 
 ```bash
 # Triage and extract candidate credential caches from default system locations
@@ -211,7 +215,7 @@ tanuki kcm /var/lib/sss/secrets/secrets.ldb --out ./extracted_tickets
 tanuki kcm -f /var/lib/sss/secrets/secrets.ldb --json
 ```
 
-## 11. MS-PAC authorization data decoding (`tanuki pac`)
+## 11. MS-PAC authorization data decoding (tanuki pac)
 
 Decodes and audits Microsoft Privilege Attribute Certificate (MS-PAC) binary authorization structures per [MS-PAC] and [MS-DTYP], extracting Logon Information, group SIDs, user RID, domain SID, and user account control flags.
 
@@ -230,9 +234,9 @@ tanuki pac --file /path/to/pac_blob.bin
 tanuki pac ./ticket.pac --json
 ```
 
-## 12. Active Directory Shadow Credentials dissection (`tanuki shadow`)
+## 12. Active Directory Shadow Credentials dissection (tanuki shadow)
 
-Dissects Active Directory Shadow Credentials (`msDS-KeyCredentialLink` binary structures per [MS-ADTS] 2.2.20), decoding Next Generation Cryptography (NGC) and FIDO credential entries, KeyID, key usage, source flags, and creation timestamps.
+Dissects Active Directory Shadow Credentials (msDS-KeyCredentialLink binary structures per [MS-ADTS] 2.2.20), decoding Next Generation Cryptography (NGC) and FIDO credential entries, KeyID, key usage, source flags, and creation timestamps.
 
 ```bash
 # Dissect a raw binary Shadow Credential file
@@ -249,7 +253,7 @@ tanuki shadow "B:120:00000200..."
 tanuki shadow -f /path/to/key_credential.bin --json
 ```
 
-## 13. Protocol error triage and tactical resolution (`tanuki triage`)
+## 13. Protocol error triage and tactical resolution (tanuki triage)
 
 Queries the pre-compiled Kerberos, Active Directory, and SSSD protocol error resolution dictionary. Provides root causes, tactical remediation commands, Blue Team event detection telemetry, and [RFC 6113] FAST armoring requirements.
 
@@ -270,9 +274,9 @@ tanuki triage KRB_AP_ERR_SKEW
 tanuki triage KDC_ERR_ETYPE_NOSUPP --json
 ```
 
-## 14. 5-rung Tactical Decision Ladder (`tanuki ladder`)
+## 14. 5-rung Tactical Decision Ladder (tanuki ladder)
 
-Displays the fixed 5-rung Tactical Decision Ladder (Diagnose -> Authenticate -> Authorize -> Assess -> Purge) enforcing disciplined agent Standard Operating Procedures (SOP), zero-noise OPSEC standards, and military-brief command output standards: `[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]`.
+Displays the fixed 5-rung Tactical Decision Ladder (Diagnose -> Authenticate -> Authorize -> Assess -> Purge) enforcing disciplined agent Standard Operating Procedures (SOP), zero-noise OPSEC standards, and military-brief command output standards: [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE].
 
 ```bash
 # Display the 5-rung Tactical Decision Ladder in human-readable format
@@ -282,7 +286,7 @@ tanuki ladder
 tanuki ladder --json
 ```
 
-## 15. Workload identity JWT validation (`tanuki token`)
+## 15. Workload identity JWT validation (tanuki token)
 
 Parses and validates Non-Human Identity (NHI) workload JSON Web Tokens (JWT) per [RFC 7519] and [RFC 8693] with zero external dependencies. Assesses cryptographic algorithm strength, token expiration, claims validity, and expected audience/issuer constraints.
 
@@ -305,7 +309,7 @@ cat /path/to/token.jwt | tanuki token
 tanuki token -f ./token.jwt --json
 ```
 
-## 16. Non-Human Identity operations suite (`tanuki nhi`)
+## 16. Non-Human Identity operations suite (tanuki nhi)
 
 Comprehensive Non-Human Identity (NHI) operations suite for inspecting workload JWTs per [RFC 7519], validating OAuth 2.0 Token Exchange parameters per [RFC 8693], performing live token exchange against Security Token Service (STS) endpoints, discovering cloud mesh workload identities (SPIFFE/SPIRE, AWS, GCP, Azure), and scanning local filesystems.
 
@@ -334,18 +338,18 @@ tanuki nhi exchange --live --endpoint https://sts.domain.local/oauth/token \
   -a api://ad-bridge
 
 # Probe SPIFFE/SPIRE workload mesh socket and cloud metadata (optional socket override via -f/--file)
-python3 -m tanuki nhi mesh
-python3 -m tanuki nhi mesh --file /run/spire/sockets/agent.sock
+tanuki nhi mesh
+tanuki nhi mesh --file /run/spire/sockets/agent.sock
 
 # Output structured JSON report
 tanuki nhi inspect -f ./token.jwt --json
 ```
 
-*Note: Workload mesh discovery (`tanuki nhi mesh`) and live STS exchange (`tanuki nhi exchange --live`) interact with network sockets/endpoints and are implemented in the Python reference engine (`python3 -m tanuki nhi mesh`). The zero-dependency Rust systems core focuses on offline parameter compliance and local filesystem token scanning (`tanuki nhi scan`).*
+*Note: Both the Python reference engine and the Rust systems core support workload mesh discovery (tanuki nhi mesh / ingest), live STS exchange (tanuki nhi exchange --live --endpoint), and local filesystem token scanning (tanuki nhi scan, the default when no subcommand is given).*
 
-## 17. Zero-DNS unprivileged Kerberos configuration generator (`tanuki config`)
+## 17. Zero-DNS unprivileged Kerberos configuration generator (tanuki config)
 
-Generates an isolated, unprivileged Kerberos configuration (`krb5.conf`) targeting Domain Controllers directly by IP address without modifying `/etc/krb5.conf` or requiring root privileges. Supports enforcing modern AES encryption and enabling Kerberos FAST armoring per [RFC 6113].
+Generates an isolated, unprivileged Kerberos configuration (krb5.conf) targeting Domain Controllers directly by IP address without modifying /etc/krb5.conf or requiring root privileges. Supports enforcing modern AES encryption and enabling Kerberos FAST armoring per [RFC 6113].
 
 ```bash
 # Generate configuration targeting the KDC IP directly
@@ -363,14 +367,15 @@ tanuki config --keytab /path/to/identity.keytab --kdc 192.168.56.106 --clock-ske
 # Specify an explicit administrative server address for password changes
 tanuki config --realm DOMAIN.LOCAL --kdc 192.168.56.106 --admin-server 192.168.56.106 --out ./krb5.conf
 
-# Print generated krb5.conf directly to stdout
+# Print generated krb5.conf directly to stdout (or as JSON without writing ./krb5.conf)
 tanuki config --realm DOMAIN.LOCAL --kdc 192.168.56.106 --stdout
+tanuki config --realm DOMAIN.LOCAL --kdc 192.168.56.106 --stdout --json
 
 # Activate the generated configuration in the current unprivileged shell session
 export KRB5_CONFIG=$(pwd)/krb5.conf
 ```
 
-## 18. Interactive terminal UI wizard (`tanuki -i`)
+## 18. Interactive terminal UI wizard (tanuki -i)
 
 Launches a keyboard-navigable terminal interface for guided diagnosis, authentication, and remediation across all operational pillars.
 
@@ -380,7 +385,7 @@ tanuki -i
 tanuki --interactive
 ```
 
-## 19. AI agent integration (`tanuki skill`)
+## 19. AI agent integration (tanuki skill)
 
 Exports structured agent tool declarations and operational schemas for agent-driven developer tools such as Claude Code, Cursor, and Google Antigravity.
 
@@ -398,8 +403,8 @@ Every command returns a deterministic exit code so orchestrators can branch on t
 
 | Code | Meaning |
 | :---: | :--- |
-| `0` | Success |
-| `1` | Usage error |
-| `2` | Policy stop |
-| `3` | Resource missing |
-| `4` | Parse failure |
+| 0 | Success |
+| 1 | Usage error |
+| 2 | Policy stop |
+| 3 | Resource missing |
+| 4 | Parse failure |

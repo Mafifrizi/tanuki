@@ -4,15 +4,16 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use tanuki::{
-    blast_report_to_json, candidates_to_json, classify_identity_tier, entries_to_json,
-    errors_to_json, escape_json, evaluate_blast_radius, find_error_resolution,
-    format_blast_report_terminal, format_pac_report_terminal, format_shadow_report_terminal,
-    generate_ad_remediations, generate_krb5_conf, ladder_to_json, pac_report_to_json,
-    parse_and_validate_jwt, parse_key_credential_link, parse_keytab_bytes, parse_pac_source,
-    query_active_directory_ldap, resolve_current_uid, run_doctor, run_fix, run_purge,
-    save_candidates, scan_adcs_source, scan_for_ccache_blobs, shadow_report_to_json,
-    validate_token_exchange, BlastReport, DoctorOptions, TokenExchangeParams, DECISION_LADDER,
-    ERROR_DICTIONARY,
+    blast_report_to_json, candidates_to_json, classify_identity_tier, discover_cloud_mesh,
+    entries_to_json, errors_to_json, escape_json, evaluate_blast_radius, exchange_token_live,
+    find_error_resolution, format_blast_report_terminal, format_pac_report_terminal,
+    format_shadow_report_terminal, generate_ad_remediations, generate_krb5_conf, ladder_to_json,
+    pac_report_to_json, parse_and_validate_jwt, parse_kdc_host_port, parse_key_credential_link,
+    parse_keytab_bytes, parse_pac_source, query_active_directory_ldap, read_bytes_nofollow,
+    resolve_current_uid, run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source,
+    scan_for_ccache_blobs, shadow_report_to_json, strip_kdc_transport_prefix,
+    validate_token_exchange, write_bytes_nofollow, BlastReport, DoctorOptions,
+    TokenExchangeParams, DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 const TANUKI_BANNER: &str = r#" _____     _     _   _   _   _   _  __   _____ 
@@ -242,7 +243,7 @@ fn run_tui_wizard() {
                 if bdn.is_empty() {
                     println!("[USAGE ERROR] Error: Realm required to derive the LDAP base DN.");
                 } else {
-                    handle_ldap(Some(host), &q, &bdn, 389, false, false, None, None);
+                    handle_ldap(Some(host), &q, &bdn, 389, false, false, None, None, false, false, None);
                 }
             }
             "7" => {
@@ -358,6 +359,9 @@ fn main() {
     let mut base_dn_opt: Option<String> = None;
     let mut port_opt: Option<u16> = None;
     let mut ssl_opt = false;
+    let mut secure_opt = false;
+    let mut insecure_opt = false;
+    let mut verify_ca_opt: Option<String> = None;
     let mut live_opt = false;
     let mut endpoint_opt: Option<String> = None;
     let mut fast_opt = false;
@@ -366,6 +370,7 @@ fn main() {
     let mut secrets_path_opt: Option<String> = None;
     let mut username_opt: Option<String> = None;
     let mut password_opt: Option<String> = None;
+    let mut short_p_opt: Option<String> = None;
     let mut ad_supported_enctypes_opt: Option<u32> = None;
     let mut ad_kvno_opt: Option<u32> = None;
 
@@ -481,8 +486,7 @@ fn main() {
             }
             "-p" => {
                 if i + 1 < raw_args.len() {
-                    principal_opt = Some(raw_args[i + 1].clone());
-                    password_opt = Some(raw_args[i + 1].clone());
+                    short_p_opt = Some(raw_args[i + 1].clone());
                     i += 1;
                 } else {
                     emit_cli_error(
@@ -504,7 +508,20 @@ fn main() {
                     } else {
                         val.parse::<u32>().ok()
                     };
-                    ad_supported_enctypes_opt = parsed;
+                    match parsed {
+                        Some(v) => ad_supported_enctypes_opt = Some(v),
+                        None => {
+                            emit_cli_error(
+                                &format!("Invalid ad-enctypes value: {}", val),
+                                "INVALID_ARGUMENT",
+                                "USAGE_ERROR",
+                                EXIT_USAGE_ERROR,
+                                Some(val),
+                                None,
+                                global_json,
+                            );
+                        }
+                    }
                     i += 1;
                 } else {
                     emit_cli_error(
@@ -520,7 +537,20 @@ fn main() {
             }
             "--ad-kvno" => {
                 if i + 1 < raw_args.len() {
-                    ad_kvno_opt = raw_args[i + 1].parse::<u32>().ok();
+                    match raw_args[i + 1].parse::<u32>() {
+                        Ok(v) => ad_kvno_opt = Some(v),
+                        Err(_) => {
+                            emit_cli_error(
+                                &format!("Invalid ad-kvno value: {}", raw_args[i + 1]),
+                                "INVALID_ARGUMENT",
+                                "USAGE_ERROR",
+                                EXIT_USAGE_ERROR,
+                                Some(&raw_args[i + 1]),
+                                None,
+                                global_json,
+                            );
+                        }
+                    }
                     i += 1;
                 } else {
                     emit_cli_error(
@@ -876,6 +906,28 @@ fn main() {
             "--ssl" => {
                 ssl_opt = true;
             }
+            "--secure" => {
+                secure_opt = true;
+            }
+            "--insecure" => {
+                insecure_opt = true;
+            }
+            "--verify-ca" => {
+                if i + 1 < raw_args.len() {
+                    verify_ca_opt = Some(raw_args[i + 1].clone());
+                    i += 1;
+                } else {
+                    emit_cli_error(
+                        "Option requires an argument: --verify-ca",
+                        "MISSING_ARGUMENT",
+                        "USAGE_ERROR",
+                        EXIT_USAGE_ERROR,
+                        None,
+                        None,
+                        global_json,
+                    );
+                }
+            }
             "--live" => {
                 live_opt = true;
             }
@@ -929,8 +981,19 @@ fn main() {
             }
             "--port" => {
                 if i + 1 < raw_args.len() {
-                    if let Ok(p) = raw_args[i + 1].parse::<u16>() {
-                        port_opt = Some(p);
+                    match raw_args[i + 1].parse::<u16>() {
+                        Ok(p) if p > 0 => port_opt = Some(p),
+                        _ => {
+                            emit_cli_error(
+                                &format!("Invalid port value: {}", raw_args[i + 1]),
+                                "INVALID_ARGUMENT",
+                                "USAGE_ERROR",
+                                EXIT_USAGE_ERROR,
+                                Some(&raw_args[i + 1]),
+                                None,
+                                global_json,
+                            );
+                        }
                     }
                     i += 1;
                 } else {
@@ -1116,6 +1179,7 @@ fn main() {
             };
             let default_port = if ssl_opt { 636 } else { 389 };
             let port = port_opt.unwrap_or(default_port);
+            let effective_password = password_opt.or(short_p_opt);
             handle_ldap(
                 host,
                 &query,
@@ -1124,23 +1188,27 @@ fn main() {
                 ssl_opt,
                 global_json,
                 username_opt.as_deref(),
-                password_opt.as_deref(),
+                effective_password.as_deref(),
+                secure_opt,
+                insecure_opt,
+                verify_ca_opt.as_deref(),
             );
         }
         "auth" => {
+            let resolved_princ = principal_opt.or(short_p_opt);
             if spn_opt.is_some() {
                 handle_tgs(
                     spn_opt,
                     ccache_opt.or(out_opt),
                     keytab_opt.or(file_opt),
-                    principal_opt,
+                    resolved_princ,
                     global_json,
                     krb5_conf_opt,
                     kdc_opt,
                 );
             } else {
                 let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
-                let target_princ = principal_opt.or_else(|| positional_args.get(1).cloned());
+                let target_princ = resolved_princ.or_else(|| positional_args.get(1).cloned());
                 let target_ccache = ccache_opt.or(out_opt);
                 handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt, kdc_opt, fast_opt, armor_cache_opt);
             }
@@ -1149,11 +1217,12 @@ fn main() {
             let target_spn = spn_opt.or_else(|| positional_args.first().cloned());
             let target_kt = keytab_opt.or(file_opt);
             let target_ccache = ccache_opt.or(out_opt);
+            let resolved_princ = principal_opt.or(short_p_opt);
             handle_tgs(
                 target_spn,
                 target_ccache,
                 target_kt,
-                principal_opt,
+                resolved_princ,
                 global_json,
                 krb5_conf_opt,
                 kdc_opt,
@@ -1184,7 +1253,7 @@ fn main() {
                 host_opt,
                 base_dn_opt,
                 username_opt,
-                password_opt,
+                password_opt.or(short_p_opt),
                 spn_opt,
                 global_json,
             );
@@ -1210,12 +1279,11 @@ fn main() {
             handle_token(token_target, file_opt, audience_opt, issuer_opt, global_json);
         }
         "nhi" => {
-            let subcmd = positional_args.first().map(|s| s.as_str()).unwrap_or("inspect");
-            let remaining = if positional_args.len() > 1 {
-                &positional_args[1..]
-            } else {
-                &[]
-            };
+            let (subcmd, remaining) = resolve_nhi_subcommand(
+                &positional_args,
+                file_opt.is_some(),
+                subject_token_opt.is_some(),
+            );
             handle_nhi(
                 subcmd,
                 remaining,
@@ -1251,6 +1319,52 @@ fn main() {
     }
 }
 
+fn resolve_nhi_subcommand(
+    positional_args: &[String],
+    has_file: bool,
+    has_subject_token: bool,
+) -> (&str, &[String]) {
+    if positional_args.is_empty() && !has_file && !has_subject_token {
+        ("scan", &[])
+    } else if let Some(first) = positional_args.first() {
+        (first.as_str(), &positional_args[1..])
+    } else {
+        ("inspect", &[])
+    }
+}
+
+fn validate_ldap_tls_flags(
+    use_ssl: bool,
+    secure_opt: bool,
+    insecure_opt: bool,
+    verify_ca: Option<&str>,
+) -> Result<(), (&'static str, &'static str, i32)> {
+    if (secure_opt || verify_ca.is_some() || insecure_opt) && !use_ssl {
+        return Err((
+            "Error: --secure/--verify-ca/--insecure require LDAPS; add --ssl.",
+            "INVALID_ARGUMENT",
+            EXIT_USAGE_ERROR,
+        ));
+    }
+    if insecure_opt && (secure_opt || verify_ca.is_some()) {
+        return Err((
+            "Error: --insecure cannot be combined with --secure or --verify-ca.",
+            "INVALID_ARGUMENT",
+            EXIT_USAGE_ERROR,
+        ));
+    }
+    if let Some(ca_path) = verify_ca {
+        if !Path::new(ca_path).is_file() {
+            return Err((
+                "Error: CA bundle not found",
+                "MISSING_RESOURCE",
+                EXIT_RESOURCE_MISSING,
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn handle_keytab(file_path: Option<String>, json_output: bool) {
     let path = match file_path {
         Some(p) => p,
@@ -1279,7 +1393,7 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
         );
     }
 
-    let data = match fs::read(&path) {
+    let data = match read_bytes_nofollow(Path::new(&path)) {
         Ok(bytes) => bytes,
         Err(err) => {
             emit_cli_error(
@@ -1323,12 +1437,7 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
         println!("[{}] Principal : {}", idx + 1, e.principal);
         println!("    ├─ KVNO      : {}", e.vno);
         println!("    ├─ Enctype   : {} ({})", e.enctype_name, e.keytype);
-        let preview = if e.key_hex.len() > 16 {
-            &e.key_hex[..16]
-        } else {
-            &e.key_hex
-        };
-        println!("    ╰─ Key (Hex) : {}... (length: {} bytes)", preview, e.key_len);
+        println!("    ╰─ Key (Hex) : {} (length: {} bytes)", e.key_preview, e.key_len);
     }
 
     let aes_entries: Vec<_> = entries.iter().filter(|e| e.is_modern_aes()).collect();
@@ -1379,7 +1488,7 @@ fn handle_config(
                         json_output,
                     );
                 }
-                let data = match fs::read(&kt_path) {
+                let data = match read_bytes_nofollow(Path::new(&kt_path)) {
                     Ok(bytes) => bytes,
                     Err(err) => {
                         emit_cli_error(
@@ -1506,8 +1615,39 @@ fn handle_config(
         }
     };
 
-    if stdout_mode && !json_output {
-        print!("{}", content);
+    let clean_realm = realm.trim().to_uppercase();
+    let default_kdc_admin = strip_kdc_transport_prefix(kdc.split(',').next().unwrap_or(""));
+    let target_admin = admin_server_opt
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(default_kdc_admin);
+
+    if stdout_mode {
+        if !json_output {
+            print!("{}", content);
+            return;
+        }
+        let mut out = format!(
+            "{{\n  \"status\": \"SUCCESS\",\n  \"realm\": \"{}\",\n  \"kdc\": \"{}\",\n  \"admin_server\": \"{}\",\n  \"stdout\": true",
+            tanuki::escape_json(&clean_realm),
+            tanuki::escape_json(kdc.trim()),
+            tanuki::escape_json(target_admin),
+        );
+        if let Some(skew) = clock_skew_opt {
+            out.push_str(&format!(",\n  \"clockskew\": {}", skew));
+        }
+        if enforce_aes_opt {
+            out.push_str(",\n  \"enforce_aes\": true");
+        }
+        if fast_opt {
+            out.push_str(",\n  \"fast\": true");
+        }
+        if let Some(ref armor) = armor_cache_opt {
+            out.push_str(&format!(",\n  \"armor_cache\": \"{}\"", tanuki::escape_json(armor)));
+        }
+        out.push_str(&format!(",\n  \"content\": \"{}\"\n}}", tanuki::escape_json(&content)));
+        println!("{}", out);
         return;
     }
 
@@ -1532,7 +1672,7 @@ fn handle_config(
         }
     }
 
-    if let Err(err) = fs::write(&target_file, &content) {
+    if let Err(err) = write_bytes_nofollow(&target_path, content.as_bytes(), 0o644) {
         emit_cli_error(
             &format!("Failed to write configuration file: {}", err),
             "WRITE_ERROR",
@@ -1553,9 +1693,6 @@ fn handle_config(
     let abs_str = abs_path.to_string_lossy().to_string();
 
     let export_cmd = format!("export KRB5_CONFIG={}", abs_str);
-    let clean_realm = realm.trim().to_uppercase();
-    let default_kdc_admin = kdc.split(',').next().unwrap_or("").trim();
-    let target_admin = admin_server_opt.as_deref().unwrap_or(default_kdc_admin);
 
     if json_output {
         let mut out = format!(
@@ -1649,7 +1786,7 @@ fn handle_auth(
 
     let princ = match principal_opt {
         Some(p) => p,
-        None => match fs::read(&kt_path) {
+        None => match read_bytes_nofollow(Path::new(&kt_path)) {
             Ok(bytes) => match parse_keytab_bytes(&bytes) {
                 Ok(entries) => {
                     let mut found: Option<String> = None;
@@ -1719,9 +1856,9 @@ fn handle_auth(
                 let trimmed = line.trim();
                 if trimmed.starts_with("kdc") && trimmed.contains('=') {
                     if let Some(val) = trimmed.split('=').nth(1) {
-                        let host = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("").split(':').next().unwrap_or("");
-                        if !host.is_empty() {
-                            target_kdc_host = Some(host.to_string());
+                        let candidate = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("");
+                        if !candidate.is_empty() {
+                            target_kdc_host = Some(candidate.to_string());
                             break;
                         }
                     }
@@ -1737,12 +1874,10 @@ fn handle_auth(
     }
 
     if let Some(ref raw_host) = target_kdc_host {
-        let clean_host = raw_host.split(',').next().unwrap_or(raw_host).trim().split(':').next().unwrap_or(raw_host).trim();
-        if !clean_host.is_empty() {
+        if let Some((clean_host, port)) = parse_kdc_host_port(raw_host) {
             use std::net::{TcpStream, ToSocketAddrs};
             use std::time::Duration;
-            let addr_str = format!("{}:88", clean_host);
-            let unreachable_err = match addr_str.to_socket_addrs() {
+            let unreachable_err = match (clean_host.as_str(), port).to_socket_addrs() {
                 Ok(mut addrs) => match addrs.next() {
                     Some(addr) => match TcpStream::connect_timeout(&addr, Duration::from_millis(800)) {
                         Ok(_) => None,
@@ -1754,9 +1889,9 @@ fn handle_auth(
             };
 
             if let Some(err_msg) = unreachable_err {
-                let remediation = format!("ssh -L 8888:{}:88 user@pivot -N", clean_host);
+                let remediation = format!("ssh -L 8888:{}:{} user@pivot -N", clean_host, port);
                 emit_cli_error(
-                    &format!("KDC port 88 unreachable on host '{}' ({}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {}", clean_host, err_msg, remediation),
+                    &format!("KDC port {} unreachable on host '{}' ({}). Tactical remediation: Verify network route/firewall or configure SSH port-forwarding pivot: {}", port, clean_host, err_msg, remediation),
                     "KDC_UNREACHABLE",
                     "NETWORK_ERROR",
                     EXIT_RESOURCE_MISSING,
@@ -1790,7 +1925,20 @@ fn handle_auth(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        let _ = fs::OpenOptions::new().create(true).write(true).mode(0o600).open(&ccache);
+        let mut opts = fs::OpenOptions::new();
+        opts.create(true).write(true).mode(0o600);
+        tanuki::apply_nofollow(&mut opts);
+        if let Err(err) = opts.open(&ccache) {
+            emit_cli_error(
+                &format!("Refusing or unable to prepare credential cache '{}': {}", ccache, err),
+                "SYMLINK_REJECTED",
+                "SECURITY_VIOLATION",
+                EXIT_POLICY_STOP,
+                Some(&ccache),
+                Some(&err.to_string()),
+                json_output,
+            );
+        }
     }
 
     let mut cmd = process::Command::new("kinit");
@@ -1886,7 +2034,7 @@ fn handle_kcm(file_path: Option<String>, out_dir: &str, json_output: bool) {
     let out_path = PathBuf::from(out_dir);
 
     if let Some(path) = file_path {
-        let data = match fs::read(&path) {
+        let data = match read_bytes_nofollow(Path::new(&path)) {
             Ok(bytes) => bytes,
             Err(err) => {
                 emit_cli_error(
@@ -2138,7 +2286,9 @@ fn handle_token(
     json_output: bool,
 ) {
     let raw_token = if let Some(path) = file_path {
-        match fs::read_to_string(&path) {
+        match read_bytes_nofollow(Path::new(&path)).and_then(|b| {
+            String::from_utf8(b).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        }) {
             Ok(s) => s.trim().to_string(),
             Err(e) => {
                 emit_cli_error(
@@ -2165,9 +2315,11 @@ fn handle_token(
             );
         }
         if Path::new(&arg).is_file() {
-            fs::read_to_string(&arg)
+            read_bytes_nofollow(Path::new(&arg))
+                .ok()
+                .and_then(|b| String::from_utf8(b).ok())
                 .map(|s| s.trim().to_string())
-                .unwrap_or_else(|_| arg)
+                .unwrap_or_else(|| arg)
         } else {
             arg
         }
@@ -2246,10 +2398,61 @@ fn handle_nhi(
             let sub_tok = if let Some(st) = subject_token {
                 Some(st)
             } else if let Some(fp) = &file_path {
-                fs::read_to_string(fp).ok().map(|s| s.trim().to_string())
+                read_bytes_nofollow(Path::new(fp))
+                    .ok()
+                    .and_then(|b| String::from_utf8(b).ok())
+                    .map(|s| s.trim().to_string())
             } else {
                 positional_args.first().cloned()
             };
+
+            if live || endpoint.is_some() {
+                let st = match sub_tok.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    Some(v) => v,
+                    None => {
+                        emit_cli_error(
+                            "Error: subject_token required for live token exchange.",
+                            "MISSING_ARGUMENT",
+                            "USAGE_ERROR",
+                            EXIT_USAGE_ERROR,
+                            None,
+                            None,
+                            json_output,
+                        );
+                    }
+                };
+                let ep = match endpoint.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    Some(v) => v,
+                    None => {
+                        emit_cli_error(
+                            "Error: --endpoint required for live token exchange. Example: tanuki nhi exchange --live --endpoint https://sts.example.com/oauth/v2/token",
+                            "MISSING_ARGUMENT",
+                            "USAGE_ERROR",
+                            EXIT_USAGE_ERROR,
+                            None,
+                            None,
+                            json_output,
+                        );
+                    }
+                };
+                let live_res = exchange_token_live(
+                    ep,
+                    st,
+                    subject_token_type.as_deref(),
+                    requested_token_type.as_deref(),
+                    audience.as_deref(),
+                    grant_type.as_deref(),
+                );
+                if json_output {
+                    println!("{}", live_res.to_json());
+                } else {
+                    println!("{}", live_res.format_terminal());
+                }
+                if live_res.status != "SUCCESS" {
+                    process::exit(EXIT_POLICY_STOP);
+                }
+                return;
+            }
 
             let params = TokenExchangeParams {
                 grant_type,
@@ -2263,27 +2466,20 @@ fn handle_nhi(
 
             let report = validate_token_exchange(&params);
             if json_output {
-                if live {
-                    if let Some(ref ep) = endpoint {
-                        println!("{{\n  \"live_mode\": true,\n  \"endpoint\": \"{}\",\n  \"offline_validation\": {}\n}}", escape_json(ep), report.to_json());
-                        return;
-                    }
-                }
                 println!("{}", report.to_json());
             } else {
                 println!("{}", report.format_terminal());
-                if live {
-                    if let Some(ref ep) = endpoint {
-                        println!("\n[*] Live Token Exchange Endpoint: {}", ep);
-                        println!("    Protocol: RFC 8693 OAuth 2.0 Token Exchange");
-                        println!("    Status: Offline parameter schema verified compliant.");
-                    } else {
-                        println!("\n[!] Live mode requested without --endpoint URL. Offline validation completed.");
-                    }
-                }
             }
             if !report.valid {
                 process::exit(EXIT_USAGE_ERROR);
+            }
+        }
+        "mesh" | "ingest" => {
+            let rep = discover_cloud_mesh(file_path.as_deref());
+            if json_output {
+                println!("{}", rep.to_json());
+            } else {
+                println!("{}", rep.format_terminal());
             }
         }
         "scan" => {
@@ -2528,6 +2724,9 @@ fn handle_ldap(
     json_output: bool,
     username: Option<&str>,
     password: Option<&str>,
+    secure_opt: bool,
+    insecure_opt: bool,
+    verify_ca: Option<&str>,
 ) {
     let host = match host_opt {
         Some(h) => h,
@@ -2544,6 +2743,17 @@ fn handle_ldap(
         }
     };
 
+    if let Err((msg, code, exit_code)) =
+        validate_ldap_tls_flags(use_ssl, secure_opt, insecure_opt, verify_ca)
+    {
+        let cat = if exit_code == EXIT_RESOURCE_MISSING {
+            "RESOURCE_MISSING"
+        } else {
+            "USAGE_ERROR"
+        };
+        emit_cli_error(msg, code, cat, exit_code, verify_ca, None, json_output);
+    }
+
     let rep = query_active_directory_ldap(&host, query_type, base_dn, port, use_ssl, 5, username, password);
     if json_output {
         println!("{}", rep.to_json());
@@ -2551,7 +2761,10 @@ fn handle_ldap(
         println!("{}", rep.format_terminal());
     }
 
-    if rep.status == "BIND_FAILED" || rep.status == "CONNECTION_FAILED" {
+    if rep.status == "BIND_FAILED"
+        || rep.status == "CONNECTION_FAILED"
+        || rep.status == "SEARCH_FAILED"
+    {
         process::exit(EXIT_RESOURCE_MISSING);
     }
 }
@@ -2630,39 +2843,96 @@ fn handle_tgs(
         );
     }
 
-    if let Some(ref kt) = keytab_path_opt {
-        if Path::new(kt).exists() {
-            let fallback_cc = format!("/tmp/krb5cc_{}", resolve_current_uid());
-            let cc = ccache_path_opt.clone().unwrap_or(fallback_cc);
-            let mut cmd = process::Command::new("kinit");
-            cmd.args(["-k", "-t", kt, "-c", &cc]);
-            if let Some(ref p) = principal_opt {
-                if p.trim().starts_with('-') {
-                    emit_cli_error(
-                        &format!("Invalid principal starting with '-': '{}'", p),
-                        "INVALID_ARGUMENT",
-                        "USAGE_ERROR",
-                        EXIT_USAGE_ERROR,
-                        None,
-                        None,
-                        json_output,
-                    );
-                }
-                cmd.arg("--");
-                cmd.arg(p);
-            }
-            cmd.env("KRB5CCNAME", format!("FILE:{}", cc));
-            if let Some(ref conf) = krb5_conf_opt {
-                cmd.env("KRB5_CONFIG", conf);
-            }
-            let _ = cmd.status();
-        }
-    }
-
     let fallback_cc = format!("/tmp/krb5cc_{}", resolve_current_uid());
     let ccache = ccache_path_opt
         .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
         .unwrap_or(fallback_cc);
+
+    if let Some(ref kt) = keytab_path_opt {
+        if !Path::new(kt).exists() {
+            emit_cli_error(
+                &format!("Error reading keytab at '{}': No such file or directory", kt),
+                "MISSING_KEYTAB",
+                "RESOURCE_MISSING",
+                EXIT_RESOURCE_MISSING,
+                Some(kt),
+                None,
+                json_output,
+            );
+        }
+        if let Ok(meta) = fs::symlink_metadata(&ccache) {
+            if meta.file_type().is_symlink() {
+                emit_cli_error(
+                    &format!("Refusing to write credential cache to symbolic link: {}", ccache),
+                    "SYMLINK_REJECTED",
+                    "SECURITY_VIOLATION",
+                    EXIT_POLICY_STOP,
+                    Some(&ccache),
+                    None,
+                    json_output,
+                );
+            }
+        }
+        let resolved_princ = match &principal_opt {
+            Some(p) => Some(p.clone()),
+            None => read_bytes_nofollow(Path::new(kt))
+                .ok()
+                .and_then(|bytes| parse_keytab_bytes(&bytes).ok())
+                .and_then(|entries| {
+                    entries
+                        .into_iter()
+                        .find(|e| !e.principal.trim().is_empty())
+                        .map(|e| e.principal)
+                }),
+        };
+        let mut cmd = process::Command::new("kinit");
+        cmd.args(["-k", "-t", kt, "-c", &ccache]);
+        if let Some(ref p) = resolved_princ {
+            if p.trim().starts_with('-') {
+                emit_cli_error(
+                    &format!("Invalid principal starting with '-': '{}'", p),
+                    "INVALID_ARGUMENT",
+                    "USAGE_ERROR",
+                    EXIT_USAGE_ERROR,
+                    None,
+                    None,
+                    json_output,
+                );
+            }
+            cmd.arg("--");
+            cmd.arg(p);
+        }
+        cmd.env("KRB5CCNAME", format!("FILE:{}", ccache));
+        if let Some(ref conf) = krb5_conf_opt {
+            cmd.env("KRB5_CONFIG", conf);
+        }
+        match cmd.status() {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                emit_cli_error(
+                    &format!("kinit authentication failed with exit status {:?}", status.code()),
+                    "AUTH_FAILED",
+                    "PROTOCOL_ERROR",
+                    EXIT_POLICY_STOP,
+                    Some(kt),
+                    Some("Check keytab encryption types, principal KVNO, or Domain Controller clock skew."),
+                    json_output,
+                );
+            }
+            Err(_) => {
+                let guidance = "Install Kerberos client utilities (kinit): sudo apt install krb5-user";
+                emit_cli_error(
+                    &format!("kinit utility not found on host $PATH. {}", guidance),
+                    "MISSING_KINIT_UTILITY",
+                    "DEPENDENCY_ERROR",
+                    EXIT_RESOURCE_MISSING,
+                    Some(kt),
+                    Some(guidance),
+                    json_output,
+                );
+            }
+        }
+    }
 
     if !Path::new(&ccache).exists() {
         let remediation = "tanuki auth --keytab <KEYTAB> --principal <PRINCIPAL>";
@@ -2686,7 +2956,7 @@ fn handle_tgs(
                 let trimmed = line.trim();
                 if trimmed.starts_with("kdc") && trimmed.contains('=') {
                     if let Some(val) = trimmed.split('=').nth(1) {
-                        let candidate = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("").split(':').next().unwrap_or("");
+                        let candidate = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("");
                         if !candidate.is_empty() {
                             target_kdc_host = Some(candidate.to_string());
                             break;
@@ -2704,17 +2974,15 @@ fn handle_tgs(
     }
 
     if let Some(ref raw_host) = target_kdc_host {
-        let clean_host = raw_host.split(',').next().unwrap_or(raw_host).trim().split(':').next().unwrap_or(raw_host).trim();
-        if !clean_host.is_empty() {
+        if let Some((clean_host, port)) = parse_kdc_host_port(raw_host) {
             use std::net::{TcpStream, ToSocketAddrs};
             use std::time::Duration;
-            let addr_str = format!("{}:88", clean_host);
-            if let Ok(mut addrs) = addr_str.to_socket_addrs() {
+            if let Ok(mut addrs) = (clean_host.as_str(), port).to_socket_addrs() {
                 if let Some(addr) = addrs.next() {
                     if TcpStream::connect_timeout(&addr, Duration::from_millis(800)).is_err() {
-                        let remediation = format!("ssh -L 8888:{}:88 user@pivot -N", clean_host);
+                        let remediation = format!("ssh -L 8888:{}:{} user@pivot -N", clean_host, port);
                         emit_cli_error(
-                            &format!("KDC port 88 unreachable on host '{}'. Tactical remediation: {}", clean_host, remediation),
+                            &format!("KDC port {} unreachable on host '{}'. Tactical remediation: {}", port, clean_host, remediation),
                             "KDC_UNREACHABLE",
                             "NETWORK_ERROR",
                             EXIT_RESOURCE_MISSING,
@@ -3376,6 +3644,97 @@ fn handle_blast(
         println!("{}", blast_report_to_json(&report));
     } else {
         println!("{}", format_blast_report_terminal(&report));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_nhi_subcommand_defaults_to_scan() {
+        let empty: Vec<String> = Vec::new();
+        assert_eq!(resolve_nhi_subcommand(&empty, false, false), ("scan", &[][..]));
+        assert_eq!(resolve_nhi_subcommand(&empty, true, false), ("inspect", &[][..]));
+        assert_eq!(resolve_nhi_subcommand(&empty, false, true), ("inspect", &[][..]));
+
+        let mesh_args = vec!["mesh".to_string()];
+        assert_eq!(resolve_nhi_subcommand(&mesh_args, false, false), ("mesh", &[][..]));
+
+        let inspect_args = vec!["inspect".to_string(), "tok.val.sig".to_string()];
+        assert_eq!(
+            resolve_nhi_subcommand(&inspect_args, false, false),
+            ("inspect", &inspect_args[1..])
+        );
+    }
+
+    #[test]
+    fn test_validate_ldap_tls_flags() {
+        assert!(validate_ldap_tls_flags(false, false, false, None).is_ok());
+        assert!(validate_ldap_tls_flags(true, true, false, None).is_ok());
+        assert!(validate_ldap_tls_flags(true, false, true, None).is_ok());
+        assert_eq!(
+            validate_ldap_tls_flags(false, true, false, None)
+                .unwrap_err()
+                .2,
+            EXIT_USAGE_ERROR
+        );
+        assert_eq!(
+            validate_ldap_tls_flags(false, false, true, None)
+                .unwrap_err()
+                .2,
+            EXIT_USAGE_ERROR
+        );
+        assert_eq!(
+            validate_ldap_tls_flags(true, true, true, None)
+                .unwrap_err()
+                .2,
+            EXIT_USAGE_ERROR
+        );
+        assert_eq!(
+            validate_ldap_tls_flags(true, false, false, Some("/nonexistent/ca_bundle.pem"))
+                .unwrap_err()
+                .2,
+            EXIT_RESOURCE_MISSING
+        );
+    }
+
+    #[test]
+    fn test_parse_kdc_host_port_ipv4_and_ipv6() {
+        assert_eq!(
+            parse_kdc_host_port("192.168.56.106"),
+            Some(("192.168.56.106".to_string(), 88))
+        );
+        assert_eq!(
+            parse_kdc_host_port("tcp/192.168.56.106:8888"),
+            Some(("192.168.56.106".to_string(), 8888))
+        );
+        assert_eq!(
+            parse_kdc_host_port("tcp/[2001:db8::1]:88"),
+            Some(("2001:db8::1".to_string(), 88))
+        );
+        assert_eq!(
+            parse_kdc_host_port("[fe80::1%eth0]:1088"),
+            Some(("fe80::1%eth0".to_string(), 1088))
+        );
+        assert_eq!(
+            parse_kdc_host_port("2001:db8::1"),
+            Some(("2001:db8::1".to_string(), 88))
+        );
+    }
+
+    #[test]
+    fn test_strip_kdc_transport_prefix() {
+        assert_eq!(strip_kdc_transport_prefix("tcp/dc01.corp.local"), "dc01.corp.local");
+        assert_eq!(strip_kdc_transport_prefix("UDP/[2001:db8::1]:88"), "[2001:db8::1]:88");
+        assert_eq!(strip_kdc_transport_prefix("192.168.56.106"), "192.168.56.106");
+    }
+
+    #[test]
+    fn test_hex_to_bytes() {
+        assert_eq!(hex_to_bytes("deadbeef"), Some(vec![0xde, 0xad, 0xbe, 0xef]));
+        assert_eq!(hex_to_bytes("abc"), None);
+        assert_eq!(hex_to_bytes("zzzz"), None);
     }
 }
 

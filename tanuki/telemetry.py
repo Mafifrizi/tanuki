@@ -1,6 +1,6 @@
 """Dual-use detection telemetry database and formatters for Linux Active Directory operations."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 
 EVENT_DESCRIPTIONS: Dict[int, str] = {

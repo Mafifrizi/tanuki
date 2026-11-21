@@ -16,11 +16,10 @@ Evaluates templates and x509 certificates for ESC1 through ESC11 misconfiguratio
 """
 
 import base64
+import errno
 import json
 import os
 import re
-import struct
-import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .doctor import render_card_header, supports_unicode
@@ -179,7 +178,14 @@ def load_certificate_or_templates(source: str) -> Union[List[Dict[str, Any]], Di
     if os.path.islink(source):
         raise AdcsScannerError(f"Refusing to read symbolic link: {source}")
     if os.path.isfile(source):
-        with open(source, "rb") as f:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        try:
+            fd = os.open(source, flags)
+        except OSError as exc:
+            if exc.errno == getattr(errno, "ELOOP", None):
+                raise AdcsScannerError(f"Refusing to read symbolic link: {source}")
+            raise AdcsScannerError(f"Failed to read file {source}: {exc}")
+        with os.fdopen(fd, "rb") as f:
             raw = f.read(10485760)
 
         # Check if PEM certificate
@@ -552,7 +558,6 @@ def format_adcs_report_terminal(report: Dict[str, Any]) -> str:
 
     use_uni = supports_unicode()
     t_branch, l_branch = ("├─", "╰─") if use_uni else ("|-", "`-")
-    v_line = "│ " if use_uni else "| "
 
     findings = report.get("findings", [])
     if not findings:
@@ -563,7 +568,6 @@ def format_adcs_report_terminal(report: Dict[str, Any]) -> str:
 
     for idx, f in enumerate(findings):
         is_last = idx == len(findings) - 1
-        branch = l_branch if is_last else t_branch
         vector = f.get("vector", "UNKNOWN")
         sev = f.get("severity", "MEDIUM")
         title = f.get("title", "")

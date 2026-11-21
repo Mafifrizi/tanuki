@@ -560,6 +560,171 @@ fn test_security_audit_rust_regressions() {
     assert_eq!(stime, 1792238400);
 }
 
+#[test]
+fn test_jwt_deep_nesting_depth_cap() {
+    let deep_arrays = format!("{}{}", "[".repeat(70), "]".repeat(70));
+    let res = tanuki::nhi::jwt::parse_json(&deep_arrays);
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Maximum JSON nesting depth"));
+
+    let mut deep_obj = String::new();
+    for _ in 0..70 {
+        deep_obj.push_str("{\"a\":");
+    }
+    deep_obj.push('1');
+    for _ in 0..70 {
+        deep_obj.push('}');
+    }
+    let res_obj = tanuki::nhi::jwt::parse_json(&deep_obj);
+    assert!(res_obj.is_err());
+    assert!(res_obj.unwrap_err().contains("Maximum JSON nesting depth"));
+}
+
+#[test]
+fn test_cli_config_stdout_json_and_ipv6_kdc_parity() {
+    use std::process::Command;
+
+    let bin = env!("CARGO_BIN_EXE_tanuki");
+    let temp_dir = std::env::temp_dir().join(format!("tanuki_cfg_stdout_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let out = Command::new(bin)
+        .current_dir(&temp_dir)
+        .args([
+            "config",
+            "--realm",
+            "CORP.LOCAL",
+            "--kdc",
+            "tcp/[2001:db8::1]:88",
+            "--stdout",
+            "--json",
+        ])
+        .output()
+        .expect("run tanuki config --stdout --json");
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout_str = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout_str.contains("\"status\": \"SUCCESS\""));
+    assert!(stdout_str.contains("\"stdout\": true"));
+    assert!(stdout_str.contains("\"admin_server\": \"[2001:db8::1]:88\""));
+    assert!(!temp_dir.join("krb5.conf").exists(), "krb5.conf must not be created with --stdout --json");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_cli_nhi_default_mesh_and_live_exchange() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::process::Command;
+    use std::thread;
+
+    let bin = env!("CARGO_BIN_EXE_tanuki");
+
+    let scan_out = Command::new(bin)
+        .args(["nhi", "--json"])
+        .output()
+        .expect("run tanuki nhi --json");
+    assert!(scan_out.status.success());
+    let scan_str = String::from_utf8_lossy(&scan_out.stdout);
+    assert!(scan_str.contains("\"discovered_tokens\""));
+
+    let mesh_out = Command::new(bin)
+        .args(["nhi", "mesh", "--json"])
+        .output()
+        .expect("run tanuki nhi mesh --json");
+    assert!(mesh_out.status.success());
+    let mesh_str = String::from_utf8_lossy(&mesh_out.stdout);
+    assert!(mesh_str.contains("\"discovered_identities\""));
+    assert!(mesh_str.contains("\"count\""));
+
+    let missing_ep = Command::new(bin)
+        .args(["nhi", "exchange", "--live", "--subject-token", "tok", "--json"])
+        .output()
+        .expect("run tanuki nhi exchange --live without endpoint");
+    assert_eq!(missing_ep.status.code(), Some(1));
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut req_buf = [0u8; 2048];
+            let _ = stream.read(&mut req_buf);
+            let body = "{\"access_token\":\"exchanged-jwt-token\",\"issued_token_type\":\"urn:ietf:params:oauth:token-type:access_token\",\"token_type\":\"Bearer\",\"expires_in\":3600}";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+
+    let endpoint_url = format!("http://127.0.0.1:{}/oauth/token", addr.port());
+    let live_out = Command::new(bin)
+        .args([
+            "nhi",
+            "exchange",
+            "--live",
+            "--endpoint",
+            &endpoint_url,
+            "--subject-token",
+            "dummy.jwt.token",
+            "--json",
+        ])
+        .output()
+        .expect("run tanuki nhi exchange --live");
+    let _ = handle.join();
+    assert!(live_out.status.success(), "stderr: {}", String::from_utf8_lossy(&live_out.stderr));
+    let live_str = String::from_utf8_lossy(&live_out.stdout);
+    assert!(live_str.contains("\"status\": \"SUCCESS\""));
+    assert!(live_str.contains("\"access_token\": \"exchanged-jwt-token\""));
+}
+
+#[test]
+fn test_cli_ldap_tls_flags_and_keytab_redaction() {
+    use std::process::Command;
+
+    let bin = env!("CARGO_BIN_EXE_tanuki");
+
+    let no_ssl = Command::new(bin)
+        .args(["ldap", "--host", "127.0.0.1", "--realm", "CORP.LOCAL", "--secure", "--json"])
+        .output()
+        .expect("run tanuki ldap --secure without --ssl");
+    assert_eq!(no_ssl.status.code(), Some(1));
+
+    let conflict = Command::new(bin)
+        .args(["ldap", "--host", "127.0.0.1", "--realm", "CORP.LOCAL", "--ssl", "--secure", "--insecure", "--json"])
+        .output()
+        .expect("run tanuki ldap --ssl --secure --insecure");
+    assert_eq!(conflict.status.code(), Some(1));
+
+    let temp_dir = std::env::temp_dir().join(format!("tanuki_kt_redact_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let kt_path = temp_dir.join("redact.keytab");
+
+    let mut file_bytes = vec![0x05, 0x02];
+    let entry = build_keytab_entry(&["HOST", "srv01.corp.local"], "CORP.LOCAL", 18, &[0xab; 32], 1, 1);
+    file_bytes.extend_from_slice(&(entry.len() as i32).to_be_bytes());
+    file_bytes.extend_from_slice(&entry);
+    std::fs::write(&kt_path, &file_bytes).unwrap();
+
+    let kt_out = Command::new(bin)
+        .args(["keytab", kt_path.to_str().unwrap(), "--json"])
+        .output()
+        .expect("run tanuki keytab --json");
+    assert!(kt_out.status.success());
+    let kt_str = String::from_utf8_lossy(&kt_out.stdout);
+    assert!(!kt_str.contains("key_hex"));
+    assert!(!kt_str.contains(&"ab".repeat(32)));
+    assert!(kt_str.contains("\"key_preview\": \"abababab...\""));
+    assert!(kt_str.contains("\"key_fingerprint\":"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
 
 
 

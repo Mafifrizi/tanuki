@@ -335,6 +335,7 @@ pub fn save_candidates(
         }
         let mut opts = std::fs::OpenOptions::new();
         opts.create(true).write(true).truncate(true);
+        crate::util::apply_nofollow(&mut opts);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;

@@ -180,10 +180,19 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
     let key_slice = &entry[offset..offset + key_len_usize];
     offset += key_len_usize;
 
-    let mut key_hex = String::with_capacity(key_len_usize * 2);
-    for b in key_slice {
+    let preview_len = key_slice.len().min(4);
+    let mut key_preview = String::with_capacity(preview_len * 2 + 3);
+    for b in &key_slice[..preview_len] {
         use std::fmt::Write;
-        let _ = write!(key_hex, "{:02x}", b);
+        let _ = write!(key_preview, "{:02x}", b);
+    }
+    key_preview.push_str("...");
+
+    let digest = crate::util::sha256_digest(key_slice);
+    let mut key_fingerprint = String::with_capacity(16);
+    for b in &digest[..8] {
+        use std::fmt::Write;
+        let _ = write!(key_fingerprint, "{:02x}", b);
     }
 
     let mut vno = vno8 as u32;
@@ -213,7 +222,8 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
         keytype,
         enctype_name: enc_name,
         key_len,
-        key_hex,
+        key_preview,
+        key_fingerprint,
         timestamp,
     })
 }
@@ -274,7 +284,10 @@ mod tests {
         assert_eq!(entry.enctype_name, "aes256-cts-hmac-sha1-96");
         assert_eq!(entry.vno, 3);
         assert_eq!(entry.key_len, 32);
-        assert_eq!(entry.key_hex, "aa".repeat(32));
+        assert_eq!(entry.key_preview, "aaaaaaaa...");
+        assert_eq!(entry.key_fingerprint.len(), 16);
+        assert!(!entry.to_json().contains("key_hex"));
+        assert!(!entry.to_json().contains(&"aa".repeat(32)));
         assert_eq!(entry.timestamp, 1700000000);
         assert!(entry.is_modern_aes());
     }

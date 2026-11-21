@@ -8,9 +8,8 @@ import base64
 import json
 import os
 import re
-import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 
 RFC8693_TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange"
 
@@ -701,28 +700,6 @@ def exchange_token_live(
             "error": "unexpected_error",
             "error_description": str(exc),
         }
-
-
-def fetch_spiffe_jwt(
-    socket_path: str = "/tmp/spire-agent/public/api.sock",
-    audience: str = "spiffe://example.org/ad",
-    timeout: float = 2.0,
-) -> Optional[str]:
-    """Fetch SPIFFE Workload API JWT-SVID from local UNIX domain socket."""
-    import socket
-    if not hasattr(socket, "AF_UNIX") or not os.path.exists(socket_path):
-        return None
-
-    try:
-        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        client.settimeout(timeout)
-        client.connect(socket_path)
-        # SPIFFE Workload API uses gRPC HTTP/2 over UNIX socket.
-        # Minimal probe / handshake check:
-        client.close()
-        return None
-    except Exception:
-        return None
 
 
 def fetch_imds_token(

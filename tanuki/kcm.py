@@ -210,11 +210,22 @@ def save_recovered_ticket(out_path: str, data: bytes) -> None:
     """Save ticket bytes with restricted file permissions (0600) when supported."""
     if os.path.islink(out_path):
         raise OSError(f"Refusing to write to symlink target: {out_path}")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_TRUNC
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
     fd = os.open(out_path, flags, 0o600)
+    if hasattr(os, "fchmod"):
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:
+            pass
     with os.fdopen(fd, "wb") as f:
         f.write(data)
-    if hasattr(os, "chmod"):
+    if not hasattr(os, "fchmod") and hasattr(os, "chmod"):
         try:
             os.chmod(out_path, 0o600)
         except OSError:
@@ -305,20 +316,29 @@ def inject_ticket_to_kcm(
 
     data: bytes = b""
     if isinstance(ccache_bytes_or_path, str):
-        if not os.path.isfile(ccache_bytes_or_path):
-            return {
-                "status": "FILE_NOT_FOUND",
-                "target": ccache_bytes_or_path,
-                "message": f"Ccache file not found: {ccache_bytes_or_path}",
-            }
         if os.path.islink(ccache_bytes_or_path):
             return {
                 "status": "INVALID_PARAMETER",
                 "target": ccache_bytes_or_path,
                 "message": f"Refusing to read ccache from symbolic link: {ccache_bytes_or_path}",
             }
-        with open(ccache_bytes_or_path, "rb") as f:
-            data = f.read()
+        if not os.path.isfile(ccache_bytes_or_path):
+            return {
+                "status": "FILE_NOT_FOUND",
+                "target": ccache_bytes_or_path,
+                "message": f"Ccache file not found: {ccache_bytes_or_path}",
+            }
+        try:
+            rflags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+            rfd = os.open(ccache_bytes_or_path, rflags)
+            with os.fdopen(rfd, "rb") as f:
+                data = f.read()
+        except OSError as exc:
+            return {
+                "status": "INVALID_PARAMETER",
+                "target": ccache_bytes_or_path,
+                "message": f"Refusing or unable to read ccache: {exc}",
+            }
     elif isinstance(ccache_bytes_or_path, (bytes, bytearray)):
         data = bytes(ccache_bytes_or_path)
 
@@ -354,50 +374,53 @@ def inject_ticket_to_kcm(
         packet = struct.pack(">I", len(kcm_body)) + kcm_body
 
         sock.sendall(packet)
-        resp_len_hdr = sock.recv(4)
-        if len(resp_len_hdr) == 4:
-            (resp_len,) = struct.unpack(">I", resp_len_hdr)
-            if resp_len > 10 * 1024 * 1024:
-                sock.close()
-                return {
-                    "status": "KCM_ERROR",
-                    "socket_path": socket_path,
-                    "message": f"KCM response length {resp_len} exceeds safety limit",
-                }
-            resp_data = bytearray()
-            while len(resp_data) < resp_len:
-                chunk = sock.recv(min(65536, resp_len - len(resp_data)))
-                if not chunk:
-                    break
-                resp_data.extend(chunk)
+        resp_len_hdr = bytearray()
+        while len(resp_len_hdr) < 4:
+            hdr_chunk = sock.recv(4 - len(resp_len_hdr))
+            if not hdr_chunk:
+                break
+            resp_len_hdr.extend(hdr_chunk)
+        if len(resp_len_hdr) < 4:
             sock.close()
-            if len(resp_data) < 4:
-                return {
-                    "status": "KCM_ERROR",
-                    "socket_path": socket_path,
-                    "message": "Truncated KCM daemon response (fewer than 4 status bytes)",
-                }
-            status_code = struct.unpack(">I", bytes(resp_data[:4]))[0]
-            if status_code == 0:
-                return {
-                    "status": "SUCCESS",
-                    "socket_path": socket_path,
-                    "ccache_name": ccache_name,
-                    "bytes_injected": len(data),
-                }
-            else:
-                return {
-                    "status": "ERROR",
-                    "socket_path": socket_path,
-                    "kcm_error_code": status_code,
-                    "message": f"KCM daemon returned error code {status_code}",
-                }
+            return {
+                "status": "KCM_ERROR",
+                "socket_path": socket_path,
+                "message": "KCM daemon closed connection or returned truncated response header",
+            }
+        (resp_len,) = struct.unpack(">I", bytes(resp_len_hdr))
+        if resp_len < 4 or resp_len > 10 * 1024 * 1024:
+            sock.close()
+            return {
+                "status": "KCM_ERROR",
+                "socket_path": socket_path,
+                "message": f"KCM response length {resp_len} is invalid or exceeds safety limit",
+            }
+        resp_data = bytearray()
+        while len(resp_data) < resp_len:
+            chunk = sock.recv(min(65536, resp_len - len(resp_data)))
+            if not chunk:
+                break
+            resp_data.extend(chunk)
         sock.close()
+        if len(resp_data) < 4 or len(resp_data) < resp_len:
+            return {
+                "status": "KCM_ERROR",
+                "socket_path": socket_path,
+                "message": "Truncated KCM daemon response (fewer than expected status bytes)",
+            }
+        status_code = struct.unpack(">I", bytes(resp_data[:4]))[0]
+        if status_code == 0:
+            return {
+                "status": "SUCCESS",
+                "socket_path": socket_path,
+                "ccache_name": ccache_name,
+                "bytes_injected": len(data),
+            }
         return {
-            "status": "SUCCESS",
+            "status": "ERROR",
             "socket_path": socket_path,
-            "ccache_name": ccache_name,
-            "bytes_injected": len(data),
+            "kcm_error_code": status_code,
+            "message": f"KCM daemon returned error code {status_code}",
         }
     except Exception as exc:
         return {

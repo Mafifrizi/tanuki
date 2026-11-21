@@ -6,8 +6,8 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
-from kcm_parser import scan_for_ccache_blobs, try_parse_default_principal
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from tanuki.kcm import scan_for_ccache_blobs, try_parse_default_principal
 
 
 class TestKCMParser(unittest.TestCase):
@@ -66,11 +66,8 @@ class TestKCMParser(unittest.TestCase):
             tf_path = tf.name
 
         try:
-            script_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "scripts", "kcm_parser.py")
-            )
             res = subprocess.run(
-                [sys.executable, script_path, "-f", tf_path, "--json"],
+                [sys.executable, "-m", "tanuki", "kcm", "-f", tf_path, "--json"],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -84,24 +81,18 @@ class TestKCMParser(unittest.TestCase):
                 os.remove(tf_path)
 
     def test_missing_file_error(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "kcm_parser.py")
-        )
         res = subprocess.run(
-            [sys.executable, script_path, "-f", "non_existent_file.ldb"],
+            [sys.executable, "-m", "tanuki", "kcm", "-f", "non_existent_file.ldb"],
             capture_output=True,
             text=True,
         )
         self.assertEqual(res.returncode, 3)
-        self.assertIn("File not found", res.stderr)
+        self.assertIn("not found", res.stderr)
         self.assertIn("[RESOURCE MISSING]", res.stderr)
 
     def test_missing_file_json_mode(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "kcm_parser.py")
-        )
         res = subprocess.run(
-            [sys.executable, script_path, "-f", "non_existent_file.ldb", "--json"],
+            [sys.executable, "-m", "tanuki", "kcm", "-f", "non_existent_file.ldb", "--json"],
             capture_output=True,
             text=True,
         )
@@ -139,32 +130,18 @@ class TestKCMParser(unittest.TestCase):
                 except OSError:
                     pass
 
-    def test_scripts_kcm_parser_save_recovered_ticket_symlink_rejected(self):
-        from kcm_parser import save_recovered_ticket as script_save_ticket
-        if not hasattr(os, "symlink"):
-            return
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            f.write(b"data")
-            real_file = f.name
-        sym_file = real_file + ".script_sym"
-        try:
-            try:
-                os.symlink(real_file, sym_file)
-            except OSError:
-                return
-            with self.assertRaises(OSError):
-                script_save_ticket(sym_file, b"test_data")
-        finally:
-            if os.path.exists(sym_file):
-                try:
-                    os.unlink(sym_file)
-                except OSError:
-                    pass
-            if os.path.exists(real_file):
-                try:
-                    os.remove(real_file)
-                except OSError:
-                    pass
+    def test_inject_ticket_to_kcm_eof_fails_closed(self):
+        from unittest import mock
+        from tanuki.kcm import inject_ticket_to_kcm
+        for bad_hdr in (b"", b"\x00\x01"):
+            fake_sock = mock.MagicMock()
+            fake_sock.recv.side_effect = [bad_hdr, b""]
+            with mock.patch("os.name", "posix"), \
+                 mock.patch("os.path.exists", return_value=True), \
+                 mock.patch("socket.AF_UNIX", 1, create=True), \
+                 mock.patch("socket.socket", return_value=fake_sock):
+                res = inject_ticket_to_kcm(b"\x05\x04ticket", socket_path="/tmp/mock_kcm.sock")
+                self.assertEqual(res.get("status"), "KCM_ERROR")
 
     def test_inject_ticket_to_kcm_ccache_name_validation(self):
         from tanuki.kcm import inject_ticket_to_kcm

@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from typing import Any, List, Optional
+from typing import Any, Dict, List, NoReturn, Optional
 
 from . import __version__
 from .adcs import format_adcs_report_terminal, scan_adcs
@@ -22,10 +22,8 @@ from .ldap import format_ldap_report_terminal, query_active_directory_ldap
 from .nhi import (
     discover_cloud_mesh,
     exchange_token_live,
-    format_exchange_report_terminal,
     format_live_exchange_terminal,
     format_mesh_report_terminal,
-    format_token_report_terminal,
     validate_jwt_workload,
     validate_token_exchange,
 )
@@ -108,6 +106,7 @@ OPTIONS:
     --base-dn <DN>      Base DN for directory query (e.g. DC=corp,DC=local)
     --secure            Verify the LDAPS certificate against the system trust store (with --ssl)
     --verify-ca <PATH>  Verify the LDAPS certificate against a specific CA bundle / pin the DC CA (with --ssl)
+    --insecure          Disable LDAPS certificate verification (CERT_NONE; requires --ssl)
     --live              Execute live HTTP POST token exchange client (RFC 8693)
     --endpoint <URL>    STS endpoint URL for live token exchange
     --json              Output structured JSON for agent and pipeline consumption
@@ -134,7 +133,7 @@ def emit_cli_error(
     details: Optional[str] = None,
     json_output: bool = False,
     telemetry: Optional[dict] = None,
-) -> None:
+) -> NoReturn:
     if json_output:
         payload = {
             "status": "REFUSED" if exit_code == EXIT_POLICY_STOP else "ERROR",
@@ -264,7 +263,9 @@ def handle_kcm(file_path: Optional[str], out_dir: str, json_output: bool) -> Non
 
         os.makedirs(out_dir, mode=0o700, exist_ok=True)
         try:
-            with open(file_path, "rb") as f:
+            rflags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+            rfd = os.open(file_path, rflags)
+            with os.fdopen(rfd, "rb") as f:
                 data = f.read(104857600)  # 100MB bound
         except Exception as exc:
             emit_cli_error(
@@ -563,8 +564,29 @@ def handle_config(
             json_output=json_output,
         )
 
-    if stdout_mode and not json_output:
-        sys.stdout.write(content)
+    kdc_display = ",".join(kdcs) if len(kdcs) > 1 else kdcs[0]
+
+    if stdout_mode:
+        if not json_output:
+            sys.stdout.write(content)
+            return
+        res = {
+            "status": "SUCCESS",
+            "realm": clean_realm,
+            "kdc": kdc_display,
+            "admin_server": target_admin,
+            "stdout": True,
+            "content": content,
+        }
+        if clockskew_opt is not None:
+            res["clockskew"] = clockskew_opt
+        if enforce_aes_opt:
+            res["enforce_aes"] = True
+        if fast_opt:
+            res["fast"] = True
+        if armor_cache_opt:
+            res["armor_cache"] = armor_cache_opt
+        print(json.dumps(res, indent=2))
         return
 
     target_file = out_path or "./krb5.conf"
@@ -598,7 +620,6 @@ def handle_config(
         )
 
     export_cmd = f"export KRB5_CONFIG={abs_path}"
-    kdc_display = ",".join(kdcs) if len(kdcs) > 1 else kdcs[0]
 
     if json_output:
         res = {
@@ -1283,8 +1304,10 @@ def handle_ldap(
     json_output: bool,
     username: Optional[str] = None,
     password: Optional[str] = None,
-    verify_ssl: bool = False,
+    verify_ssl: bool = True,
     ca_cert: Optional[str] = None,
+    explicit_secure: bool = False,
+    insecure: bool = False,
 ) -> None:
     if not host:
         emit_cli_error(
@@ -1294,9 +1317,17 @@ def handle_ldap(
             exit_code=EXIT_USAGE_ERROR,
             json_output=json_output,
         )
-    if (verify_ssl or ca_cert) and not use_ssl:
+    if (explicit_secure or ca_cert or insecure) and not use_ssl:
         emit_cli_error(
-            "Error: --secure/--verify-ca require LDAPS; add --ssl.",
+            "Error: --secure/--verify-ca/--insecure require LDAPS; add --ssl.",
+            reason_code="INVALID_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            json_output=json_output,
+        )
+    if insecure and (explicit_secure or ca_cert):
+        emit_cli_error(
+            "Error: --insecure cannot be combined with --secure or --verify-ca.",
             reason_code="INVALID_ARGUMENT",
             category="USAGE_ERROR",
             exit_code=EXIT_USAGE_ERROR,
@@ -1312,6 +1343,7 @@ def handle_ldap(
             json_output=json_output,
         )
     effective_port = 636 if use_ssl and port == 389 else port
+    effective_verify = (not insecure) and (verify_ssl or bool(ca_cert))
     rep = query_active_directory_ldap(
         host=host,
         query_type=query_type,
@@ -1320,14 +1352,14 @@ def handle_ldap(
         use_ssl=use_ssl,
         username=username,
         password=password,
-        verify_ssl=verify_ssl or bool(ca_cert),
+        verify_ssl=effective_verify,
         ca_cert=ca_cert,
     )
     if json_output:
         print(json.dumps(rep, indent=2, default=lambda o: o.hex() if isinstance(o, bytes) else str(o)))
     else:
         print(format_ldap_report_terminal(rep))
-    if rep.get("status") in ("BIND_FAILED", "CONNECTION_FAILED"):
+    if rep.get("status") in ("BIND_FAILED", "CONNECTION_FAILED", "SEARCH_FAILED"):
         sys.exit(EXIT_RESOURCE_MISSING)
 
 
@@ -1442,7 +1474,7 @@ def run_tui_wizard() -> None:
 
 
 def handle_skill(json_output: bool) -> None:
-    manifest = {
+    manifest: Dict[str, Any] = {
         "name": "tanuki",
         "version": __version__,
         "description": "Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.",
@@ -1573,6 +1605,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     port_opt: int = 389
     ssl_opt: bool = False
     secure_opt: bool = False
+    insecure_opt: bool = False
     verify_ca_opt: Optional[str] = None
     live_opt: bool = False
     endpoint_opt: Optional[str] = None
@@ -1582,9 +1615,20 @@ def main(argv: Optional[List[str]] = None) -> None:
     secrets_path_opt: Optional[str] = None
     username_opt: Optional[str] = None
     password_opt: Optional[str] = None
+    short_p_opt: Optional[str] = None
     ad_supported_enctypes_opt: Optional[int] = None
     ad_kvno_opt: Optional[int] = None
     spn_opt: Optional[str] = None
+
+    def _missing_opt_arg(flag_name: str) -> NoReturn:
+        emit_cli_error(
+            f"Option requires an argument: {flag_name}",
+            reason_code="MISSING_ARGUMENT",
+            category="USAGE_ERROR",
+            exit_code=EXIT_USAGE_ERROR,
+            target=flag_name,
+            json_output=global_json,
+        )
 
     i = 0
     while i < len(argv):
@@ -1620,54 +1664,89 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 file_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg in ("-o", "--out"):
             if i + 1 < len(argv):
                 out_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg in ("-u", "--username", "--user"):
             if i + 1 < len(argv):
                 username_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--password":
             if i + 1 < len(argv):
                 password_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--principal":
             if i + 1 < len(argv):
                 principal_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--spn":
             if i + 1 < len(argv):
                 spn_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "-p":
             if i + 1 < len(argv):
-                principal_opt = argv[i + 1]
-                password_opt = argv[i + 1]
+                short_p_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg in ("--ad-supported-enctypes", "--ad-enctypes"):
             if i + 1 < len(argv):
                 val = argv[i + 1]
                 try:
                     ad_supported_enctypes_opt = int(val, 16) if val.lower().startswith("0x") else int(val)
                 except ValueError:
-                    ad_supported_enctypes_opt = None
+                    emit_cli_error(
+                        f"Invalid ad-enctypes value: {val}",
+                        reason_code="INVALID_ARGUMENT",
+                        category="USAGE_ERROR",
+                        exit_code=EXIT_USAGE_ERROR,
+                        target=val,
+                        json_output=global_json,
+                    )
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--ad-kvno":
             if i + 1 < len(argv):
                 try:
                     ad_kvno_opt = int(argv[i + 1])
                 except ValueError:
-                    ad_kvno_opt = None
+                    emit_cli_error(
+                        f"Invalid ad-kvno value: {argv[i + 1]}",
+                        reason_code="INVALID_ARGUMENT",
+                        category="USAGE_ERROR",
+                        exit_code=EXIT_USAGE_ERROR,
+                        target=argv[i + 1],
+                        json_output=global_json,
+                    )
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg in ("-a", "--audience"):
             if i + 1 < len(argv):
                 audience_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--realm":
             if i + 1 < len(argv):
                 realm_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--kdc":
             if i + 1 < len(argv):
                 val = argv[i + 1]
@@ -1677,10 +1756,14 @@ def main(argv: Optional[List[str]] = None) -> None:
                     if p and p not in kdc_list_opt:
                         kdc_list_opt.append(p)
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--admin-server":
             if i + 1 < len(argv):
                 admin_server_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg in ("--clock-skew", "--clockskew"):
             if i + 1 < len(argv):
                 try:
@@ -1695,6 +1778,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                         json_output=global_json,
                     )
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--enforce-aes":
             enforce_aes_opt = True
         elif arg == "--fast":
@@ -1725,79 +1810,125 @@ def main(argv: Optional[List[str]] = None) -> None:
             if i + 1 < len(argv):
                 host_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--query":
             if i + 1 < len(argv):
                 query_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--base-dn":
             if i + 1 < len(argv):
                 base_dn_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--port":
             if i + 1 < len(argv):
                 try:
-                    port_opt = int(argv[i + 1])
+                    parsed_port = int(argv[i + 1])
+                    if parsed_port <= 0 or parsed_port > 65535:
+                        raise ValueError("port out of range")
+                    port_opt = parsed_port
                 except ValueError:
-                    port_opt = 389
+                    emit_cli_error(
+                        f"Invalid port value: {argv[i + 1]}",
+                        reason_code="INVALID_ARGUMENT",
+                        category="USAGE_ERROR",
+                        exit_code=EXIT_USAGE_ERROR,
+                        target=argv[i + 1],
+                        json_output=global_json,
+                    )
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--ssl":
             ssl_opt = True
         elif arg == "--secure":
             secure_opt = True
+        elif arg == "--insecure":
+            insecure_opt = True
         elif arg == "--verify-ca":
             if i + 1 < len(argv):
                 verify_ca_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--live":
             live_opt = True
         elif arg == "--endpoint":
             if i + 1 < len(argv):
                 endpoint_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--grant-type":
             if i + 1 < len(argv):
                 grant_type_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--subject-token":
             if i + 1 < len(argv):
                 subject_token_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--subject-token-type":
             if i + 1 < len(argv):
                 subject_token_type_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--requested-token-type":
             if i + 1 < len(argv):
                 requested_token_type_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--keytab":
             if i + 1 < len(argv):
                 keytab_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--krb5-conf":
             if i + 1 < len(argv):
                 krb5_conf_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--sssd-pipe":
             if i + 1 < len(argv):
                 sssd_pipe_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--sssd-pid":
             if i + 1 < len(argv):
                 sssd_pid_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--ccache":
             if i + 1 < len(argv):
                 ccache_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg in ("--krb-error", "--error"):
             if i + 1 < len(argv):
                 krb_error_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif arg == "--secrets-path":
             if i + 1 < len(argv):
                 secrets_path_opt = argv[i + 1]
                 i += 1
+            else:
+                _missing_opt_arg(arg)
         elif explicit_command is None and arg in (
             "keytab", "kcm", "triage", "ladder", "doctor", "token", "nhi", "config", "skill", "auth",
             "pac", "shadow", "fix", "purge", "adcs", "ldap", "tgs", "blast",
@@ -1852,7 +1983,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         handle_keytab(target, global_json)
     elif command == "auth":
         target_kt = keytab_opt or file_opt or (positional_args[0] if positional_args else None)
-        target_princ = principal_opt or (positional_args[1] if len(positional_args) > 1 else None)
+        target_princ = principal_opt or short_p_opt or (positional_args[1] if len(positional_args) > 1 else None)
         target_ccache = ccache_opt or out_opt
         handle_auth(
             keytab_path=target_kt,
@@ -1869,7 +2000,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     elif command == "tgs":
         target_spn = spn_opt or (positional_args[0] if positional_args else None)
         target_kt = keytab_opt or file_opt
-        target_princ = principal_opt
+        target_princ = principal_opt or short_p_opt
         target_ccache = ccache_opt or out_opt
         handle_tgs(
             spn=target_spn,
@@ -1899,7 +2030,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             host=host_opt,
             base_dn=base_dn_opt,
             username=username_opt,
-            password=password_opt,
+            password=password_opt or short_p_opt,
             spns=[spn_opt] if spn_opt else None,
             json_output=global_json,
         )
@@ -1974,9 +2105,11 @@ def main(argv: Optional[List[str]] = None) -> None:
             use_ssl=ssl_opt,
             json_output=global_json,
             username=username_opt,
-            password=password_opt,
-            verify_ssl=secure_opt,
+            password=password_opt or short_p_opt,
+            verify_ssl=not insecure_opt,
             ca_cert=verify_ca_opt,
+            explicit_secure=secure_opt,
+            insecure=insecure_opt,
         )
     elif command == "token":
         token_arg = positional_args[0] if positional_args else None
@@ -2028,4 +2161,4 @@ def main(argv: Optional[List[str]] = None) -> None:
             target=command,
             json_output=global_json,
         )
-    return 0
+    return EXIT_SUCCESS

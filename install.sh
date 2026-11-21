@@ -4,8 +4,8 @@
 # curl -sSL https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.sh | bash
 set -euo pipefail
 
-TANUKI_VERSION="v2.1.0"
-TANUKI_SHA256="25d8b2c567117a68e04e79df0c48897152e1ccb46a74e65adbfcd8a5d18c2dd6"
+TANUKI_VERSION="v2.1.3"
+TANUKI_SHA256="4daceb175a7b6c217f7e9f6d2bfd2d28e8b92cd474c84041546ff85c5580b551"
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -148,13 +148,13 @@ echo -e "\n${BOLD}${BLUE}[*] Configuring AI Agent Skill integrations...${NC}"
 # Claude Code
 CLAUDE_SKILL_DIR="${HOME}/.claude/skills/tanuki"
 mkdir -p "${CLAUDE_SKILL_DIR}"
-cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${SRC_DIR}/scripts" "${CLAUDE_SKILL_DIR}/" 2>/dev/null || true
+cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${CLAUDE_SKILL_DIR}/" 2>/dev/null || true
 echo -e "  [+] Claude Code skill linked -> ${CLAUDE_SKILL_DIR}"
 
 # Google Antigravity
 for AGY_SKILL_DIR in "${HOME}/.gemini/config/skills/tanuki" "${HOME}/.gemini/antigravity/skills/tanuki"; do
     mkdir -p "${AGY_SKILL_DIR}"
-    cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${SRC_DIR}/scripts" "${AGY_SKILL_DIR}/" 2>/dev/null || true
+    cp -r "${SRC_DIR}/SKILL.md" "${SRC_DIR}/references" "${AGY_SKILL_DIR}/" 2>/dev/null || true
     echo -e "  [+] Google Antigravity skill linked -> ${AGY_SKILL_DIR}"
 done
 

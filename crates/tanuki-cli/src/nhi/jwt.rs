@@ -53,6 +53,8 @@ impl JsonValue {
     }
 }
 
+const MAX_JSON_DEPTH: usize = 64;
+
 pub struct JsonParser<'a> {
     input: &'a str,
     pos: usize,
@@ -88,7 +90,7 @@ impl<'a> JsonParser<'a> {
 
     pub fn parse(&mut self) -> Result<JsonValue, String> {
         self.skip_whitespace();
-        let val = self.parse_value()?;
+        let val = self.parse_value(0)?;
         self.skip_whitespace();
         if self.pos < self.input.len() {
             return Err("Unexpected trailing characters after JSON root value".to_string());
@@ -96,12 +98,15 @@ impl<'a> JsonParser<'a> {
         Ok(val)
     }
 
-    fn parse_value(&mut self) -> Result<JsonValue, String> {
+    fn parse_value(&mut self, depth: usize) -> Result<JsonValue, String> {
+        if depth > MAX_JSON_DEPTH {
+            return Err(format!("Maximum JSON nesting depth ({}) exceeded", MAX_JSON_DEPTH));
+        }
         self.skip_whitespace();
         match self.peek() {
             Some('"') => self.parse_string().map(JsonValue::String),
-            Some('{') => self.parse_object().map(JsonValue::Object),
-            Some('[') => self.parse_array().map(JsonValue::Array),
+            Some('{') => self.parse_object(depth + 1).map(JsonValue::Object),
+            Some('[') => self.parse_array(depth + 1).map(JsonValue::Array),
             Some('t') | Some('f') => self.parse_bool().map(JsonValue::Bool),
             Some('n') => self.parse_null().map(|_| JsonValue::Null),
             Some(c) if c.is_ascii_digit() || c == '-' => self.parse_number_value(),
@@ -152,7 +157,7 @@ impl<'a> JsonParser<'a> {
         Err("Unterminated JSON string".to_string())
     }
 
-    fn parse_object(&mut self) -> Result<Vec<(String, JsonValue)>, String> {
+    fn parse_object(&mut self, depth: usize) -> Result<Vec<(String, JsonValue)>, String> {
         if self.advance() != Some('{') {
             return Err("Expected '{' at start of object".to_string());
         }
@@ -170,7 +175,7 @@ impl<'a> JsonParser<'a> {
             if self.advance() != Some(':') {
                 return Err("Expected ':' after key in object".to_string());
             }
-            let val = self.parse_value()?;
+            let val = self.parse_value(depth)?;
             entries.push((key, val));
             self.skip_whitespace();
             match self.peek() {
@@ -188,7 +193,7 @@ impl<'a> JsonParser<'a> {
         Ok(entries)
     }
 
-    fn parse_array(&mut self) -> Result<Vec<JsonValue>, String> {
+    fn parse_array(&mut self, depth: usize) -> Result<Vec<JsonValue>, String> {
         if self.advance() != Some('[') {
             return Err("Expected '[' at start of array".to_string());
         }
@@ -200,7 +205,7 @@ impl<'a> JsonParser<'a> {
         }
 
         loop {
-            let val = self.parse_value()?;
+            let val = self.parse_value(depth)?;
             list.push(val);
             self.skip_whitespace();
             match self.peek() {

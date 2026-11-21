@@ -307,14 +307,14 @@ class TestLdapEngine(unittest.TestCase):
         self.assertIn("data 52e", client.last_error)
 
     def test_ldap_client_verify_ssl_reachable(self):
-        """A CA bundle (or --secure) must make certificate verification reachable (security fix)."""
+        """LDAPS defaults to certificate verification (verify_ssl=True) with explicit opt-out."""
         from tanuki.ldap import LdapClient
-        # Default LDAPS is insecure (recon default).
-        self.assertFalse(LdapClient("dc", 636, use_ssl=True).verify_ssl)
-        # --secure turns on verification.
-        self.assertTrue(LdapClient("dc", 636, use_ssl=True, verify_ssl=True).verify_ssl)
+        # Default LDAPS verifies certificates.
+        self.assertTrue(LdapClient("dc", 636, use_ssl=True).verify_ssl)
+        # Explicit verify_ssl=False disables verification.
+        self.assertFalse(LdapClient("dc", 636, use_ssl=True, verify_ssl=False).verify_ssl)
         # --verify-ca <path> implies verification and pins the CA.
-        pinned = LdapClient("dc", 636, use_ssl=True, ca_cert="/etc/ssl/dc-ca.pem")
+        pinned = LdapClient("dc", 636, use_ssl=True, verify_ssl=False, ca_cert="/etc/ssl/dc-ca.pem")
         self.assertTrue(pinned.verify_ssl)
         self.assertEqual(pinned.ca_cert, "/etc/ssl/dc-ca.pem")
 

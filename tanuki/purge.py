@@ -10,7 +10,6 @@ NIST SP 800-88 compliant file shredding and forensic sanitization:
 import glob
 import json
 import os
-import sys
 from typing import Any, Dict, List, Optional
 
 from .doctor import render_card_header, supports_unicode

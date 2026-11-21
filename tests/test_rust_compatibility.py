@@ -5,9 +5,9 @@ import struct
 import unittest
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
-from keytab_inspector import parse_keytab_stream
-from kcm_parser import scan_for_ccache_blobs
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from tanuki.keytab import parse_keytab_stream
+from tanuki.kcm import scan_for_ccache_blobs
 
 
 class TestRustCompatibility(unittest.TestCase):

@@ -3,6 +3,9 @@
 # irm https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
+$TanukiVersion = "v2.1.3"
+$TanukiSha256 = "b63e3edcd206f88a4a6451c31f29559d01a35deafedad833d6e23270e89df580"
+
 Write-Host "`n[*] Initializing Tanuki Universal Installer for Windows..." -ForegroundColor Cyan
 
 # 1. Resolve source repository (local clone vs remote bootstrap)
@@ -29,12 +32,18 @@ if ($ScriptDir -and (Test-Path (Join-Path $ScriptDir "pyproject.toml")) -and (Te
     Write-Host "  [+] Remote execution detected. Fetching Tanuki repository from GitHub..." -ForegroundColor Gray
     
     if (Get-Command git -ErrorAction SilentlyContinue) {
-        & git clone --depth 1 https://github.com/Mafifrizi/tanuki.git $TempDir --quiet
+        & git clone --depth 1 --branch $TanukiVersion https://github.com/Mafifrizi/tanuki.git $TempDir --quiet
     } else {
         $ZipPath = Join-Path $TempDir "tanuki.zip"
-        Invoke-WebRequest -Uri "https://github.com/Mafifrizi/tanuki/archive/refs/heads/main.zip" -OutFile $ZipPath
+        $ArchiveUrl = "https://github.com/Mafifrizi/tanuki/archive/refs/tags/$TanukiVersion.zip"
+        Invoke-WebRequest -Uri $ArchiveUrl -OutFile $ZipPath
+        $ActualSha256 = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($ActualSha256 -ne $TanukiSha256) {
+            Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+            throw "SHA256 mismatch! Expected: $TanukiSha256, Actual: $ActualSha256"
+        }
         Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force
-        $Extracted = Join-Path $TempDir "tanuki-main"
+        $Extracted = Join-Path $TempDir ("tanuki-" + $TanukiVersion.TrimStart("v"))
         if (Test-Path $Extracted) {
             Get-ChildItem -Path $Extracted | Move-Item -Destination $TempDir -Force
         }
@@ -61,7 +70,6 @@ $ClaudeDir = Join-Path $HOME ".claude\skills\tanuki"
 New-Item -ItemType Directory -Path $ClaudeDir -Force | Out-Null
 Copy-Item -Path (Join-Path $SourceDir "SKILL.md") -Destination $ClaudeDir -Force
 Copy-Item -Path (Join-Path $SourceDir "references") -Destination $ClaudeDir -Recurse -Force
-Copy-Item -Path (Join-Path $SourceDir "scripts") -Destination $ClaudeDir -Recurse -Force
 Write-Host "  [+] Claude Code skill linked -> $ClaudeDir" -ForegroundColor Green
 
 # Google Antigravity
@@ -73,7 +81,6 @@ foreach ($AgyDir in $AgyPaths) {
     New-Item -ItemType Directory -Path $AgyDir -Force | Out-Null
     Copy-Item -Path (Join-Path $SourceDir "SKILL.md") -Destination $AgyDir -Force
     Copy-Item -Path (Join-Path $SourceDir "references") -Destination $AgyDir -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceDir "scripts") -Destination $AgyDir -Recurse -Force
     Write-Host "  [+] Google Antigravity skill linked -> $AgyDir" -ForegroundColor Green
 }
 

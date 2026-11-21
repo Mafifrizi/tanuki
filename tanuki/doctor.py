@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import sys
+from . import __version__
 from .keytab import ENCTYPE_MAP, parse_keytab_stream
 
 
@@ -81,7 +82,7 @@ class DoctorReport:
         )
         lines: List[str] = []
         lines.extend(render_card_header(
-            "TANUKI PRE-FLIGHT DOCTOR (v2.1.3)",
+            f"TANUKI PRE-FLIGHT DOCTOR (v{__version__})",
             f"Host: {hostname} · Mode: Passive Diagnostic (0 network packets)",
         ))
         lines.append("")
@@ -698,7 +699,7 @@ def check_sssd(
     except FileNotFoundError:
         result["secrets_status"] = "ENOENT"
         result["secrets_error"] = "ENOENT"
-    except PermissionError as exc:
+    except PermissionError:
         result["secrets_status"] = "EACCES"
         result["secrets_error"] = "EACCES"
     except OSError as exc:

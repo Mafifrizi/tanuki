@@ -12,7 +12,6 @@ import json
 import os
 import shutil
 import stat
-import sys
 from typing import Any, Dict, List, Optional
 
 from .auth import acquire_tgt
@@ -23,10 +22,8 @@ from .protocol import (
     parse_krb_error_stime,
 )
 from .doctor import (
-    check_keytab,
     check_krb5_conf,
     check_ticket_lifetime,
-    diagnose_system,
     render_card_header,
     supports_unicode,
 )

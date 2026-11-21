@@ -1,3 +1,6 @@
+use std::net::Ipv6Addr;
+use std::str::FromStr;
+
 fn validate_krb5_conf_token(value: &str, field_name: &str) -> Result<(), String> {
     if value.contains('\n') || value.contains('\r') {
         return Err(format!("{} cannot contain newline characters", field_name));
@@ -14,6 +17,120 @@ fn validate_krb5_conf_token(value: &str, field_name: &str) -> Result<(), String>
     Ok(())
 }
 
+pub fn strip_kdc_transport_prefix(token: &str) -> &str {
+    let trimmed = token.trim();
+    if trimmed.len() > 4 {
+        let prefix = &trimmed[..4];
+        if prefix.eq_ignore_ascii_case("tcp/") || prefix.eq_ignore_ascii_case("udp/") {
+            return &trimmed[4..];
+        }
+    }
+    trimmed
+}
+
+fn validate_kdc_token(kdc_token: &str) -> Result<(), String> {
+    if kdc_token.contains('\n') || kdc_token.contains('\r') {
+        return Err("KDC cannot contain newline characters".to_string());
+    }
+    if kdc_token
+        .chars()
+        .any(|c| matches!(c, '\0' | ';' | '#' | '{' | '}' | '=') || c.is_whitespace())
+    {
+        return Err("KDC contains forbidden configuration syntax characters".to_string());
+    }
+    let body = strip_kdc_transport_prefix(kdc_token);
+    if body.is_empty() {
+        return Err("KDC cannot be empty".to_string());
+    }
+    if body.contains('[') || body.contains(']') {
+        if !body.starts_with('[') {
+            return Err("Invalid bracketed IPv6 KDC syntax".to_string());
+        }
+        let close_idx = body
+            .find(']')
+            .ok_or_else(|| "Unclosed bracket in IPv6 KDC address".to_string())?;
+        let ipv6_raw = &body[1..close_idx];
+        let ipv6_part = ipv6_raw.split('%').next().unwrap_or("");
+        if ipv6_part.is_empty() || Ipv6Addr::from_str(ipv6_part).is_err() {
+            return Err(format!("Invalid IPv6 KDC address: {}", body));
+        }
+        let rest = &body[close_idx + 1..];
+        if !rest.is_empty() {
+            if !rest.starts_with(':') {
+                return Err(format!("Invalid trailing characters after IPv6 KDC: {}", body));
+            }
+            let port_str = &rest[1..];
+            let port = port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid port in IPv6 KDC: {}", body))?;
+            if port == 0 {
+                return Err("KDC port cannot be 0".to_string());
+            }
+        }
+    } else if body.matches(':').count() > 1 {
+        let ipv6_part = body.split('%').next().unwrap_or("");
+        if Ipv6Addr::from_str(ipv6_part).is_err() {
+            return Err(format!("Invalid bare IPv6 KDC address: {}", body));
+        }
+    } else if let Some((_, port_str)) = body.split_once(':') {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid KDC port: {}", port_str))?;
+        if port == 0 {
+            return Err("KDC port cannot be 0".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_kdc_host_port(token: &str) -> Option<(String, u16)> {
+    let first = token
+        .trim()
+        .split_whitespace()
+        .next()?
+        .split(',')
+        .next()?
+        .trim();
+    let body = strip_kdc_transport_prefix(first);
+    if body.is_empty() {
+        return None;
+    }
+    if body.starts_with('[') {
+        let close_idx = body.find(']')?;
+        let host = body[1..close_idx].to_string();
+        if host.is_empty() {
+            return None;
+        }
+        let rest = &body[close_idx + 1..];
+        let port = if rest.is_empty() {
+            88
+        } else if let Some(p_str) = rest.strip_prefix(':') {
+            let p = p_str.parse::<u16>().ok()?;
+            if p == 0 {
+                return None;
+            }
+            p
+        } else {
+            return None;
+        };
+        return Some((host, port));
+    }
+    if body.matches(':').count() > 1 {
+        return Some((body.to_string(), 88));
+    }
+    if let Some((h, p_str)) = body.split_once(':') {
+        if h.is_empty() {
+            return None;
+        }
+        let p = p_str.parse::<u16>().ok()?;
+        if p == 0 {
+            return None;
+        }
+        return Some((h.to_string(), p));
+    }
+    Some((body.to_string(), 88))
+}
+
 pub fn generate_krb5_conf(
     realm: &str,
     kdc: &str,
@@ -27,9 +144,11 @@ pub fn generate_krb5_conf(
         return Err("Realm cannot contain newline characters".to_string());
     }
     validate_krb5_conf_token(realm, "Realm")?;
-    validate_krb5_conf_token(kdc, "KDC")?;
+    if kdc.contains('\n') || kdc.contains('\r') {
+        return Err("KDC cannot contain newline characters".to_string());
+    }
     if let Some(admin) = admin_server {
-        validate_krb5_conf_token(admin, "Admin server")?;
+        validate_kdc_token(admin).map_err(|e| e.replace("KDC", "Admin server"))?;
     }
     if let Some(armor) = armor_cache {
         validate_krb5_conf_token(armor, "Armor cache")?;
@@ -50,8 +169,11 @@ pub fn generate_krb5_conf(
     let mut kdc_candidates: Vec<&str> = Vec::new();
     for part in kdc_raw.split(',') {
         let trimmed = part.trim();
-        if !trimmed.is_empty() && !kdc_candidates.contains(&trimmed) {
-            kdc_candidates.push(trimmed);
+        if !trimmed.is_empty() {
+            validate_kdc_token(trimmed)?;
+            if !kdc_candidates.contains(&trimmed) {
+                kdc_candidates.push(trimmed);
+            }
         }
     }
     if kdc_candidates.is_empty() {
@@ -59,7 +181,10 @@ pub fn generate_krb5_conf(
     }
 
     let domain = clean_realm.to_lowercase();
-    let admin_target = admin_server.map(|s| s.trim()).unwrap_or(kdc_candidates[0]);
+    let admin_target = admin_server
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| strip_kdc_transport_prefix(kdc_candidates[0]));
 
     let mut libdefaults = String::from(
         "[libdefaults]\n    default_realm = ",
@@ -182,7 +307,9 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
 
     for srv_qname in &srv_qnames {
         let mut txid = [0u8; 2];
-        crate::util::fill_dynamic_entropy(&mut txid);
+        if crate::util::fill_dynamic_entropy(&mut txid).is_err() {
+            return None;
+        }
         let mut packet = Vec::new();
         packet.extend_from_slice(&[txid[0], txid[1], 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         for label in srv_qname.split('.') {

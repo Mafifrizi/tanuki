@@ -3,6 +3,7 @@
 import hashlib
 import io
 import os
+import stat
 import struct
 from typing import Any, Dict, List
 
@@ -158,5 +159,17 @@ def parse_keytab_file(filepath: str) -> List[Dict[str, Any]]:
             f"Keytab file size {file_size} bytes exceeds maximum allowed size "
             f"({MAX_KEYTAB_SIZE} bytes). Possible corrupt or non-keytab file: {filepath!r}"
         )
+    lstat_info = os.lstat(filepath) if hasattr(os, "lstat") else None
+    if lstat_info is not None and stat.S_ISLNK(lstat_info.st_mode):
+        raise ValueError(f"Refusing to read symbolic link: {filepath}")
     with open(filepath, "rb") as f:
-        return parse_keytab_stream(io.BytesIO(f.read()))
+        if os.name == "posix" and lstat_info is not None and hasattr(os, "fstat"):
+            try:
+                fstat_info = os.fstat(f.fileno())
+                if lstat_info.st_ino != 0 and (
+                    fstat_info.st_ino != lstat_info.st_ino or fstat_info.st_dev != lstat_info.st_dev
+                ):
+                    raise ValueError(f"Refusing to read symbolic link or swapped file: {filepath}")
+            except OSError:
+                pass
+        return parse_keytab_stream(io.BytesIO(f.read(MAX_KEYTAB_SIZE + 1)))

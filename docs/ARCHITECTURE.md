@@ -4,20 +4,20 @@ Tanuki ships two production-grade implementations that hold strict behavioral pa
 
 ## Dual-engine comparison
 
-| Feature / Metric | Python 3.10+ reference engine | Rust systems core (`tanuki-cli`) |
+| Feature / Metric | Python 3.10+ reference engine | Rust systems core (tanuki-cli) |
 | :--- | :--- | :--- |
 | **Primary focus** | Auditable reference, zero pip dependencies | Low latency, standalone security operations |
-| **Binary / packaging** | Pure standard library (`tanuki/`) | 1.8 MB static musl binary (`crates/tanuki-cli/`) |
+| **Binary / packaging** | Pure standard library (tanuki/) | 1.8 MB static musl binary (crates/tanuki-cli/) |
 | **Execution latency** | ~42 ms (CPython VM startup) | ~0.76 ms (sub-millisecond native execution) |
 | **Memory footprint** | ~14 MB RSS | ~1.1 MB RSS |
 | **Host requirements** | Python 3.10+ runtime | None (standalone static ELF) |
-| **Test verification** | 500+ unit tests (100% green) | 39 tests, library plus integration (100% green) |
+| **Test verification** | 500+ unit tests (100% green) | 48 tests, library, binary CLI, and integration (100% green) |
 
 ## Core invariants
 
-- **Living off the domain (zero dependencies).** The Python engine runs strictly on the 3.10+ standard library (`socket`, `struct`, `ctypes`, `hashlib`, `ssl`). No external pip packages.
-- **Strictly unprivileged execution (UID 1000).** Runs entirely in userspace. Never requires `sudo`, root, or `CAP_SYS_TIME`.
-- **Zero host mutation.** Never modifies `/etc/krb5.conf`, system PAM, or root system files. Configuration stays isolated to the calling process and its in-memory session.
+- **Living off the domain (zero dependencies).** The Python engine runs strictly on the 3.10+ standard library (socket, struct, ctypes, hashlib, ssl). No external pip packages.
+- **Strictly unprivileged execution (UID 1000).** Runs entirely in userspace. Never requires sudo, root, or CAP_SYS_TIME.
+- **Zero host mutation.** Never modifies /etc/krb5.conf, system PAM, or root system files. Configuration stays isolated to the calling process and its in-memory session.
 - **Dual-engine parity.** Behavior is kept identical across the Python reference engine and the Rust core.
 - **In-memory clock skew self-healing.** Calculates and compensates for KDC time drift in memory, without touching the system clock. Synthesized skew is clamped to the Kerberos standard 300 second maximum.
 - **Quantitative blast radius engine.** Scores identity blast radius (0-100), classifies accounts into Active Directory tiers (Tier 0 / 1 / 2), and emits deterministic PowerShell mitigation recipes.
@@ -68,7 +68,7 @@ flowchart TD
         S3["references/ (Tactical Ladder, AD CS, NHI)"]
     end
 
-    subgraph VERIFICATION["Empirical Verification (500+ Python and 39 Rust Tests)"]
+    subgraph VERIFICATION["Empirical Verification (500+ Python and 48 Rust Tests)"]
         V1["tests/ (21 Unit Test Suites)"]
         V2["crates/tanuki-cli/tests/ (Integration Tests)"]
         V3["Adversarial Protocol and Fuzzing Validation"]
@@ -86,12 +86,12 @@ flowchart TD
 
 | Subsystem | Primary location | Key capabilities |
 | :--- | :--- | :--- |
-| **Rust systems core** | `crates/tanuki-cli/` | High-performance binary CLI built with `#![forbid(unsafe_code)]`. Houses sub-millisecond `doctor`, quantitative `blast`, RFC 8693 token exchange, RFC 4120 keytab parsing, MS-PAC NDR decoding, in-line RBCD parsing, and SSSD CCACHE extraction. |
-| **Python unified package** | `tanuki/` | Zero-dependency PEP 621 package providing the `tanuki` entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing `fix`, zero-trace `purge`, and unprivileged authenticated or anonymous LDAP queries. |
-| **Living-off-the-land scripts** | `scripts/` | Standalone Python 3 standard library scripts for air-gapped environments without pip or a compiler toolchain. |
-| **Agent skill definitions** | `SKILL.md`, `.cursor/rules/` | Multi-agent skill manifests auto-linked into Claude Code (`~/.claude/skills`), Cursor, and Google Antigravity. |
-| **Technical references** | `references/` | Protocol manuals covering the decision ladder, the AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
-| **Verification harness** | `tests/`, `crates/tanuki-cli/tests/` | 500+ Python unit tests and 39 Rust tests covering unit, boundary, pairwise, and live-wire lab scenarios. |
+| **Rust systems core** | crates/tanuki-cli/ | High-performance binary CLI built with #![forbid(unsafe_code)]. Houses sub-millisecond doctor, quantitative blast, RFC 8693 token exchange, RFC 4120 keytab parsing, MS-PAC NDR decoding, in-line RBCD parsing, and SSSD CCACHE extraction. |
+| **Python unified package** | tanuki/ | Zero-dependency PEP 621 package providing the tanuki entrypoint, native ctypes TGT acquisition, pre-flight diagnostics, self-healing fix, zero-trace purge, and unprivileged authenticated or anonymous LDAP queries. |
+| **Static musl build tooling** | scripts/build_musl.sh | Multi-architecture static musl binary build helper for x86_64 and aarch64 Linux release targets. |
+| **Agent skill definitions** | SKILL.md, .cursor/rules/ | Multi-agent skill manifests auto-linked into Claude Code (~/.claude/skills), Cursor, and Google Antigravity. |
+| **Technical references** | references/ | Protocol manuals covering the decision ladder, the AD CS matrix (ESC1-ESC11), 15-code error triage, and NHI federation. |
+| **Verification harness** | tests/, crates/tanuki-cli/tests/ | 500+ Python unit tests and 48 Rust tests covering unit, boundary, pairwise, and live-wire lab scenarios. |
 
 <details>
 <summary><b>View complete directory file tree</b></summary>

@@ -412,7 +412,7 @@ class TestFinding03ONofollowEloopSymlinkGuard(unittest.TestCase):
 
 
 class TestFinding04InstallScriptIntegrity(unittest.TestCase):
-    EXPECTED_SHA256 = "25d8b2c567117a68e04e79df0c48897152e1ccb46a74e65adbfcd8a5d18c2dd6"
+    EXPECTED_SHA256 = "4daceb175a7b6c217f7e9f6d2bfd2d28e8b92cd474c84041546ff85c5580b551"
 
     def setUp(self):
         self.repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -502,7 +502,7 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
         self.assertNotIn(b"\r", raw_bytes)
         content = raw_bytes.decode("utf-8")
 
-        self.assertIn('TANUKI_VERSION="v2.1.0"', content)
+        self.assertIn('TANUKI_VERSION="v2.1.3"', content)
         self.assertIn(f'TANUKI_SHA256="{self.EXPECTED_SHA256}"', content)
         self.assertRegex(content, r'TANUKI_SHA256="[0-9a-f]{64}"')
         self.assertNotIn("archive/refs/heads/main.tar.gz", content)
@@ -558,7 +558,8 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
             self._populate_isolated_bin(fake_bin, bash_bin, include_sha256sum=True, include_tar=False)
 
             env = dict(os.environ)
-            env["PATH"] = fake_bin
+            sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+            env["PATH"] = f"{fake_bin}{os.pathsep}{sys32}" if (os.name == "nt" and os.path.isdir(sys32)) else fake_bin
             env["HOME"] = fake_home
             env["TMPDIR"] = fake_tmp
             env["TAR_MARKER"] = marker_file
@@ -650,7 +651,8 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
                     os.chmod(os.path.join(fake_bin, "_real_sha256sum"), 0o755)
 
             env = dict(os.environ)
-            env["PATH"] = fake_bin
+            sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+            env["PATH"] = f"{fake_bin}{os.pathsep}{sys32}" if (os.name == "nt" and os.path.isdir(sys32)) else fake_bin
             env["HOME"] = fake_home
             env["TMPDIR"] = fake_tmp
             env["MOCK_ARCHIVE_SRC"] = archive_src

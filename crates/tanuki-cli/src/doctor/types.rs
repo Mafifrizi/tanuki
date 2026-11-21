@@ -124,7 +124,8 @@ impl DoctorReport {
             .unwrap_or_else(|_| "localhost".to_string());
 
         out.push_str(&format!(
-            "[TANUKI PRE-FLIGHT DOCTOR (v2.1.3)]\n Host: {} · Mode: Passive Diagnostic (0 network packets)\n\n",
+            "[TANUKI PRE-FLIGHT DOCTOR (v{})]\n Host: {} · Mode: Passive Diagnostic (0 network packets)\n\n",
+            env!("CARGO_PKG_VERSION"),
             hostname
         ));
 

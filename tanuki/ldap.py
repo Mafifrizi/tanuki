@@ -10,13 +10,10 @@ Queries Active Directory for:
 - Unconstrained Delegation accounts (UAC flag 0x80000).
 """
 
-import json
-import os
 import socket
 import ssl
-import struct
 import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from .doctor import render_card_header, supports_unicode
 
@@ -437,7 +434,7 @@ class LdapClient:
         port: int = 389,
         use_ssl: bool = False,
         timeout: float = 5.0,
-        verify_ssl: bool = False,
+        verify_ssl: bool = True,
         ca_cert: Optional[str] = None,
     ) -> None:
         self.host = host
@@ -468,9 +465,9 @@ class LdapClient:
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
                     sys.stderr.write(
-                        "[!] WARNING: LDAPS certificate validation is DISABLED (CERT_NONE). "
+                        "[!] WARNING: LDAPS certificate validation was explicitly DISABLED (--insecure / CERT_NONE). "
                         "An on-path attacker can intercept this bind and steal the credentials. "
-                        "Use --secure (system trust store) or --verify-ca <PATH> (pin the DC CA) for a verified channel.\n"
+                        "Omit --insecure (system trust store) or pass --verify-ca <PATH> (pin the DC CA) for a verified channel.\n"
                     )
                 self.sock = context.wrap_socket(raw_sock, server_hostname=self.host)
             else:
@@ -616,7 +613,7 @@ def query_active_directory_ldap(
     timeout: float = 3.0,
     username: Optional[str] = None,
     password: Optional[str] = None,
-    verify_ssl: bool = False,
+    verify_ssl: bool = True,
     ca_cert: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute Active Directory diagnostic queries (SPN, AS-REP Roast, RBCD, Shadow Credentials, Unconstrained)."""
@@ -793,7 +790,6 @@ def format_ldap_report_terminal(report: Dict[str, Any]) -> str:
     lines.append(f"[+] Discovered Active Directory Objects ({len(entries)} entries):\n")
     for idx, e in enumerate(entries):
         is_last = idx == len(entries) - 1
-        branch = l_branch if is_last else t_branch
         dn = e.get("dn", "Unknown DN")
         attrs = e.get("attributes", {})
         sam = attrs.get("sAMAccountName", [dn])[0]

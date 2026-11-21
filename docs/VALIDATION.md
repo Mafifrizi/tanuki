@@ -1,6 +1,6 @@
 # Empirical Validation
 
-Tanuki is validated against live hybrid infrastructure: an unprivileged Kali Linux workstation (`192.168.56.105`, UID 1000) connecting directly to an Active Directory Domain Controller running Windows Server 2022 (`192.168.56.106`, `DC01.lab.local`).
+Tanuki is validated against live hybrid infrastructure: an unprivileged Kali Linux workstation (192.168.56.105, UID 1000) connecting directly to an Active Directory Domain Controller running Windows Server 2022 (192.168.56.106, DC01.lab.local).
 
 The run proves each rung of the operator lifecycle end to end, from pre-flight triage to Blue Team forensic telemetry on the DC itself.
 
@@ -38,7 +38,7 @@ Calculates blast radius impact (0-100 score), classifies account privileges (Tie
 
 ## Milestone 5: Closed-loop Blue Team forensic telemetry on DC01
 
-Forensic verification inspecting the Windows Server 2022 Security Event log, proving live ticket requests attributed to `192.168.56.105` with modern AES-256 (`0x12`).
+Forensic verification inspecting the Windows Server 2022 Security Event log, proving live ticket requests attributed to 192.168.56.105 with modern AES-256 (0x12).
 
 <p align="center">
   <img src="../assets/05_dc01_event4769.png" alt="DC01 Security Event log forensic telemetry" width="850">
@@ -46,4 +46,4 @@ Forensic verification inspecting the Windows Server 2022 Security Event log, pro
 
 ## Automated test coverage
 
-Beyond the live lab run, Tanuki ships a full automated suite: 500+ Python unit tests and 39 Rust tests (library plus integration), covering unit, boundary, pairwise, and live-wire scenarios. The Rust core builds with zero compiler warnings under `#![forbid(unsafe_code)]`.
+Beyond the live lab run, Tanuki ships a full automated suite: 500+ Python unit tests and 48 Rust tests (library, binary CLI, and integration), covering unit, boundary, pairwise, and live-wire scenarios. The Rust core builds with zero compiler warnings under #![forbid(unsafe_code)].

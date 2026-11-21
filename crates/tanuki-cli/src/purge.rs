@@ -81,13 +81,6 @@ impl PurgeReport {
     }
 }
 
-#[cfg(target_os = "linux")]
-const O_NOFOLLOW: i32 = 0o400000;
-#[cfg(target_os = "macos")]
-const O_NOFOLLOW: i32 = 0x0100;
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-const O_NOFOLLOW: i32 = 0;
-
 pub fn shred_file(path: &str) -> ShredResult {
     let p = Path::new(path);
     // Security: Check symlink metadata first to prevent following symlinks (CWE-59).
@@ -149,13 +142,7 @@ pub fn shred_file(path: &str) -> ShredResult {
     if len > 0 {
         let mut opts = OpenOptions::new();
         opts.read(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            if O_NOFOLLOW != 0 {
-                opts.custom_flags(O_NOFOLLOW);
-            }
-        }
+        crate::util::apply_nofollow(&mut opts);
         let mut file = match opts.open(p) {
             Ok(f) => f,
             Err(_) => {
@@ -173,7 +160,14 @@ pub fn shred_file(path: &str) -> ShredResult {
         while remaining > 0 {
             let this_chunk = remaining.min(chunk_size as u64) as usize;
             let mut buf = vec![0u8; this_chunk];
-            crate::util::fill_dynamic_entropy(&mut buf);
+            if crate::util::fill_dynamic_entropy(&mut buf).is_err() {
+                buf.fill(0);
+                return ShredResult {
+                    path: path.to_string(),
+                    status: "ERROR".to_string(),
+                    bytes_shredded: 0,
+                };
+            }
             if file.write_all(&buf).is_err() {
                 return ShredResult {
                     path: path.to_string(),
@@ -233,13 +227,7 @@ pub fn shred_file(path: &str) -> ShredResult {
     } else {
         let mut opts = OpenOptions::new();
         opts.write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            if O_NOFOLLOW != 0 {
-                opts.custom_flags(O_NOFOLLOW);
-            }
-        }
+        crate::util::apply_nofollow(&mut opts);
         if opts.open(p).is_err() {
             return ShredResult {
                 path: path.to_string(),

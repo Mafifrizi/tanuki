@@ -222,6 +222,30 @@ class TestConfigCLIIntegration(unittest.TestCase):
             self.assertEqual(data["kdc"], "192.168.56.106")
             self.assertTrue(os.path.isfile(target_path))
 
+    def test_cli_config_stdout_json_does_not_write_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd = [
+                sys.executable,
+                "-m",
+                "tanuki",
+                "config",
+                "--realm",
+                "CORP.LOCAL",
+                "--kdc",
+                "192.168.56.106",
+                "--stdout",
+                "--json",
+            ]
+            proc = subprocess.run(cmd, cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 0)
+            data = json.loads(proc.stdout)
+            self.assertEqual(data["status"], "SUCCESS")
+            self.assertEqual(data["realm"], "CORP.LOCAL")
+            self.assertEqual(data["kdc"], "192.168.56.106")
+            self.assertTrue(data["stdout"])
+            self.assertIn("default_realm = CORP.LOCAL", data["content"])
+            self.assertFalse(os.path.exists(os.path.join(tmpdir, "krb5.conf")))
+
     def test_cli_config_symlink_rejected(self):
         if not hasattr(os, "symlink"):
             return

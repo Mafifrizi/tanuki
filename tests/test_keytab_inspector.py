@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import os
@@ -7,8 +8,8 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
-from keytab_inspector import parse_keytab_stream, ENCTYPE_MAP
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from tanuki.keytab import parse_keytab_stream, ENCTYPE_MAP
 
 
 def make_entry_bytes(realm: bytes, components: list, key_data: bytes, keytype: int = 18, vno8: int = 1, vno32: int = 1):
@@ -50,7 +51,9 @@ class TestKeytabInspector(unittest.TestCase):
         self.assertEqual(entry["enctype_name"], "aes256-cts-hmac-sha1-96")
         self.assertEqual(entry["vno"], 3)
         self.assertEqual(entry["key_len"], 32)
-        self.assertEqual(entry["key_hex"], ("aa" * 32))
+        self.assertNotIn("key_hex", entry)
+        self.assertEqual(entry["key_preview"], "aaaaaaaa...")
+        self.assertEqual(entry["key_fingerprint"], hashlib.sha256(key_data).hexdigest()[:16])
 
     def test_invalid_header_raises_error(self):
         stream = io.BytesIO(b"\x01\x02badheader")
@@ -126,11 +129,8 @@ class TestKeytabInspector(unittest.TestCase):
             parse_keytab_stream(stream)
 
     def test_cli_missing_file_semantic_exit(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "keytab_inspector.py")
-        )
         res = subprocess.run(
-            [sys.executable, script_path, "nonexistent.keytab"],
+            [sys.executable, "-m", "tanuki", "keytab", "nonexistent.keytab"],
             capture_output=True,
             text=True,
         )
@@ -138,11 +138,8 @@ class TestKeytabInspector(unittest.TestCase):
         self.assertIn("[RESOURCE MISSING]", res.stderr)
 
     def test_cli_missing_file_json(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "keytab_inspector.py")
-        )
         res = subprocess.run(
-            [sys.executable, script_path, "nonexistent.keytab", "--json"],
+            [sys.executable, "-m", "tanuki", "keytab", "nonexistent.keytab", "--json"],
             capture_output=True,
             text=True,
         )
@@ -153,38 +150,32 @@ class TestKeytabInspector(unittest.TestCase):
         self.assertEqual(data.get("exit_code"), 3)
 
     def test_cli_empty_file_json(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "keytab_inspector.py")
-        )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
             empty_path = tf.name
 
         try:
             res = subprocess.run(
-                [sys.executable, script_path, empty_path, "--json"],
+                [sys.executable, "-m", "tanuki", "keytab", empty_path, "--json"],
                 capture_output=True,
                 text=True,
             )
             self.assertEqual(res.returncode, 4)
             data = json.loads(res.stdout)
             self.assertEqual(data.get("status"), "ERROR")
-            self.assertEqual(data.get("reason_code"), "EMPTY_KEYTAB")
+            self.assertEqual(data.get("reason_code"), "CORRUPT_KEYTAB")
             self.assertEqual(data.get("exit_code"), 4)
         finally:
             if os.path.exists(empty_path):
                 os.unlink(empty_path)
 
     def test_cli_corrupt_file_json(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "keytab_inspector.py")
-        )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".keytab") as tf:
             tf.write(b"not_a_valid_keytab_bytes")
             corrupt_path = tf.name
 
         try:
             res = subprocess.run(
-                [sys.executable, script_path, corrupt_path, "--json"],
+                [sys.executable, "-m", "tanuki", "keytab", corrupt_path, "--json"],
                 capture_output=True,
                 text=True,
             )
@@ -198,9 +189,6 @@ class TestKeytabInspector(unittest.TestCase):
                 os.unlink(corrupt_path)
 
     def test_cli_valid_synthetic_keytab_json(self):
-        script_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "scripts", "keytab_inspector.py")
-        )
         stream = io.BytesIO()
         stream.write(b"\x05\x02")
         realm = b"CORP.LOCAL"
@@ -216,7 +204,7 @@ class TestKeytabInspector(unittest.TestCase):
 
         try:
             res = subprocess.run(
-                [sys.executable, script_path, valid_path, "--json"],
+                [sys.executable, "-m", "tanuki", "keytab", valid_path, "--json"],
                 capture_output=True,
                 text=True,
             )
@@ -225,6 +213,8 @@ class TestKeytabInspector(unittest.TestCase):
             self.assertEqual(len(data), 1)
             self.assertEqual(data[0]["principal"], "HOST/server01.corp.local@CORP.LOCAL")
             self.assertEqual(data[0]["vno"], 3)
+            self.assertNotIn("key_hex", data[0])
+            self.assertEqual(data[0]["key_preview"], "aaaaaaaa...")
         finally:
             if os.path.exists(valid_path):
                 os.unlink(valid_path)

@@ -25,7 +25,8 @@ pub struct KeytabEntry {
     pub keytype: i16,
     pub enctype_name: String,
     pub key_len: u16,
-    pub key_hex: String,
+    pub key_preview: String,
+    pub key_fingerprint: String,
     pub timestamp: u32,
 }
 
@@ -50,7 +51,7 @@ impl KeytabEntry {
         };
 
         format!(
-            "  {{\n    \"principal\": \"{}\",\n    \"realm\": \"{}\",\n    \"components\": {},\n    \"vno\": {},\n    \"keytype\": {},\n    \"enctype_name\": \"{}\",\n    \"key_len\": {},\n    \"key_hex\": \"{}\",\n    \"timestamp\": {}\n  }}",
+            "  {{\n    \"principal\": \"{}\",\n    \"realm\": \"{}\",\n    \"components\": {},\n    \"vno\": {},\n    \"keytype\": {},\n    \"enctype_name\": \"{}\",\n    \"key_len\": {},\n    \"key_preview\": \"{}\",\n    \"key_fingerprint\": \"{}\",\n    \"timestamp\": {}\n  }}",
             escaped_principal,
             escaped_realm,
             comps_json,
@@ -58,7 +59,8 @@ impl KeytabEntry {
             self.keytype,
             escape_json(&self.enctype_name),
             self.key_len,
-            self.key_hex,
+            escape_json(&self.key_preview),
+            escape_json(&self.key_fingerprint),
             self.timestamp
         )
     }

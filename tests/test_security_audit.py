@@ -5,10 +5,9 @@ import tempfile
 import unittest
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from keytab_inspector import parse_keytab_stream, MAX_COMPONENTS
-from kcm_parser import scan_for_ccache_blobs, save_recovered_ticket
+from tanuki.keytab import parse_keytab_stream, MAX_COMPONENTS
+from tanuki.kcm import scan_for_ccache_blobs, save_recovered_ticket
 from tanuki.adcs import (
     parse_x509_der,
     parse_oid_bytes,
@@ -49,8 +48,6 @@ class TestSecurityAudit(unittest.TestCase):
             "exec(",
         ]
         paths_to_audit = [
-            os.path.join(self.scripts_dir, "keytab_inspector.py"),
-            os.path.join(self.scripts_dir, "kcm_parser.py"),
             os.path.join(self.root_dir, "tanuki", "keytab.py"),
             os.path.join(self.root_dir, "tanuki", "kcm.py"),
             os.path.join(self.root_dir, "tanuki", "protocol.py"),

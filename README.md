@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.3-blue.svg" alt="Version 2.1.3">
+  <img src="https://img.shields.io/badge/version-2.1.4-blue.svg" alt="Version 2.1.4">
   <img src="https://img.shields.io/badge/rust-1.75+%20(1.8MB%20musl)-dea584.svg?logo=rust&logoColor=white" alt="Rust Systems Core">
   <img src="https://img.shields.io/badge/python-3.10+%20-3776ab.svg?logo=python&logoColor=white" alt="Python Reference Engine">
   <img src="https://img.shields.io/badge/standards-RFC_4120%20%7C%20RFC_6113%20%7C%20RFC_7519%20%7C%20RFC_8693-orange.svg" alt="RFC Standards">
@@ -33,14 +33,14 @@
 
 ## Overview
 
-Modern cloud-native and on-premise environments increasingly run Linux workloads (Kubernetes pods, AI coding agents, CI/CD runners, containerized batch workers) that must authenticate to enterprise Active Directory domains without a full domain join, Kerberos daemons (`sssd` / `winbind`), or root privileges.
+Modern cloud-native and on-premise environments increasingly run Linux workloads (Kubernetes pods, AI coding agents, CI/CD runners, containerized batch workers) that must authenticate to enterprise Active Directory domains without a full domain join, Kerberos daemons (sssd / winbind), or root privileges.
 
 Tanuki is a protocol-first Active Directory operator built for unprivileged Linux userspace. It runs the full Purple Team lifecycle under human-in-the-loop control: pre-flight triage, cryptographic ticket negotiation, quantitative privilege tiering, closed-loop self-healing, and forensic audit telemetry. It is also agent-operable, exposing a structured skill manifest so tools like Claude Code, Cursor, and Google Antigravity can drive it one deterministic step at a time.
 
 **Highlights:**
 
-- **Living off the domain.** The Python engine uses only the 3.10+ standard library. Zero pip dependencies. The Rust core is a 1.8 MB static binary built with `#![forbid(unsafe_code)]`.
-- **Strictly unprivileged (UID 1000).** No `sudo`, no root, no `CAP_SYS_TIME`, and no mutation of `/etc/krb5.conf` or system files.
+- **Living off the domain.** The Python engine uses only the 3.10+ standard library. Zero pip dependencies. The Rust core is a 1.8 MB static binary built with forbid(unsafe_code).
+- **Strictly unprivileged (UID 1000).** No sudo, no root, no CAP_SYS_TIME, and no mutation of /etc/krb5.conf or system files.
 - **Quantitative blast radius.** Scores identity risk (0-100), classifies Active Directory tiers, and emits deterministic PowerShell remediation recipes.
 - **Deterministic and auditable.** Military-brief output, semantic exit codes, and in-memory clock skew healing clamped to the Kerberos standard 300 second maximum.
 
@@ -87,26 +87,26 @@ Both engines share the same command surface and flags. Full usage, every flag, a
 
 | Command | Purpose |
 | :--- | :--- |
-| `tanuki doctor` | Pre-flight diagnostics across domain config, credentials, network, and OPSEC telemetry (`--opsec`) |
-| `tanuki auth` | Unprivileged userspace TGT acquisition with clock skew healing and FAST armoring (`--fast`) |
-| `tanuki tgs` | Kerberos service ticket acquisition for a target SPN |
-| `tanuki blast` | Quantitative blast radius scoring, privilege tiering, and PowerShell remediation recipes |
-| `tanuki ldap` | Unprivileged LDAP recon (`--query spn \| asreproast \| rbcd \| shadow \| unconstrained \| all`) |
-| `tanuki adcs` | Passive AD CS template scanner for ESC1 through ESC11 |
-| `tanuki keytab` | Inspect binary keytab files, principals, KVNOs, and encryption types |
-| `tanuki kcm` | Extract and triage SSSD KCM credential cache streams from local databases |
-| `tanuki pac` | Decode and audit MS-PAC authorization data, group SIDs, and privilege flags |
-| `tanuki shadow` | Dissect Active Directory Shadow Credentials (`msDS-KeyCredentialLink`, [MS-ADTS] 2.2.20) |
-| `tanuki config` | Zero-DNS unprivileged `krb5.conf` generator (`--enforce-aes`, `--fast`, `--stdout`) |
-| `tanuki fix` | Idempotent closed-loop remediation (`--dry-run` to preview) |
-| `tanuki purge` | NIST SP 800-88 cryptographic memory and credential-cache zeroization |
-| `tanuki triage` | Kerberos and SSSD protocol error resolution dictionary with Blue Team telemetry |
-| `tanuki ladder` | Display the 5-rung Tactical Decision Ladder and OPSEC contract |
-| `tanuki token` | Parse and validate workload identity JWTs ([RFC 7519]) |
-| `tanuki nhi` | Non-Human Identity operations: `inspect`, `exchange` ([RFC 8693]), `mesh`, and `scan` |
-| `tanuki skill` | Export the agent skill manifest (`--json` for machine-actionable schema) |
+| tanuki doctor | Pre-flight diagnostics across domain config, credentials, network, and OPSEC telemetry (--opsec) |
+| tanuki auth | Unprivileged userspace TGT acquisition with clock skew healing and FAST armoring (--fast) |
+| tanuki tgs | Kerberos service ticket acquisition for a target SPN |
+| tanuki blast | Quantitative blast radius scoring, privilege tiering, and PowerShell remediation recipes |
+| tanuki ldap | Unprivileged LDAP recon (--query spn \| asreproast \| rbcd \| shadow \| unconstrained \| all) |
+| tanuki adcs | Passive AD CS template scanner for ESC1 through ESC11 |
+| tanuki keytab | Inspect binary keytab files, principals, KVNOs, and encryption types |
+| tanuki kcm | Extract and triage SSSD KCM credential cache streams from local databases |
+| tanuki pac | Decode and audit MS-PAC authorization data, group SIDs, and privilege flags |
+| tanuki shadow | Dissect Active Directory Shadow Credentials (msDS-KeyCredentialLink, [MS-ADTS] 2.2.20) |
+| tanuki config | Zero-DNS unprivileged krb5.conf generator (--enforce-aes, --fast, --stdout) |
+| tanuki fix | Idempotent closed-loop remediation (--dry-run to preview) |
+| tanuki purge | NIST SP 800-88 cryptographic memory and credential-cache zeroization |
+| tanuki triage | Kerberos and SSSD protocol error resolution dictionary with Blue Team telemetry |
+| tanuki ladder | Display the 5-rung Tactical Decision Ladder and OPSEC contract |
+| tanuki token | Parse and validate workload identity JWTs ([RFC 7519]) |
+| tanuki nhi | Non-Human Identity operations: inspect, exchange ([RFC 8693]), mesh, and scan |
+| tanuki skill | Export the agent skill manifest (--json for machine-actionable schema) |
 
-Add `--json` to any command for structured output. Run `tanuki -i` for the interactive wizard.
+Add --json to any command for structured output. Run tanuki -i for the interactive wizard.
 
 ### The decision ladder
 
@@ -114,17 +114,17 @@ Tanuki follows a fixed 5-rung tactical decision ladder to prevent privilege esca
 
 | Rung | Action | Description |
 | :---: | :--- | :--- |
-| **0** | `DIAGNOSE` | Pre-flight audit of credentials, enctypes, and network paths |
-| **1** | `AUTHENTICATE` | Userspace AS-REQ TGT negotiation with clock skew tolerance |
-| **2** | `AUTHORIZE` | TGS service ticket acquisition for verified SPN endpoints |
-| **3** | `ASSESS` | Quantitative blast radius calculation and tier scoring |
-| **4** | `PURGE` | Cryptographic memory zeroization (NIST SP 800-88) |
+| **0** | DIAGNOSE | Pre-flight audit of credentials, enctypes, and network paths |
+| **1** | AUTHENTICATE | Userspace AS-REQ TGT negotiation with clock skew tolerance |
+| **2** | AUTHORIZE | TGS service ticket acquisition for verified SPN endpoints |
+| **3** | ASSESS | Quantitative blast radius calculation and tier scoring |
+| **4** | PURGE | Cryptographic memory zeroization (NIST SP 800-88) |
 
 ---
 
 ## Validation
 
-Tanuki is validated against live hybrid infrastructure: an unprivileged Kali workstation (UID 1000) connecting directly to a Windows Server 2022 Domain Controller (`DC01.lab.local`), proving each rung end to end through to Blue Team forensic telemetry on the DC. It also ships 500+ Python unit tests and 39 Rust tests (library plus integration), all green.
+Tanuki is validated against live hybrid infrastructure: an unprivileged Kali workstation (UID 1000) connecting directly to a Windows Server 2022 Domain Controller (DC01.lab.local), proving each rung end to end through to Blue Team forensic telemetry on the DC. It also ships 500+ Python unit tests and 48 Rust tests (library, binary CLI, and integration), all green.
 
 See the full milestone walkthrough with terminal proofs in [docs/VALIDATION.md](docs/VALIDATION.md).
 
@@ -156,10 +156,10 @@ Tanuki draws inspiration and tradecraft from two foundational projects:
 
 ## Contributing
 
-We welcome contributions from protocol researchers, systems engineers, and toolmakers. Tanuki enforces two hard invariants: zero external dependencies in the Python core, and `#![forbid(unsafe_code)]` in the Rust core.
+We welcome contributions from protocol researchers, systems engineers, and toolmakers. Tanuki enforces two hard invariants: zero external dependencies in the Python core, and forbid(unsafe_code) in the Rust core.
 
-- **Developer guide**: see [`CONTRIBUTING.md`](CONTRIBUTING.md) for local setup, testing commands, and PR guidelines.
-- **Good first issues**: shell autocompletion (`bash` / `zsh` / `fish`), error dictionary expansion in `tanuki triage`, and SARIF or Markdown export formatters.
+- **Developer guide**: see [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, testing commands, and PR guidelines.
+- **Good first issues**: shell autocompletion (bash / zsh / fish), error dictionary expansion in tanuki triage, and SARIF or Markdown export formatters.
 - **Reporting issues**: use the structured [issue templates](https://github.com/Mafifrizi/tanuki/issues/new/choose).
 
 ---
@@ -168,7 +168,7 @@ We welcome contributions from protocol researchers, systems engineers, and toolm
 
 Tanuki is dual-licensed under either:
 
-- **MIT License** ([`LICENSE-MIT`](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-- **Apache License, Version 2.0** ([`LICENSE-APACHE`](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
 
 You may choose either license.

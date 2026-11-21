@@ -142,49 +142,54 @@ pub fn run_fix(
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = fs::metadata(target_kt) {
-                    let mode = meta.permissions().mode() & 0o777;
-                    if mode & 0o077 != 0 {
-                        if dry_run {
+                let mut kt_opts = fs::OpenOptions::new();
+                kt_opts.read(true);
+                crate::util::apply_nofollow(&mut kt_opts);
+                if let Ok(kt_file) = kt_opts.open(target_kt) {
+                    if let Ok(meta) = kt_file.metadata() {
+                        let mode = meta.permissions().mode() & 0o777;
+                        if mode & 0o077 != 0 {
+                            if dry_run {
+                                actions.push(FixAction {
+                                    action: "keytab_permissions".to_string(),
+                                    target: Some(target_kt.to_string()),
+                                    status: "PROPOSED".to_string(),
+                                    details: format!("Would chmod 0600 (current mode: 0{:o})", mode),
+                                    backup: None,
+                                });
+                            } else {
+                                let mut perms = meta.permissions();
+                                perms.set_mode(0o600);
+                                match kt_file.set_permissions(perms) {
+                                    Ok(_) => {
+                                        actions.push(FixAction {
+                                            action: "keytab_permissions".to_string(),
+                                            target: Some(target_kt.to_string()),
+                                            status: "APPLIED".to_string(),
+                                            details: format!("Remediated permissions from 0{:o} to 0600", mode),
+                                            backup: None,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        actions.push(FixAction {
+                                            action: "keytab_permissions".to_string(),
+                                            target: Some(target_kt.to_string()),
+                                            status: "ERROR".to_string(),
+                                            details: format!("Failed to chmod 0600 on {}: {}", target_kt, e),
+                                            backup: None,
+                                        });
+                                    }
+                                }
+                            }
+                        } else {
                             actions.push(FixAction {
                                 action: "keytab_permissions".to_string(),
                                 target: Some(target_kt.to_string()),
-                                status: "PROPOSED".to_string(),
-                                details: format!("Would chmod 0600 (current mode: 0{:o})", mode),
+                                status: "IDEMPOTENT_SKIPPED".to_string(),
+                                details: format!("Keytab already secure (mode 0{:o})", mode),
                                 backup: None,
                             });
-                        } else {
-                            let mut perms = meta.permissions();
-                            perms.set_mode(0o600);
-                            match fs::set_permissions(target_kt, perms) {
-                                Ok(_) => {
-                                    actions.push(FixAction {
-                                        action: "keytab_permissions".to_string(),
-                                        target: Some(target_kt.to_string()),
-                                        status: "APPLIED".to_string(),
-                                        details: format!("Remediated permissions from 0{:o} to 0600", mode),
-                                        backup: None,
-                                    });
-                                }
-                                Err(e) => {
-                                    actions.push(FixAction {
-                                        action: "keytab_permissions".to_string(),
-                                        target: Some(target_kt.to_string()),
-                                        status: "ERROR".to_string(),
-                                        details: format!("Failed to chmod 0600 on {}: {}", target_kt, e),
-                                        backup: None,
-                                    });
-                                }
-                            }
                         }
-                    } else {
-                        actions.push(FixAction {
-                            action: "keytab_permissions".to_string(),
-                            target: Some(target_kt.to_string()),
-                            status: "IDEMPOTENT_SKIPPED".to_string(),
-                            details: format!("Keytab already secure (mode 0{:o})", mode),
-                            backup: None,
-                        });
                     }
                 }
             }
@@ -304,7 +309,9 @@ pub fn run_fix(
                 backup: None,
             });
         } else if let Ok(mut optimal_content) = generate_krb5_conf(&r, k, None, Some(effective_skew), false, false, None) {
-            let existing_content = fs::read_to_string(target_conf).ok();
+            let existing_content = crate::util::read_bytes_nofollow(Path::new(target_conf))
+                .ok()
+                .and_then(|b| String::from_utf8(b).ok());
             if let Some(ref existing) = existing_content {
                 let mut preserved: Vec<&str> = Vec::new();
                 let mut in_preserved = false;
@@ -351,12 +358,12 @@ pub fn run_fix(
                 });
             } else {
                 let mut backup_path = None;
-                if Path::new(target_conf).exists() {
-                    if fs::copy(target_conf, &bak).is_ok() {
+                if let Some(ref existing) = existing_content {
+                    if crate::util::write_bytes_nofollow(Path::new(&bak), existing.as_bytes(), 0o644).is_ok() {
                         backup_path = Some(bak);
                     }
                 }
-                match fs::write(target_conf, &optimal_content) {
+                match crate::util::write_bytes_nofollow(Path::new(target_conf), optimal_content.as_bytes(), 0o644) {
                     Ok(_) => {
                         actions.push(FixAction {
                             action: "krb5_configuration".to_string(),

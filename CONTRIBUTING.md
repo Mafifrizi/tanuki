@@ -11,16 +11,16 @@ We welcome contributions ranging from protocol parsing enhancements and triage d
 Before writing code, please review these core technical invariants. Every pull request is validated against them:
 
 1. **Zero External Dependencies in Python Core**:
-   The runtime dependencies list in `pyproject.toml` must remain empty. Tanuki parses Kerberos keytabs, ASN.1 structures, PAC data, and JWT tokens using only the Python standard library. Do not add third-party runtime dependencies.
+   The runtime dependencies list in pyproject.toml must remain empty. Tanuki parses Kerberos keytabs, ASN.1 structures, PAC data, and JWT tokens using only the Python standard library. Do not add third-party runtime dependencies.
 
 2. **Memory Safety in Rust Core**:
-   All Rust code in `crates/tanuki-cli` strictly enforces `#![forbid(unsafe_code)]`. Pull requests containing `unsafe` blocks will not be merged.
+   All Rust code in crates/tanuki-cli strictly enforces #![forbid(unsafe_code)]. Pull requests containing unsafe blocks will not be merged.
 
 3. **Dual-Engine Parity**:
    Any new flag, subcommand, or output structure added to the Python CLI must also be implemented in the Rust CLI, and vice versa. Both engines must produce equivalent terminal output and JSON schemas.
 
 4. **Unprivileged Execution by Default**:
-   Tanuki commands must operate safely without `root` privileges wherever possible. Commands must degrade gracefully with actionable remediation when unprivileged permissions are insufficient.
+   Tanuki commands must operate safely without root privileges wherever possible. Commands must degrade gracefully with actionable remediation when unprivileged permissions are insufficient.
 
 ---
 
@@ -29,16 +29,16 @@ Before writing code, please review these core technical invariants. Every pull r
 Looking for a place to get involved? Here are curated areas that deliver immediate value:
 
 ### 1. Shell Autocompletion
-Add tab-completion scripts for `bash`, `zsh`, and `fish` to auto-complete subcommands (`doctor`, `config`, `keytab`, `auth`, `triage`, `token`, `purge`, `ladder`, `ldap`) and flags.
+Add tab-completion scripts for bash, zsh, and fish to auto-complete subcommands (doctor, config, keytab, auth, triage, token, purge, ladder, ldap) and flags.
 
 ### 2. Protocol Error Dictionary Expansion
-Expand `tanuki/protocol.py` (and `tanuki/telemetry.py`) and `crates/tanuki-cli/src/protocol/` with additional RFC 4120 error codes (such as `KRB_AP_ERR_BAD_INTEGRITY` [Code 31], `KDC_ERR_CANNOT_POSTDATE` [Code 13]) or Windows Security Event IDs (e.g., Event ID 4776 for NTLM credential validation).
+Expand tanuki/protocol.py (and tanuki/telemetry.py) and crates/tanuki-cli/src/protocol/ with additional RFC 4120 error codes (such as KRB_AP_ERR_BAD_INTEGRITY [Code 31], KDC_ERR_CANNOT_POSTDATE [Code 13]) or Windows Security Event IDs (e.g., Event ID 4776 for NTLM credential validation).
 
 ### 3. Alternative Output Formatters
-Add output formats such as `--format sarif` or `--format markdown` to `tanuki triage` or `tanuki doctor` so security teams can feed results directly into GitHub Code Scanning or pull request summaries.
+Add output formats such as --format sarif or --format markdown to tanuki triage or tanuki doctor so security teams can feed results directly into GitHub Code Scanning or pull request summaries.
 
 ### 4. Protocol Parser Edge-Case Tests
-Add synthetic test vectors to `tests/test_pac.py` or `tests/test_protocol.py` that fuzz ASN.1 DER/BER boundaries, malformed keytab entries, or truncated PAC buffers.
+Add synthetic test vectors to tests/test_pac.py, tests/test_telemetry.py, or tests/test_unified_cli.py that fuzz ASN.1 DER/BER boundaries, malformed keytab entries, or truncated PAC buffers.
 
 ### 5. Packaging and Distribution
 Contribute distribution recipes (such as PKGBUILD for Arch Linux AUR, Alpine APKBUILD, or Homebrew formula) for the standalone static musl binary.
@@ -49,7 +49,7 @@ Contribute distribution recipes (such as PKGBUILD for Arch Linux AUR, Alpine APK
 
 ### Python Core Setup
 
-Requirements: Python 3.9 or newer.
+Requirements: Python 3.10 or newer.
 
 ```bash
 # Clone the repository
@@ -73,7 +73,7 @@ tanuki doctor
 
 ### Rust Core Setup
 
-Requirements: Rust 1.70 or newer (`rustup`).
+Requirements: Rust 1.75 or newer (rustup).
 
 ```bash
 # Build the release binary
@@ -119,14 +119,14 @@ Verify that all changes adhere to clean formatting standards and contain no resi
 
 ## Pull Request Lifecycle
 
-1. **Fork and Branch**: Create a focused branch off `main` with a descriptive name (`git checkout -b feat/shell-autocompletion` or `git checkout -b fix/keytab-overflow`).
+1. **Fork and Branch**: Create a focused branch off main with a descriptive name (git checkout -b feat/shell-autocompletion or git checkout -b fix/keytab-overflow).
 2. **Make Targeted Changes**: Keep your changes focused. Do not mix unrelated refactors with bug fixes.
 3. **Commit Messages**: Follow Conventional Commits format:
-   - `feat(scope): add bash autocompletion generator`
-   - `fix(triage): add RFC 4120 code 31 definition`
-   - `docs(readme): update quickstart examples`
-   - `test(pac): add truncated buffer test vector`
-4. **Push and Open PR**: Push to your fork and submit a PR to `main`. Complete the PR checklist.
+   - feat(scope): add bash autocompletion generator
+   - fix(triage): add RFC 4120 code 31 definition
+   - docs(readme): update quickstart examples
+   - test(pac): add truncated buffer test vector
+4. **Push and Open PR**: Push to your fork and submit a PR to main. Complete the PR checklist.
 5. **CI Review**: GitHub Actions will automatically verify unit tests, Rust compilation, and binary builds. Maintainers will review your PR and provide technical feedback.
 
 ---

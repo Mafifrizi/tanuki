@@ -8,27 +8,22 @@ Analyzes authenticated identity reach across Active Directory:
 - Blue Team Telemetry Correlation: Windows Security Event ID 4769, Sigma, Falco, and Auditd.
 """
 
-import json
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from .doctor import (
     parse_ccache_bytes,
-    parse_ccache_stream,
     render_card_header,
     supports_unicode,
 )
 from .pac import (
     BUILTIN_ADMINISTRATORS_RID,
     DOMAIN_ADMINS_RID,
-    DOMAIN_COMPUTERS_RID,
     DOMAIN_CONTROLLERS_RID,
-    DOMAIN_USERS_RID,
     ENTERPRISE_ADMINS_RID,
     GROUP_POLICY_CREATOR_OWNERS_RID,
     SCHEMA_ADMINS_RID,
-    WELL_KNOWN_RIDS,
     parse_pac,
 )
 

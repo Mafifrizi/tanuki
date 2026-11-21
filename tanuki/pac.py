@@ -7,12 +7,8 @@ RID 519), and User Account Control (UAC) flags with strict bounded buffer checks
 """
 
 import base64
-import binascii
-import io
-import json
 import os
 import struct
-import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from .doctor import render_card_header, supports_unicode
@@ -544,7 +540,6 @@ def parse_pac_logon_info(data: bytes) -> Dict[str, Any]:
     curr_def = deferral_start
     effective_name = ""
     full_name = ""
-    domain_name = ""
 
     # Parse string deferrals if in bounds
     if curr_def < len(data):
