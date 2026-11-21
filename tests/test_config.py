@@ -236,7 +236,10 @@ class TestConfigCLIIntegration(unittest.TestCase):
                 "--stdout",
                 "--json",
             ]
-            proc = subprocess.run(cmd, cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            env = os.environ.copy()
+            env["PYTHONPATH"] = repo_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+            proc = subprocess.run(cmd, cwd=tmpdir, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             self.assertEqual(proc.returncode, 0)
             data = json.loads(proc.stdout)
             self.assertEqual(data["status"], "SUCCESS")
