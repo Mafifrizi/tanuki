@@ -132,8 +132,6 @@ See the full milestone walkthrough with terminal proofs in [docs/VALIDATION.md](
 
 ## Lineage & Credits
 
-Tanuki is engineered by **Muhammad Afif Rizi** ([@Mafifrizi](https://github.com/Mafifrizi)) and **Muhamad Dian Alvito**.
-
 Tanuki draws inspiration and tradecraft from two foundational projects:
 
 - **Tim Brown ([@timb-machine](https://github.com/timb-machine))**: Created [Linikatz](https://github.com/CiscoCXSecurity/linikatz) and pioneered Linux Active Directory assessment techniques, keytab analysis, and credential cache harvesting.
