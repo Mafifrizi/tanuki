@@ -84,14 +84,12 @@ class TestTier4RealWorldScenarios(unittest.TestCase):
         with open(conf_path, "w", encoding="utf-8") as f:
             f.write(build_synthetic_krb5_conf(default_realm="CORP.LOCAL"))
 
-        start_time = time.perf_counter()
         ret, stdout, stderr = run_tanuki_cli([
             "doctor",
             "--keytab", kt_path,
             "--krb5-conf", conf_path,
             "--json",
         ])
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         self.assertEqual(ret, 0, f"Doctor pre-flight failed: {stderr}")
         data = json.loads(stdout)

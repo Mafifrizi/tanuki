@@ -69,7 +69,7 @@ class TestTier2DoctorBoundaries(unittest.TestCase):
     def test_doctor_empty_keytab_file(self) -> None:
         """Boundary 1.1: 0-byte keytab file does not cause EOF crash; flags failure."""
         empty_kt = os.path.join(self.dir_path, "empty.keytab")
-        with open(empty_kt, "wb") as f:
+        with open(empty_kt, "wb"):
             pass  # 0 bytes
 
         diagnose = self._get_diagnose_system()
@@ -114,7 +114,7 @@ class TestTier2DoctorBoundaries(unittest.TestCase):
     def test_doctor_empty_krb5_conf(self) -> None:
         """Boundary 1.4: 0-byte /etc/krb5.conf does not crash parser."""
         empty_conf = os.path.join(self.dir_path, "empty.conf")
-        with open(empty_conf, "w", encoding="utf-8") as f:
+        with open(empty_conf, "w", encoding="utf-8"):
             pass
 
         diagnose = self._get_diagnose_system()

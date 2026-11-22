@@ -149,7 +149,7 @@ class TestDoctorKeytabCheck(unittest.TestCase):
 
     def test_empty_keytab_fails(self):
         empty_kt = os.path.join(self.temp_dir.name, "empty.keytab")
-        with open(empty_kt, "wb") as f:
+        with open(empty_kt, "wb"):
             pass
         res = check_keytab(empty_kt)
         self.assertEqual(res["status"], "FAIL")
