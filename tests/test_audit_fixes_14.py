@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -18,6 +19,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import tanuki
 from tanuki import cli
 from tanuki.auth import (
     acquire_tgs,
@@ -411,11 +413,10 @@ class TestFinding03ONofollowEloopSymlinkGuard(unittest.TestCase):
 
 
 class TestFinding04InstallScriptIntegrity(unittest.TestCase):
-    EXPECTED_SHA256 = "4daceb175a7b6c217f7e9f6d2bfd2d28e8b92cd474c84041546ff85c5580b551"
-
     def setUp(self):
         self.repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.install_sh = os.path.join(self.repo_root, "install.sh")
+        self.install_ps1 = os.path.join(self.repo_root, "install.ps1")
 
     @staticmethod
     def _find_bash() -> str | None:
@@ -501,9 +502,12 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
         self.assertNotIn(b"\r", raw_bytes)
         content = raw_bytes.decode("utf-8")
 
-        self.assertIn('TANUKI_VERSION="v2.1.3"', content)
-        self.assertIn(f'TANUKI_SHA256="{self.EXPECTED_SHA256}"', content)
+        self.assertIn(f'TANUKI_VERSION="v{tanuki.__version__}"', content)
         self.assertRegex(content, r'TANUKI_SHA256="[0-9a-f]{64}"')
+        with open(self.install_ps1, "r", encoding="utf-8") as psf:
+            ps1_content = psf.read()
+        self.assertIn(f'$TanukiVersion = "v{tanuki.__version__}"', ps1_content)
+        self.assertRegex(ps1_content, r'\$TanukiSha256\s*=\s*"[0-9a-f]{64}"')
         self.assertNotIn("archive/refs/heads/main.tar.gz", content)
         self.assertIn('--branch "${TANUKI_VERSION}"', content)
         self.assertIn('curl -sSL --fail "${ARCHIVE_URL}" -o "${ARCHIVE_FILE}"', content)
@@ -586,7 +590,10 @@ class TestFinding04InstallScriptIntegrity(unittest.TestCase):
             raw_script = sf.read()
         self.assertNotIn(b"\r\n", raw_script)
 
-        prod_pin = f'TANUKI_SHA256="{self.EXPECTED_SHA256}"'.encode("ascii")
+        match = re.search(rb'TANUKI_SHA256="[0-9a-f]{64}"', raw_script)
+        self.assertIsNotNone(match, "install.sh must pin a 64-hex TANUKI_SHA256")
+        assert match is not None
+        prod_pin = match.group(0)
         self.assertIn(prod_pin, raw_script)
 
         mock_archive_bytes, mock_sha256 = self._build_deterministic_mock_tar_gz()
