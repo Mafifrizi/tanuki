@@ -27,6 +27,7 @@ try:
         build_multi_entry_keytab,
         build_synthetic_jwt,
         build_synthetic_keytab,
+        build_synthetic_krb5_conf,
         run_tanuki_cli,
     )
 except ImportError:
@@ -34,6 +35,7 @@ except ImportError:
         build_multi_entry_keytab,
         build_synthetic_jwt,
         build_synthetic_keytab,
+        build_synthetic_krb5_conf,
         run_tanuki_cli,
     )
 
