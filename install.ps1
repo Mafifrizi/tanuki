@@ -3,8 +3,8 @@
 # irm https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
-$TanukiVersion = "v2.1.3"
-$TanukiSha256 = "b63e3edcd206f88a4a6451c31f29559d01a35deafedad833d6e23270e89df580"
+$TanukiVersion = "v2.1.5"
+$TanukiSha256 = "551cdda8e7e00dc649cd8481ae9b492affbd55f3cf0e46cf752b489742439447"
 
 Write-Host "`n[*] Initializing Tanuki Universal Installer for Windows..." -ForegroundColor Cyan
 
@@ -35,7 +35,7 @@ if ($ScriptDir -and (Test-Path (Join-Path $ScriptDir "pyproject.toml")) -and (Te
         & git clone --depth 1 --branch $TanukiVersion https://github.com/Mafifrizi/tanuki.git $TempDir --quiet
     } else {
         $ZipPath = Join-Path $TempDir "tanuki.zip"
-        $ArchiveUrl = "https://github.com/Mafifrizi/tanuki/archive/refs/tags/$TanukiVersion.zip"
+        $ArchiveUrl = "https://github.com/Mafifrizi/tanuki/releases/download/$TanukiVersion/tanuki-$TanukiVersion-src.zip"
         Invoke-WebRequest -Uri $ArchiveUrl -OutFile $ZipPath
         $ActualSha256 = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($ActualSha256 -ne $TanukiSha256) {

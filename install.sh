@@ -4,8 +4,8 @@
 # curl -sSL https://raw.githubusercontent.com/Mafifrizi/tanuki/main/install.sh | bash
 set -euo pipefail
 
-TANUKI_VERSION="v2.1.3"
-TANUKI_SHA256="4daceb175a7b6c217f7e9f6d2bfd2d28e8b92cd474c84041546ff85c5580b551"
+TANUKI_VERSION="v2.1.5"
+TANUKI_SHA256="3ff0968f01ffc10b455fafd928fbc7ae570e40574eed9f1cd353a1d7dfc4dade"
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -57,7 +57,7 @@ else
             echo -e "  ${RED}[!] Error: sha256sum (or shasum) is required to verify archive integrity.${NC}" >&2
             exit 1
         fi
-        ARCHIVE_URL="https://github.com/Mafifrizi/tanuki/archive/refs/tags/${TANUKI_VERSION}.tar.gz"
+        ARCHIVE_URL="https://github.com/Mafifrizi/tanuki/releases/download/${TANUKI_VERSION}/tanuki-${TANUKI_VERSION}-src.tar.gz"
         ARCHIVE_FILE="${TEMP_DIR}/tanuki.tar.gz"
 
         echo -e "  [*] Downloading Tanuki ${TANUKI_VERSION}..."
