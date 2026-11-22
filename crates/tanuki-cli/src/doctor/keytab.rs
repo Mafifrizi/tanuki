@@ -15,10 +15,16 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                     name: "keytab_permissions".to_string(),
                     status: "N_A".to_string(),
                     details: format!("Keytab file not found: {}", keytab_path),
-                    recommendation: Some(format!("Join domain or generate keytab at {}", keytab_path)),
+                    recommendation: Some(format!(
+                        "Join domain or generate keytab at {}",
+                        keytab_path
+                    )),
                     remaining_seconds: None,
                     extra_fields: vec![
-                        ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                        (
+                            "path".to_string(),
+                            format!("\"{}\"", escape_json(keytab_path)),
+                        ),
                         ("exists".to_string(), "false".to_string()),
                         ("readable".to_string(), "false".to_string()),
                         ("valid_format".to_string(), "false".to_string()),
@@ -38,7 +44,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                     recommendation: Some(rec),
                     remaining_seconds: None,
                     extra_fields: vec![
-                        ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                        (
+                            "path".to_string(),
+                            format!("\"{}\"", escape_json(keytab_path)),
+                        ),
                         ("exists".to_string(), "true".to_string()),
                         ("readable".to_string(), "false".to_string()),
                         ("valid_format".to_string(), "false".to_string()),
@@ -58,7 +67,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                 recommendation: Some(format!("Ensure {} is a readable regular file", keytab_path)),
                 remaining_seconds: None,
                 extra_fields: vec![
-                    ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                    (
+                        "path".to_string(),
+                        format!("\"{}\"", escape_json(keytab_path)),
+                    ),
                     ("exists".to_string(), "true".to_string()),
                     ("readable".to_string(), "false".to_string()),
                     ("valid_format".to_string(), "false".to_string()),
@@ -78,7 +90,11 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
         let group_readable = (mode & 0o040) != 0;
 
         if world_readable || world_writable {
-            let desc = if world_writable { "world-writable" } else { "world-readable" };
+            let desc = if world_writable {
+                "world-writable"
+            } else {
+                "world-readable"
+            };
             (
                 octal,
                 false,
@@ -125,7 +141,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
             recommendation: Some(format!("Regenerate valid keytab at {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("readable".to_string(), "true".to_string()),
                 ("valid_format".to_string(), "false".to_string()),
@@ -141,7 +160,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
             recommendation: Some(format!("Regenerate valid keytab at {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("readable".to_string(), "true".to_string()),
                 ("valid_format".to_string(), "false".to_string()),
@@ -157,7 +179,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
             recommendation: Some("Upgrade keytab to Keytab v2 format".to_string()),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("valid_format".to_string(), "false".to_string()),
                 ("format_version".to_string(), "1".to_string()),
@@ -176,7 +201,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
             recommendation: Some(format!("Regenerate valid keytab at {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("valid_format".to_string(), "false".to_string()),
             ],
@@ -212,7 +240,11 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                 "{}, Keytab v2 ({} entries, enctypes: {})",
                 perm_desc,
                 entries.len(),
-                if enctypes_summary.is_empty() { "none" } else { &enctypes_summary }
+                if enctypes_summary.is_empty() {
+                    "none"
+                } else {
+                    &enctypes_summary
+                }
             );
 
             let enctypes_json = format!(
@@ -231,13 +263,22 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
                 recommendation: perm_rec,
                 remaining_seconds: None,
                 extra_fields: vec![
-                    ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                    (
+                        "path".to_string(),
+                        format!("\"{}\"", escape_json(keytab_path)),
+                    ),
                     ("exists".to_string(), "true".to_string()),
                     ("readable".to_string(), "true".to_string()),
                     ("valid_format".to_string(), "true".to_string()),
                     ("format_version".to_string(), "2".to_string()),
-                    ("permissions".to_string(), format!("\"{}\"", escape_json(&permissions_str))),
-                    ("is_secure_permissions".to_string(), is_secure_permissions.to_string()),
+                    (
+                        "permissions".to_string(),
+                        format!("\"{}\"", escape_json(&permissions_str)),
+                    ),
+                    (
+                        "is_secure_permissions".to_string(),
+                        is_secure_permissions.to_string(),
+                    ),
                     ("entry_count".to_string(), entries.len().to_string()),
                     ("encryption_types".to_string(), enctypes_json),
                     ("has_weak_enctypes".to_string(), has_weak.to_string()),
@@ -251,7 +292,10 @@ pub fn audit_keytab(keytab_path: &str) -> CheckResult {
             recommendation: Some(format!("Re-export valid keytab to {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("readable".to_string(), "true".to_string()),
                 ("valid_format".to_string(), "false".to_string()),

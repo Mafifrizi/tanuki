@@ -32,7 +32,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                 recommendation: None,
                 remaining_seconds: None,
                 extra_fields: vec![
-                    ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                    (
+                        "path".to_string(),
+                        format!("\"{}\"", escape_json(krb5_conf_path)),
+                    ),
                     ("exists".to_string(), "true".to_string()),
                 ],
             };
@@ -47,7 +50,14 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
     let mut allow_weak_crypto = false;
 
     for line in content.lines() {
-        let clean = line.split('#').next().unwrap_or("").split(';').next().unwrap_or("").trim();
+        let clean = line
+            .split('#')
+            .next()
+            .unwrap_or("")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
         if clean.is_empty() {
             continue;
         }
@@ -73,7 +83,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                         }
                         default_realm = Some(val);
                     } else if key_trimmed == "allow_weak_crypto"
-                        && matches!(val_trimmed.to_ascii_lowercase().as_str(), "true" | "1" | "yes")
+                        && matches!(
+                            val_trimmed.to_ascii_lowercase().as_str(),
+                            "true" | "1" | "yes"
+                        )
                     {
                         allow_weak_crypto = true;
                     }
@@ -98,7 +111,9 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
                 }
                 let open_count = clean.chars().filter(|&c| c == '{').count();
                 let close_count = clean.chars().filter(|&c| c == '}').count();
-                brace_depth = brace_depth.saturating_add(open_count).saturating_sub(close_count);
+                brace_depth = brace_depth
+                    .saturating_add(open_count)
+                    .saturating_sub(close_count);
             }
             Some("domain_realm") => {
                 if let Some((_domain, target_realm)) = clean.split_once('=') {
@@ -154,13 +169,19 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
             )),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(krb5_conf_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("default_realm".to_string(), default_realm_json),
                 ("is_realm_uppercase".to_string(), "false".to_string()),
                 ("realms".to_string(), realms_json),
                 ("lowercase_realms".to_string(), lowercase_json),
-                ("allow_weak_crypto".to_string(), allow_weak_crypto.to_string()),
+                (
+                    "allow_weak_crypto".to_string(),
+                    allow_weak_crypto.to_string(),
+                ),
             ],
         }
     } else if allow_weak_crypto {
@@ -174,7 +195,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
             )),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(krb5_conf_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("default_realm".to_string(), default_realm_json),
                 ("is_realm_uppercase".to_string(), "true".to_string()),
@@ -191,7 +215,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
             recommendation: None,
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(krb5_conf_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("default_realm".to_string(), default_realm_json),
                 ("is_realm_uppercase".to_string(), "true".to_string()),
@@ -208,7 +235,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
             recommendation: None,
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(krb5_conf_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("default_realm".to_string(), default_realm_json),
                 ("is_realm_uppercase".to_string(), "true".to_string()),
@@ -225,7 +255,10 @@ pub fn audit_krb5_conf(krb5_conf_path: &str) -> CheckResult {
             recommendation: Some("Define default_realm in [libdefaults]".to_string()),
             remaining_seconds: None,
             extra_fields: vec![
-                ("path".to_string(), format!("\"{}\"", escape_json(krb5_conf_path))),
+                (
+                    "path".to_string(),
+                    format!("\"{}\"", escape_json(krb5_conf_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
                 ("default_realm".to_string(), default_realm_json),
                 ("is_realm_uppercase".to_string(), "true".to_string()),

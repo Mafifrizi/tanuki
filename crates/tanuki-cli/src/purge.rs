@@ -27,7 +27,10 @@ impl PurgeReport {
             .count();
         let mut out = String::new();
         out.push_str("{\n");
-        out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
+        out.push_str(&format!(
+            "  \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
         out.push_str(&format!("  \"shredded_count\": {},\n", shredded_count));
         out.push_str("  \"shredded_files\": [\n");
         for (i, f) in self.shredded_files.iter().enumerate() {
@@ -58,11 +61,17 @@ impl PurgeReport {
         if self.shredded_files.is_empty() {
             out.push_str("[*] Disk Artifacts: No active ticket caches or temporary configs found to purge.\n");
         } else {
-            out.push_str(&format!("[+] Shredded Disk Artifacts ({} targets):\n", self.shredded_files.len()));
+            out.push_str(&format!(
+                "[+] Shredded Disk Artifacts ({} targets):\n",
+                self.shredded_files.len()
+            ));
             for (idx, f) in self.shredded_files.iter().enumerate() {
                 let is_last = idx == self.shredded_files.len() - 1;
                 let branch = if is_last { "╰─" } else { "├─" };
-                out.push_str(&format!("    {} [{}] {} ({} bytes, NIST SP 800-88 compliant)\n", branch, f.status, f.path, f.bytes_shredded));
+                out.push_str(&format!(
+                    "    {} [{}] {} ({} bytes, NIST SP 800-88 compliant)\n",
+                    branch, f.status, f.path, f.bytes_shredded
+                ));
             }
         }
 
@@ -76,7 +85,10 @@ impl PurgeReport {
         }
 
         out.push_str("[+] Memory Hygiene: Target credential buffers sanitized and ephemeral chunk memory zeroized.\n\n");
-        out.push_str(&format!("OVERALL PURGE STATUS: {} (Zero operational forensic trace remaining)\n", self.status));
+        out.push_str(&format!(
+            "OVERALL PURGE STATUS: {} (Zero operational forensic trace remaining)\n",
+            self.status
+        ));
         out
     }
 }
@@ -377,7 +389,9 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
         if let Ok(entries) = fs::read_dir("/tmp") {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
-                    if (current_uid == 0 && name.starts_with("krb5cc_")) || name.starts_with(&uid_prefix) {
+                    if (current_uid == 0 && name.starts_with("krb5cc_"))
+                        || name.starts_with(&uid_prefix)
+                    {
                         if let Some(s) = entry.path().to_str() {
                             targets.push(s.to_string());
                         }
@@ -396,10 +410,7 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
                 }
             }
         }
-        let candidates = [
-            "./krb5.conf",
-            "./krb5.conf.bak",
-        ];
+        let candidates = ["./krb5.conf", "./krb5.conf.bak"];
         for c in candidates {
             if Path::new(c).exists() {
                 targets.push(c.to_string());
@@ -441,7 +452,11 @@ pub fn run_purge(target_path: Option<&str>, purge_all: bool) -> PurgeReport {
             || r.status == "DIRECTORY_ERROR"
             || r.status == "METADATA_ERROR"
     });
-    let status_str = if has_error { "PARTIAL_ERROR" } else { "SUCCESS" };
+    let status_str = if has_error {
+        "PARTIAL_ERROR"
+    } else {
+        "SUCCESS"
+    };
 
     PurgeReport {
         status: status_str.to_string(),

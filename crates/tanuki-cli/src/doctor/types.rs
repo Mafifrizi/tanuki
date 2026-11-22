@@ -43,9 +43,18 @@ impl CheckResult {
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("    {\n");
-        out.push_str(&format!("      \"name\": \"{}\",\n", escape_json(&self.name)));
-        out.push_str(&format!("      \"status\": \"{}\",\n", escape_json(&self.status)));
-        out.push_str(&format!("      \"details\": \"{}\",\n", escape_json(&self.details)));
+        out.push_str(&format!(
+            "      \"name\": \"{}\",\n",
+            escape_json(&self.name)
+        ));
+        out.push_str(&format!(
+            "      \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
+        out.push_str(&format!(
+            "      \"details\": \"{}\",\n",
+            escape_json(&self.details)
+        ));
         match &self.recommendation {
             Some(r) => out.push_str(&format!("      \"recommendation\": \"{}\"", escape_json(r))),
             None => out.push_str("      \"recommendation\": null"),
@@ -95,10 +104,19 @@ impl DoctorReport {
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("{\n");
-        out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
-        out.push_str(&format!("  \"timestamp\": \"{}\",\n", escape_json(&self.timestamp)));
+        out.push_str(&format!(
+            "  \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
+        out.push_str(&format!(
+            "  \"timestamp\": \"{}\",\n",
+            escape_json(&self.timestamp)
+        ));
         out.push_str(&format!("  \"duration_ms\": {:.2},\n", self.duration_ms));
-        out.push_str(&format!("  \"execution_time_ms\": {:.2},\n", self.execution_time_ms));
+        out.push_str(&format!(
+            "  \"execution_time_ms\": {:.2},\n",
+            self.execution_time_ms
+        ));
         out.push_str("  \"summary\": {\n");
         out.push_str(&format!("    \"passed\": {},\n", self.passed));
         out.push_str(&format!("    \"warnings\": {},\n", self.warnings));
@@ -113,7 +131,7 @@ impl DoctorReport {
             .join(",\n");
         out.push_str(&checks_json);
         out.push_str("\n  ]\n");
-        out.push_str("}");
+        out.push('}');
         out
     }
 
@@ -140,7 +158,10 @@ impl DoctorReport {
                 "enctype_sync" => "Enctype & KVNO Sync   ",
                 other => other,
             };
-            out.push_str(&format!("[{}] {} : {}\n", check.status, title, check.details));
+            out.push_str(&format!(
+                "[{}] {} : {}\n",
+                check.status, title, check.details
+            ));
             if let Some(rec) = &check.recommendation {
                 out.push_str(&format!("       Action Required        : {}\n", rec));
             }

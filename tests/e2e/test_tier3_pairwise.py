@@ -71,7 +71,10 @@ class TestTier3PairwiseInteractions(unittest.TestCase):
         ]
 
         if is_cli_command_supported("doctor"):
-            commands_to_test.append(["doctor", "--json"])
+            conf_path = os.path.join(self.dir_path, "krb5.conf")
+            with open(conf_path, "w", encoding="utf-8") as f:
+                f.write(build_synthetic_krb5_conf(default_realm="CORP.LOCAL"))
+            commands_to_test.append(["doctor", "--krb5-conf", conf_path, "--json"])
 
         keytab_file = os.path.join(self.dir_path, "test.keytab")
         with open(keytab_file, "wb") as f:

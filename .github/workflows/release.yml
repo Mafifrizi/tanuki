@@ -58,6 +58,15 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build
 
+      - name: Package Deterministic Tagged Source Archives
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VER="${TAG_NAME#v}"
+          git archive --format=tar --prefix="tanuki-${VER}/" "${TAG_NAME}" | gzip -n > "dist/tanuki-${TAG_NAME}-src.tar.gz"
+          git archive --format=zip --prefix="tanuki-${VER}/" "${TAG_NAME}" -o "dist/tanuki-${TAG_NAME}-src.zip"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:

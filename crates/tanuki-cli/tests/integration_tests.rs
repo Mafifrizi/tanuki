@@ -4,9 +4,8 @@ use tanuki::{
     classify_identity_tier, entries_to_json, escape_json, evaluate_blast_radius,
     extract_ad_account_name, find_error_resolution, format_blast_report_terminal,
     generate_ad_remediations, generate_krb5_conf, ladder_to_json, parse_keytab_bytes,
-    parse_rbcd_security_descriptor, parse_windows_sid, save_candidates,
-    scan_for_ccache_blobs, BlastReport, KeytabError, LdapReport, LdapSearchEntry,
-    DECISION_LADDER, ERROR_DICTIONARY,
+    parse_rbcd_security_descriptor, parse_windows_sid, save_candidates, scan_for_ccache_blobs,
+    BlastReport, KeytabError, LdapReport, LdapSearchEntry, DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 fn build_keytab_entry(
@@ -114,7 +113,14 @@ fn test_keytab_truncated_hole_error() {
 #[test]
 fn test_keytab_incomplete_vno32() {
     let mut file_bytes = vec![0x05, 0x02];
-    let mut entry = build_keytab_entry(&["HOST", "dc01.corp.local"], "CORP.LOCAL", 18, &[0x44; 32], 1, 1);
+    let mut entry = build_keytab_entry(
+        &["HOST", "dc01.corp.local"],
+        "CORP.LOCAL",
+        18,
+        &[0x44; 32],
+        1,
+        1,
+    );
     // Truncate last 2 bytes of the 4-byte vno32 field
     entry.truncate(entry.len() - 2);
     file_bytes.extend_from_slice(&(entry.len() as i32).to_be_bytes());
@@ -227,10 +233,46 @@ fn test_json_escaping_control_characters() {
 
 #[test]
 fn test_generate_krb5_conf_fast_and_crlf_defense() {
-    assert!(generate_krb5_conf("CORP.LOCAL\r\nINJECT", "10.0.0.1", None, None, false, false, None).is_err());
-    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1\nINJECT", None, None, false, false, None).is_err());
-    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1", Some("admin\r\n"), None, false, false, None).is_err());
-    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1", None, None, false, false, Some("/tmp/armor\n")).is_err());
+    assert!(generate_krb5_conf(
+        "CORP.LOCAL\r\nINJECT",
+        "10.0.0.1",
+        None,
+        None,
+        false,
+        false,
+        None
+    )
+    .is_err());
+    assert!(generate_krb5_conf(
+        "CORP.LOCAL",
+        "10.0.0.1\nINJECT",
+        None,
+        None,
+        false,
+        false,
+        None
+    )
+    .is_err());
+    assert!(generate_krb5_conf(
+        "CORP.LOCAL",
+        "10.0.0.1",
+        Some("admin\r\n"),
+        None,
+        false,
+        false,
+        None
+    )
+    .is_err());
+    assert!(generate_krb5_conf(
+        "CORP.LOCAL",
+        "10.0.0.1",
+        None,
+        None,
+        false,
+        false,
+        Some("/tmp/armor\n")
+    )
+    .is_err());
 
     let conf = generate_krb5_conf(
         "LAB.LOCAL",
@@ -240,7 +282,8 @@ fn test_generate_krb5_conf_fast_and_crlf_defense() {
         true,
         true,
         Some("/tmp/krb5cc_armor"),
-    ).expect("Valid config synthesis");
+    )
+    .expect("Valid config synthesis");
 
     assert!(conf.contains("default_realm = LAB.LOCAL"));
     assert!(conf.contains("clockskew = 36000"));
@@ -332,8 +375,12 @@ fn test_build_ldap_bind_request_simple_and_anon() {
     let auth_req = build_ldap_bind_request(2, "admin@CORP.LOCAL", Some("P@ssw0rd!"), None, None);
     assert!(!auth_req.is_empty());
     assert_eq!(auth_req[0], 0x30);
-    assert!(auth_req.windows("admin@CORP.LOCAL".len()).any(|w| w == b"admin@CORP.LOCAL"));
-    assert!(auth_req.windows("P@ssw0rd!".len()).any(|w| w == b"P@ssw0rd!"));
+    assert!(auth_req
+        .windows("admin@CORP.LOCAL".len())
+        .any(|w| w == b"admin@CORP.LOCAL"));
+    assert!(auth_req
+        .windows("P@ssw0rd!".len())
+        .any(|w| w == b"P@ssw0rd!"));
 }
 
 #[test]
@@ -341,18 +388,26 @@ fn test_build_ldap_extensible_filter_asreproast() {
     let eq_filter = build_ldap_search_filter("servicePrincipalName", "*");
     assert_eq!(eq_filter[0], 0x87);
 
-    let filter = build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304");
+    let filter =
+        build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304");
     assert!(!filter.is_empty());
     assert_eq!(filter[0], 0xA9);
-    assert!(filter.windows("userAccountControl".len()).any(|w| w == b"userAccountControl"));
-    assert!(filter.windows("1.2.840.113556.1.4.803".len()).any(|w| w == b"1.2.840.113556.1.4.803"));
+    assert!(filter
+        .windows("userAccountControl".len())
+        .any(|w| w == b"userAccountControl"));
+    assert!(filter
+        .windows("1.2.840.113556.1.4.803".len())
+        .any(|w| w == b"1.2.840.113556.1.4.803"));
     assert!(filter.windows("4194304".len()).any(|w| w == b"4194304"));
 }
 
 #[test]
 fn test_ldap_report_format_terminal_asreproast_and_rbcd() {
     let mut ace1 = vec![0x00, 0x00];
-    let sid1 = [0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x15, 0x00, 0x00, 0x00, 0xf4, 0x01, 0x00, 0x00];
+    let sid1 = [
+        0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x15, 0x00, 0x00, 0x00, 0xf4, 0x01, 0x00,
+        0x00,
+    ];
     let ace1_len = 8 + sid1.len();
     ace1.extend_from_slice(&(ace1_len as u16).to_le_bytes());
     ace1.extend_from_slice(&0x10000000u32.to_le_bytes());
@@ -387,9 +442,18 @@ fn test_ldap_report_format_terminal_asreproast_and_rbcd() {
                 dn: "CN=Legacy,OU=Users,DC=lab,DC=local".to_string(),
                 query_category: "asreproast".to_string(),
                 attributes: vec![
-                    ("sAMAccountName".to_string(), vec!["legacy-nonpreauth".to_string()]),
-                    ("userAccountControl".to_string(), vec!["4194816".to_string()]),
-                    ("msDS-SupportedEncryptionTypes".to_string(), vec!["0".to_string()]),
+                    (
+                        "sAMAccountName".to_string(),
+                        vec!["legacy-nonpreauth".to_string()],
+                    ),
+                    (
+                        "userAccountControl".to_string(),
+                        vec!["4194816".to_string()],
+                    ),
+                    (
+                        "msDS-SupportedEncryptionTypes".to_string(),
+                        vec!["0".to_string()],
+                    ),
                 ],
             },
             LdapSearchEntry {
@@ -398,7 +462,10 @@ fn test_ldap_report_format_terminal_asreproast_and_rbcd() {
                 query_category: "rbcd".to_string(),
                 attributes: vec![
                     ("sAMAccountName".to_string(), vec!["svc-sql".to_string()]),
-                    ("msDS-AllowedToActOnBehalfOfOtherIdentity".to_string(), vec![rbcd_hex]),
+                    (
+                        "msDS-AllowedToActOnBehalfOfOtherIdentity".to_string(),
+                        vec![rbcd_hex],
+                    ),
                 ],
             },
         ],
@@ -427,7 +494,14 @@ fn test_enctype_kvno_sync_diagnostics() {
     let kt_path = temp_dir.join("test.keytab");
 
     let mut file_bytes = vec![0x05, 0x02];
-    let entry = build_keytab_entry(&["HOST", "web01.lab.local"], "LAB.LOCAL", 18, &[0x55; 32], 3, 3);
+    let entry = build_keytab_entry(
+        &["HOST", "web01.lab.local"],
+        "LAB.LOCAL",
+        18,
+        &[0x55; 32],
+        3,
+        3,
+    );
     file_bytes.extend_from_slice(&(entry.len() as i32).to_be_bytes());
     file_bytes.extend_from_slice(&entry);
     std::fs::write(&kt_path, &file_bytes).unwrap();
@@ -436,22 +510,32 @@ fn test_enctype_kvno_sync_diagnostics() {
 
     let check_desync = audit_enctype_kvno(kt_str, Some(0x18), Some(5));
     assert_eq!(check_desync.status, "FAIL");
-    assert!(check_desync.details.contains("KVNO desynchronization detected"));
+    assert!(check_desync
+        .details
+        .contains("KVNO desynchronization detected"));
     assert_eq!(check_desync.get_extra_int("keytab_kvno", 0), 3);
     assert_eq!(check_desync.get_extra_int("ad_kvno", 0), 5);
 
     let check_no_aes = audit_enctype_kvno(kt_str, Some(0x0), Some(3));
     assert_eq!(check_no_aes.status, "WARN");
-    assert!(check_no_aes.details.contains("lacks AES in msDS-SupportedEncryptionTypes"));
+    assert!(check_no_aes
+        .details
+        .contains("lacks AES in msDS-SupportedEncryptionTypes"));
 
     let check_both = audit_enctype_kvno(kt_str, Some(0x0), Some(5));
     assert_eq!(check_both.status, "FAIL");
-    assert!(check_both.details.contains("KVNO desynchronization detected"));
-    assert!(check_both.details.contains("lacks AES in msDS-SupportedEncryptionTypes"));
+    assert!(check_both
+        .details
+        .contains("KVNO desynchronization detected"));
+    assert!(check_both
+        .details
+        .contains("lacks AES in msDS-SupportedEncryptionTypes"));
 
     let check_sync = audit_enctype_kvno(kt_str, Some(0x18), Some(3));
     assert_eq!(check_sync.status, "PASS");
-    assert!(check_sync.details.contains("synchronized with Active Directory"));
+    assert!(check_sync
+        .details
+        .contains("synchronized with Active Directory"));
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -496,13 +580,26 @@ fn test_blast_remediations_and_json_parity_rust() {
         &["HTTP/tanuki-app.lab.local".to_string()],
     );
     assert!(!recipes.is_empty());
-    assert!(recipes.iter().any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("AES128,AES256")));
-    assert!(recipes.iter().any(|r| r.category == "DELEGATION_HARDENING" && r.powershell.contains("msDS-AllowedToActOnBehalfOfOtherIdentity")));
+    assert!(recipes
+        .iter()
+        .any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("AES128,AES256")));
+    assert!(recipes.iter().any(|r| r.category == "DELEGATION_HARDENING"
+        && r.powershell
+            .contains("msDS-AllowedToActOnBehalfOfOtherIdentity")));
 
     // Verify account extraction on SPN vs user
-    assert_eq!(extract_ad_account_name("HTTP/tanuki-app.lab.local@LAB.LOCAL"), "tanuki-app");
-    assert_eq!(extract_ad_account_name("cifs/DC01.lab.local@LAB.LOCAL"), "DC01");
-    assert_eq!(extract_ad_account_name("tanuki-nhi@LAB.LOCAL"), "tanuki-nhi");
+    assert_eq!(
+        extract_ad_account_name("HTTP/tanuki-app.lab.local@LAB.LOCAL"),
+        "tanuki-app"
+    );
+    assert_eq!(
+        extract_ad_account_name("cifs/DC01.lab.local@LAB.LOCAL"),
+        "DC01"
+    );
+    assert_eq!(
+        extract_ad_account_name("tanuki-nhi@LAB.LOCAL"),
+        "tanuki-nhi"
+    );
 
     let spn_recipes = generate_ad_remediations(
         "HTTP/tanuki-app.lab.local@LAB.LOCAL",
@@ -511,8 +608,15 @@ fn test_blast_remediations_and_json_parity_rust() {
         &["tanuki-svc".to_string()],
         &["HTTP/tanuki-app.lab.local".to_string()],
     );
-    assert!(spn_recipes.iter().any(|r| r.category == "ENCRYPTION_HARDENING" && r.powershell.contains("tanuki-app") && !r.powershell.contains("\"HTTP\"")));
-    assert!(spn_recipes.iter().any(|r| r.category == "CREDENTIAL_MAINTENANCE" && r.powershell.contains("-mapuser tanuki-app")));
+    assert!(spn_recipes
+        .iter()
+        .any(|r| r.category == "ENCRYPTION_HARDENING"
+            && r.powershell.contains("tanuki-app")
+            && !r.powershell.contains("\"HTTP\"")));
+    assert!(spn_recipes
+        .iter()
+        .any(|r| r.category == "CREDENTIAL_MAINTENANCE"
+            && r.powershell.contains("-mapuser tanuki-app")));
 
     let report = BlastReport {
         principal: "tanuki-nhi@LAB.LOCAL".to_string(),
@@ -538,10 +642,26 @@ fn test_blast_remediations_and_json_parity_rust() {
 
 #[test]
 fn test_security_audit_rust_regressions() {
-    for bad in ["CORP=LOCAL", "CORP{LOCAL}", "CORP[LOCAL]", "CORP;LOCAL", "CORP#LOCAL", "CORP LOCAL"] {
+    for bad in [
+        "CORP=LOCAL",
+        "CORP{LOCAL}",
+        "CORP[LOCAL]",
+        "CORP;LOCAL",
+        "CORP#LOCAL",
+        "CORP LOCAL",
+    ] {
         assert!(generate_krb5_conf(bad, "10.0.0.1", None, None, false, false, None).is_err());
     }
-    assert!(generate_krb5_conf("CORP.LOCAL", "10.0.0.1;evil=1", None, None, false, false, None).is_err());
+    assert!(generate_krb5_conf(
+        "CORP.LOCAL",
+        "10.0.0.1;evil=1",
+        None,
+        None,
+        false,
+        false,
+        None
+    )
+    .is_err());
 
     let mut pac_blob = Vec::new();
     pac_blob.extend_from_slice(&1u32.to_le_bytes());
@@ -603,12 +723,19 @@ fn test_cli_config_stdout_json_and_ipv6_kdc_parity() {
         .output()
         .expect("run tanuki config --stdout --json");
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout_str = String::from_utf8_lossy(&out.stdout);
     assert!(stdout_str.contains("\"status\": \"SUCCESS\""));
     assert!(stdout_str.contains("\"stdout\": true"));
     assert!(stdout_str.contains("\"admin_server\": \"[2001:db8::1]:88\""));
-    assert!(!temp_dir.join("krb5.conf").exists(), "krb5.conf must not be created with --stdout --json");
+    assert!(
+        !temp_dir.join("krb5.conf").exists(),
+        "krb5.conf must not be created with --stdout --json"
+    );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -640,7 +767,14 @@ fn test_cli_nhi_default_mesh_and_live_exchange() {
     assert!(mesh_str.contains("\"count\""));
 
     let missing_ep = Command::new(bin)
-        .args(["nhi", "exchange", "--live", "--subject-token", "tok", "--json"])
+        .args([
+            "nhi",
+            "exchange",
+            "--live",
+            "--subject-token",
+            "tok",
+            "--json",
+        ])
         .output()
         .expect("run tanuki nhi exchange --live without endpoint");
     assert_eq!(missing_ep.status.code(), Some(1));
@@ -676,7 +810,11 @@ fn test_cli_nhi_default_mesh_and_live_exchange() {
         .output()
         .expect("run tanuki nhi exchange --live");
     let _ = handle.join();
-    assert!(live_out.status.success(), "stderr: {}", String::from_utf8_lossy(&live_out.stderr));
+    assert!(
+        live_out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&live_out.stderr)
+    );
     let live_str = String::from_utf8_lossy(&live_out.stdout);
     assert!(live_str.contains("\"status\": \"SUCCESS\""));
     assert!(live_str.contains("\"access_token\": \"exchanged-jwt-token\""));
@@ -689,13 +827,31 @@ fn test_cli_ldap_tls_flags_and_keytab_redaction() {
     let bin = env!("CARGO_BIN_EXE_tanuki");
 
     let no_ssl = Command::new(bin)
-        .args(["ldap", "--host", "127.0.0.1", "--realm", "CORP.LOCAL", "--secure", "--json"])
+        .args([
+            "ldap",
+            "--host",
+            "127.0.0.1",
+            "--realm",
+            "CORP.LOCAL",
+            "--secure",
+            "--json",
+        ])
         .output()
         .expect("run tanuki ldap --secure without --ssl");
     assert_eq!(no_ssl.status.code(), Some(1));
 
     let conflict = Command::new(bin)
-        .args(["ldap", "--host", "127.0.0.1", "--realm", "CORP.LOCAL", "--ssl", "--secure", "--insecure", "--json"])
+        .args([
+            "ldap",
+            "--host",
+            "127.0.0.1",
+            "--realm",
+            "CORP.LOCAL",
+            "--ssl",
+            "--secure",
+            "--insecure",
+            "--json",
+        ])
         .output()
         .expect("run tanuki ldap --ssl --secure --insecure");
     assert_eq!(conflict.status.code(), Some(1));
@@ -706,7 +862,14 @@ fn test_cli_ldap_tls_flags_and_keytab_redaction() {
     let kt_path = temp_dir.join("redact.keytab");
 
     let mut file_bytes = vec![0x05, 0x02];
-    let entry = build_keytab_entry(&["HOST", "srv01.corp.local"], "CORP.LOCAL", 18, &[0xab; 32], 1, 1);
+    let entry = build_keytab_entry(
+        &["HOST", "srv01.corp.local"],
+        "CORP.LOCAL",
+        18,
+        &[0xab; 32],
+        1,
+        1,
+    );
     file_bytes.extend_from_slice(&(entry.len() as i32).to_be_bytes());
     file_bytes.extend_from_slice(&entry);
     std::fs::write(&kt_path, &file_bytes).unwrap();
@@ -804,7 +967,11 @@ fn test_m1_hardening_adcs_json_exchange_url_and_enctype16() {
         .output()
         .expect("run tanuki doctor --ccache");
     let doc_str = String::from_utf8_lossy(&doc_out.stdout);
-    assert!(doc_str.contains("\"has_weak_enctypes\": true"), "doc_str={}", doc_str);
+    assert!(
+        doc_str.contains("\"has_weak_enctypes\": true"),
+        "doc_str={}",
+        doc_str
+    );
 
     // 4. Rust --use-ctypes fails explicitly rather than silently falling back
     let ctypes_out = Command::new(bin)
@@ -837,7 +1004,3 @@ fn test_m1_hardening_adcs_json_exchange_url_and_enctype16() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
-
-
-
-

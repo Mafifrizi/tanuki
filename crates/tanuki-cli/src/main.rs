@@ -12,8 +12,8 @@ use tanuki::{
     parse_keytab_bytes, parse_pac_source, query_active_directory_ldap, read_bytes_nofollow,
     resolve_current_uid, run_doctor, run_fix, run_purge, save_candidates, scan_adcs_source,
     scan_for_ccache_blobs, shadow_report_to_json, strip_kdc_transport_prefix,
-    validate_token_exchange, write_bytes_nofollow, BlastReport, DoctorOptions,
-    TokenExchangeParams, DECISION_LADDER, ERROR_DICTIONARY,
+    validate_token_exchange, write_bytes_nofollow, BlastReport, DoctorOptions, TokenExchangeParams,
+    DECISION_LADDER, ERROR_DICTIONARY,
 };
 
 const TANUKI_BANNER: &str = r#" _____     _     _   _   _   _   _  __   _____ 
@@ -33,7 +33,10 @@ fn print_usage() {
     println!("{}", TANUKI_BANNER);
     println!();
     print_card_header(
-        &format!("Tanuki CLI · Tactical Identity Operator (v{})", env!("CARGO_PKG_VERSION")),
+        &format!(
+            "Tanuki CLI · Tactical Identity Operator (v{})",
+            env!("CARGO_PKG_VERSION")
+        ),
         Some("Non-Human Identity (NHI) & Hybrid Active Directory Engine"),
         72,
     );
@@ -126,7 +129,11 @@ fn emit_cli_error(
     json_output: bool,
 ) -> ! {
     if json_output {
-        let status = if exit_code == EXIT_POLICY_STOP { "REFUSED" } else { "ERROR" };
+        let status = if exit_code == EXIT_POLICY_STOP {
+            "REFUSED"
+        } else {
+            "ERROR"
+        };
         let mut out = format!(
             "{{\n  \"status\": \"{}\",\n  \"reason_code\": \"{}\",\n  \"category\": \"{}\",\n  \"exit_code\": {},\n  \"message\": \"{}\"",
             escape_json(status),
@@ -241,20 +248,40 @@ fn run_tui_wizard() {
             }
             "6" => {
                 let host = read_line_prompt("Target DC IP/Host: ").unwrap_or_default();
-                let q = match read_line_prompt("Query type (spn/asreproast/rbcd/shadow/unconstrained/all) [all]: ") {
+                let q = match read_line_prompt(
+                    "Query type (spn/asreproast/rbcd/shadow/unconstrained/all) [all]: ",
+                ) {
                     Some(s) if !s.is_empty() => s,
                     _ => "all".to_string(),
                 };
                 let realm = read_line_prompt("AD Realm (e.g. CORP.LOCAL): ").unwrap_or_default();
-                let bdn = realm.split('.').filter(|s| !s.is_empty()).map(|p| format!("DC={}", p)).collect::<Vec<_>>().join(",");
+                let bdn = realm
+                    .split('.')
+                    .filter(|s| !s.is_empty())
+                    .map(|p| format!("DC={}", p))
+                    .collect::<Vec<_>>()
+                    .join(",");
                 if bdn.is_empty() {
                     println!("[USAGE ERROR] Error: Realm required to derive the LDAP base DN.");
                 } else {
-                    handle_ldap(Some(host), &q, &bdn, 389, false, false, None, None, false, false, None);
+                    handle_ldap(
+                        Some(host),
+                        &q,
+                        &bdn,
+                        389,
+                        false,
+                        false,
+                        None,
+                        None,
+                        false,
+                        false,
+                        None,
+                    );
                 }
             }
             "7" => {
-                let src = read_line_prompt("Templates JSON or Certificate path: ").unwrap_or_default();
+                let src =
+                    read_line_prompt("Templates JSON or Certificate path: ").unwrap_or_default();
                 handle_adcs(Some(src), false);
             }
             "8" => {
@@ -262,20 +289,23 @@ fn run_tui_wizard() {
                 handle_token(Some(tok), None, None, None, false);
             }
             "9" => {
-                let f = read_line_prompt("KCM database path (optional): ").filter(|s| !s.is_empty());
+                let f =
+                    read_line_prompt("KCM database path (optional): ").filter(|s| !s.is_empty());
                 handle_kcm(f, "./extracted_ccache", false);
             }
             "10" => {
-                let q = read_line_prompt("Error code or query (blank for all): ").filter(|s| !s.is_empty());
+                let q = read_line_prompt("Error code or query (blank for all): ")
+                    .filter(|s| !s.is_empty());
                 handle_triage(q.as_deref(), false);
             }
             "11" => {
                 handle_ladder(false);
             }
             "12" => {
-                let conf = read_line_prompt("Confirm purge all cached credentials and configs? (y/N): ")
-                    .unwrap_or_default()
-                    .to_lowercase();
+                let conf =
+                    read_line_prompt("Confirm purge all cached credentials and configs? (y/N): ")
+                        .unwrap_or_default()
+                        .to_lowercase();
                 if conf == "y" {
                     handle_purge(None, true, false);
                 } else {
@@ -286,15 +316,30 @@ fn run_tui_wizard() {
                 handle_skill(false);
             }
             "14" => {
-                let realm = read_line_prompt("Target Kerberos Realm (e.g. CORP.LOCAL): ").filter(|s| !s.is_empty());
-                let kdc = read_line_prompt("Target Domain Controller / KDC IP: ").filter(|s| !s.is_empty());
+                let realm = read_line_prompt("Target Kerberos Realm (e.g. CORP.LOCAL): ")
+                    .filter(|s| !s.is_empty());
+                let kdc = read_line_prompt("Target Domain Controller / KDC IP: ")
+                    .filter(|s| !s.is_empty());
                 let out = read_line_prompt("Output config path [./krb5.conf]: ")
                     .filter(|s| !s.is_empty())
                     .or_else(|| Some("./krb5.conf".to_string()));
-                handle_config(realm, None, kdc, None, out, false, false, Some(300), false, false, None);
+                handle_config(
+                    realm,
+                    None,
+                    kdc,
+                    None,
+                    out,
+                    false,
+                    false,
+                    Some(300),
+                    false,
+                    false,
+                    None,
+                );
             }
             "15" => {
-                let src = read_line_prompt("Target Shadow Credential file path or hex: ").unwrap_or_default();
+                let src = read_line_prompt("Target Shadow Credential file path or hex: ")
+                    .unwrap_or_default();
                 handle_shadow(Some(src), false);
             }
             _ => {
@@ -328,7 +373,9 @@ fn main() {
     }
 
     if raw_args.iter().any(|a| a == "--interactive")
-        && !raw_args.iter().any(|a| known_subcommands.contains(&a.as_str()))
+        && !raw_args
+            .iter()
+            .any(|a| known_subcommands.contains(&a.as_str()))
     {
         run_tui_wizard();
         return;
@@ -599,7 +646,9 @@ fn main() {
                     issuer_opt = Some(raw_args[i + 1].clone());
                     i += 1;
                 } else if explicit_command.is_none()
-                    && !raw_args.iter().any(|a| known_subcommands.contains(&a.as_str()))
+                    && !raw_args
+                        .iter()
+                        .any(|a| known_subcommands.contains(&a.as_str()))
                 {
                     run_tui_wizard();
                     return;
@@ -1114,7 +1163,9 @@ fn main() {
             handle_ladder(global_json);
         }
         "doctor" => {
-            let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
+            let target_kt = keytab_opt
+                .or(file_opt)
+                .or_else(|| positional_args.first().cloned());
             handle_doctor(
                 global_json,
                 target_kt,
@@ -1133,7 +1184,9 @@ fn main() {
             handle_pac(target_source, global_json);
         }
         "fix" => {
-            let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
+            let target_kt = keytab_opt
+                .or(file_opt)
+                .or_else(|| positional_args.first().cloned());
             handle_fix(
                 target_kt,
                 realm_opt.as_deref(),
@@ -1167,7 +1220,13 @@ fn main() {
                     if parts.is_empty() {
                         None
                     } else {
-                        Some(parts.iter().map(|p| format!("DC={}", p)).collect::<Vec<_>>().join(","))
+                        Some(
+                            parts
+                                .iter()
+                                .map(|p| format!("DC={}", p))
+                                .collect::<Vec<_>>()
+                                .join(","),
+                        )
                     }
                 })
             });
@@ -1226,10 +1285,21 @@ fn main() {
                     kdc_opt,
                 );
             } else {
-                let target_kt = keytab_opt.or(file_opt).or_else(|| positional_args.first().cloned());
+                let target_kt = keytab_opt
+                    .or(file_opt)
+                    .or_else(|| positional_args.first().cloned());
                 let target_princ = resolved_princ.or_else(|| positional_args.get(1).cloned());
                 let target_ccache = ccache_opt.or(out_opt);
-                handle_auth(target_kt, target_princ, target_ccache, global_json, krb5_conf_opt, kdc_opt, fast_opt, armor_cache_opt);
+                handle_auth(
+                    target_kt,
+                    target_princ,
+                    target_ccache,
+                    global_json,
+                    krb5_conf_opt,
+                    kdc_opt,
+                    fast_opt,
+                    armor_cache_opt,
+                );
             }
         }
         "tgs" => {
@@ -1289,7 +1359,9 @@ fn main() {
             );
         }
         "config" => {
-            let out_target = out_opt.or(file_opt).or_else(|| positional_args.first().cloned());
+            let out_target = out_opt
+                .or(file_opt)
+                .or_else(|| positional_args.first().cloned());
             handle_config(
                 realm_opt,
                 keytab_opt,
@@ -1306,7 +1378,13 @@ fn main() {
         }
         "token" => {
             let token_target = positional_args.first().cloned();
-            handle_token(token_target, file_opt, audience_opt, issuer_opt, global_json);
+            handle_token(
+                token_target,
+                file_opt,
+                audience_opt,
+                issuer_opt,
+                global_json,
+            );
         }
         "nhi" => {
             let (subcmd, remaining) = resolve_nhi_subcommand(
@@ -1413,7 +1491,10 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
 
     if !Path::new(&path).exists() {
         emit_cli_error(
-            &format!("Error reading keytab at '{}': No such file or directory", path),
+            &format!(
+                "Error reading keytab at '{}': No such file or directory",
+                path
+            ),
             "MISSING_KEYTAB",
             "RESOURCE_MISSING",
             EXIT_RESOURCE_MISSING,
@@ -1467,7 +1548,10 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
         println!("[{}] Principal : {}", idx + 1, e.principal);
         println!("    ├─ KVNO      : {}", e.vno);
         println!("    ├─ Enctype   : {} ({})", e.enctype_name, e.keytype);
-        println!("    ╰─ Key (Hex) : {} (length: {} bytes)", e.key_preview, e.key_len);
+        println!(
+            "    ╰─ Key (Hex) : {} (length: {} bytes)",
+            e.key_preview, e.key_len
+        );
     }
 
     let aes_entries: Vec<_> = entries.iter().filter(|e| e.is_modern_aes()).collect();
@@ -1490,6 +1574,7 @@ fn handle_keytab(file_path: Option<String>, json_output: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_config(
     realm_opt: Option<String>,
     keytab_opt: Option<String>,
@@ -1509,7 +1594,10 @@ fn handle_config(
             Some(kt_path) => {
                 if !Path::new(&kt_path).exists() {
                     emit_cli_error(
-                        &format!("Error reading keytab at '{}': No such file or directory", kt_path),
+                        &format!(
+                            "Error reading keytab at '{}': No such file or directory",
+                            kt_path
+                        ),
                         "MISSING_KEYTAB",
                         "RESOURCE_MISSING",
                         EXIT_RESOURCE_MISSING,
@@ -1674,9 +1762,15 @@ fn handle_config(
             out.push_str(",\n  \"fast\": true");
         }
         if let Some(ref armor) = armor_cache_opt {
-            out.push_str(&format!(",\n  \"armor_cache\": \"{}\"", tanuki::escape_json(armor)));
+            out.push_str(&format!(
+                ",\n  \"armor_cache\": \"{}\"",
+                tanuki::escape_json(armor)
+            ));
         }
-        out.push_str(&format!(",\n  \"content\": \"{}\"\n}}", tanuki::escape_json(&content)));
+        out.push_str(&format!(
+            ",\n  \"content\": \"{}\"\n}}",
+            tanuki::escape_json(&content)
+        ));
         println!("{}", out);
         return;
     }
@@ -1686,7 +1780,10 @@ fn handle_config(
     if let Ok(meta) = fs::symlink_metadata(&target_path) {
         if meta.file_type().is_symlink() {
             emit_cli_error(
-                &format!("Refusing to write configuration to symbolic link: {}", target_file),
+                &format!(
+                    "Refusing to write configuration to symbolic link: {}",
+                    target_file
+                ),
                 "SYMLINK_REJECTED",
                 "USAGE_ERROR",
                 EXIT_USAGE_ERROR,
@@ -1743,9 +1840,15 @@ fn handle_config(
             out.push_str(",\n  \"fast\": true");
         }
         if let Some(ref armor) = armor_cache_opt {
-            out.push_str(&format!(",\n  \"armor_cache\": \"{}\"", tanuki::escape_json(armor)));
+            out.push_str(&format!(
+                ",\n  \"armor_cache\": \"{}\"",
+                tanuki::escape_json(armor)
+            ));
         }
-        out.push_str(&format!(",\n  \"content\": \"{}\"\n}}", tanuki::escape_json(&content)));
+        out.push_str(&format!(
+            ",\n  \"content\": \"{}\"\n}}",
+            tanuki::escape_json(&content)
+        ));
         println!("{}", out);
         return;
     }
@@ -1756,8 +1859,14 @@ fn handle_config(
         72,
     );
     println!("[+] Output File    : {}", abs_str);
-    println!("    ├─ Target Realm   : {} (RFC 4120 uppercase convention)", clean_realm);
-    println!("    ├─ Target KDC     : {} (zero-DNS direct routing)", kdc.trim());
+    println!(
+        "    ├─ Target Realm   : {} (RFC 4120 uppercase convention)",
+        clean_realm
+    );
+    println!(
+        "    ├─ Target KDC     : {} (zero-DNS direct routing)",
+        kdc.trim()
+    );
     println!("    ├─ Admin Server   : {}", target_admin);
     if let Some(skew) = clock_skew_opt {
         println!("    ├─ Clock Skew     : {}s (drift tolerance)", skew);
@@ -1777,6 +1886,7 @@ fn handle_config(
     println!("    $ kinit -k -t <keytab> <principal>");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_auth(
     keytab_path_opt: Option<String>,
     principal_opt: Option<String>,
@@ -1804,7 +1914,10 @@ fn handle_auth(
 
     if !Path::new(&kt_path).exists() {
         emit_cli_error(
-            &format!("Error reading keytab at '{}': No such file or directory", kt_path),
+            &format!(
+                "Error reading keytab at '{}': No such file or directory",
+                kt_path
+            ),
             "MISSING_KEYTAB",
             "RESOURCE_MISSING",
             EXIT_RESOURCE_MISSING,
@@ -1880,13 +1993,22 @@ fn handle_auth(
     let mut target_kdc_host = kdc_opt;
     if target_kdc_host.is_none() {
         let conf_env = env::var("KRB5_CONFIG").ok();
-        let conf_path = krb5_conf_opt.as_deref().or(conf_env.as_deref()).unwrap_or("/etc/krb5.conf");
+        let conf_path = krb5_conf_opt
+            .as_deref()
+            .or(conf_env.as_deref())
+            .unwrap_or("/etc/krb5.conf");
         if let Ok(conf_str) = fs::read_to_string(conf_path) {
             for line in conf_str.lines() {
                 let trimmed = line.trim();
                 if trimmed.starts_with("kdc") && trimmed.contains('=') {
                     if let Some(val) = trimmed.split('=').nth(1) {
-                        let candidate = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("");
+                        let candidate = val
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("")
+                            .split(',')
+                            .next()
+                            .unwrap_or("");
                         if !candidate.is_empty() {
                             target_kdc_host = Some(candidate.to_string());
                             break;
@@ -1897,7 +2019,7 @@ fn handle_auth(
         }
     }
     if target_kdc_host.is_none() && princ.contains('@') {
-        let realm = princ.split('@').last().unwrap_or("").trim();
+        let realm = princ.split('@').next_back().unwrap_or("").trim();
         if let Some(discovered) = tanuki::config::discover_dc_via_srv(realm) {
             target_kdc_host = Some(discovered);
         }
@@ -1909,10 +2031,12 @@ fn handle_auth(
             use std::time::Duration;
             let unreachable_err = match (clean_host.as_str(), port).to_socket_addrs() {
                 Ok(mut addrs) => match addrs.next() {
-                    Some(addr) => match TcpStream::connect_timeout(&addr, Duration::from_millis(800)) {
-                        Ok(_) => None,
-                        Err(e) => Some(e.to_string()),
-                    },
+                    Some(addr) => {
+                        match TcpStream::connect_timeout(&addr, Duration::from_millis(800)) {
+                            Ok(_) => None,
+                            Err(e) => Some(e.to_string()),
+                        }
+                    }
                     None => Some(format!("Could not resolve host '{}'", clean_host)),
                 },
                 Err(e) => Some(e.to_string()),
@@ -1935,13 +2059,20 @@ fn handle_auth(
 
     let fallback_cc = format!("/tmp/krb5cc_{}", resolve_current_uid());
     let ccache = ccache_path_opt
-        .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
+        .or_else(|| {
+            env::var("KRB5CCNAME")
+                .ok()
+                .map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string())
+        })
         .unwrap_or(fallback_cc);
 
     if let Ok(meta) = fs::symlink_metadata(&ccache) {
         if meta.file_type().is_symlink() {
             emit_cli_error(
-                &format!("Refusing to write credential cache to symbolic link: {}", ccache),
+                &format!(
+                    "Refusing to write credential cache to symbolic link: {}",
+                    ccache
+                ),
                 "SYMLINK_REJECTED",
                 "SECURITY_VIOLATION",
                 EXIT_POLICY_STOP,
@@ -1960,7 +2091,10 @@ fn handle_auth(
         tanuki::apply_nofollow(&mut opts);
         if let Err(err) = opts.open(&ccache) {
             emit_cli_error(
-                &format!("Refusing or unable to prepare credential cache '{}': {}", ccache, err),
+                &format!(
+                    "Refusing or unable to prepare credential cache '{}': {}",
+                    ccache, err
+                ),
                 "SYMLINK_REJECTED",
                 "SECURITY_VIOLATION",
                 EXIT_POLICY_STOP,
@@ -1998,7 +2132,10 @@ fn handle_auth(
                     json_str.push_str(",\n  \"fast\": true");
                 }
                 if let Some(ref armor) = armor_cache_opt {
-                    json_str.push_str(&format!(",\n  \"armor_cache\": \"{}\"", tanuki::escape_json(armor)));
+                    json_str.push_str(&format!(
+                        ",\n  \"armor_cache\": \"{}\"",
+                        tanuki::escape_json(armor)
+                    ));
                 }
                 json_str.push_str("\n}");
                 println!("{}", json_str);
@@ -2018,7 +2155,10 @@ fn handle_auth(
                     println!("    ├─ Armor Cache    : {}", armor);
                 }
                 println!("    ╰─ Auth Method    : kinit");
-                println!("\n[+] Active Credential Cache Export:\n    $ export KRB5CCNAME={}", ccache);
+                println!(
+                    "\n[+] Active Credential Cache Export:\n    $ export KRB5CCNAME={}",
+                    ccache
+                );
             }
         }
         Ok(status) => {
@@ -2033,13 +2173,20 @@ fn handle_auth(
             );
         }
         Err(_) => {
-            let guidance = if let Ok(os_rel) = fs::read_to_string("/etc/os-release").or_else(|_| fs::read_to_string("/usr/lib/os-release")) {
+            let guidance = if let Ok(os_rel) = fs::read_to_string("/etc/os-release")
+                .or_else(|_| fs::read_to_string("/usr/lib/os-release"))
+            {
                 let low = os_rel.to_lowercase();
                 if low.contains("alpine") {
                     "Alpine: apk add krb5"
                 } else if low.contains("debian") || low.contains("ubuntu") || low.contains("kali") {
                     "Debian/Ubuntu/Kali: apt install krb5-user"
-                } else if low.contains("rhel") || low.contains("centos") || low.contains("fedora") || low.contains("rocky") || low.contains("alma") {
+                } else if low.contains("rhel")
+                    || low.contains("centos")
+                    || low.contains("fedora")
+                    || low.contains("rocky")
+                    || low.contains("alma")
+                {
                     "RHEL/CentOS/Fedora: dnf install krb5-workstation"
                 } else {
                     "Install Kerberos client utilities, or execute via Python ctypes: python3 -m tanuki auth --use-ctypes"
@@ -2085,7 +2232,11 @@ fn handle_kcm(file_path: Option<String>, out_dir: &str, json_output: bool) {
             return;
         }
 
-        println!("[*] Found {} candidate ccache streams in {}", candidates.len(), path);
+        println!(
+            "[*] Found {} candidate ccache streams in {}",
+            candidates.len(),
+            path
+        );
         match save_candidates(&candidates, &out_path, "ticket") {
             Ok(saved) => {
                 for file in saved {
@@ -2116,7 +2267,10 @@ fn scan_local_stores(out_path: &Path, json_output: bool) {
             if let Ok(data) = fs::read(p) {
                 let found = scan_for_ccache_blobs(&data);
                 if !found.is_empty() {
-                    let prefix = p.file_stem().and_then(|s| s.to_str()).unwrap_or("recovered");
+                    let prefix = p
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("recovered");
                     if let Ok(saved) = save_candidates(&found, out_path, prefix) {
                         discovered_files.extend(saved);
                     }
@@ -2147,7 +2301,10 @@ fn scan_local_stores(out_path: &Path, json_output: bool) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
                 if name.starts_with("krb5cc_") {
-                    println!("  [+] Discovered active file ccache: {}", entry.path().display());
+                    println!(
+                        "  [+] Discovered active file ccache: {}",
+                        entry.path().display()
+                    );
                     file_ccaches.push(entry.path());
                 }
             }
@@ -2171,10 +2328,13 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
                 if json_output {
                     println!("{}", res.to_json());
                 } else {
-                    let sub = res.event_id.map(|id| format!("Event ID: {} · Root Cause Diagnostic", id));
+                    let sub = res
+                        .event_id
+                        .map(|id| format!("Event ID: {} · Root Cause Diagnostic", id));
                     print_card_header(
                         &format!("TANUKI PROTOCOL TRIAGE: {}", res.code),
-                        sub.as_deref().or(Some("RFC / SSSD Error Vector Diagnostic")),
+                        sub.as_deref()
+                            .or(Some("RFC / SSSD Error Vector Diagnostic")),
                         72,
                     );
                     println!("Found matching error: {}", res.code);
@@ -2204,7 +2364,7 @@ fn handle_triage(query: Option<&str>, json_output: bool) {
         },
         None => {
             if json_output {
-                let errors: Vec<_> = ERROR_DICTIONARY.iter().cloned().collect();
+                let errors: Vec<_> = ERROR_DICTIONARY.to_vec();
                 println!("{}", errors_to_json(&errors));
             } else {
                 let subtitle = format!(
@@ -2252,6 +2412,7 @@ fn handle_ladder(json_output: bool) {
     println!("    [TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_doctor(
     json_output: bool,
     keytab_path: Option<String>,
@@ -2405,6 +2566,7 @@ fn handle_token(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_nhi(
     subcmd: &str,
     positional_args: &[String],
@@ -2437,7 +2599,11 @@ fn handle_nhi(
             };
 
             if live || endpoint.is_some() {
-                let st = match sub_tok.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let st = match sub_tok
+                    .as_deref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                {
                     Some(v) => v,
                     None => {
                         emit_cli_error(
@@ -2451,7 +2617,11 @@ fn handle_nhi(
                         );
                     }
                 };
-                let ep = match endpoint.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let ep = match endpoint
+                    .as_deref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                {
                     Some(v) => v,
                     None => {
                         emit_cli_error(
@@ -2524,10 +2694,17 @@ fn handle_nhi(
                 }
             }
             if json_output {
-                let items: Vec<String> = found.iter().map(|p| format!("\"{}\"", escape_json(p))).collect();
+                let items: Vec<String> = found
+                    .iter()
+                    .map(|p| format!("\"{}\"", escape_json(p)))
+                    .collect();
                 println!("{{\n  \"discovered_tokens\": [{}]\n}}", items.join(", "));
             } else {
-                print_card_header("TANUKI NHI PASSIVE TOKEN SCANNER", Some("Filesystem Workload Identity Probes"), 72);
+                print_card_header(
+                    "TANUKI NHI PASSIVE TOKEN SCANNER",
+                    Some("Filesystem Workload Identity Probes"),
+                    72,
+                );
                 if found.is_empty() {
                     println!("No standard workload tokens discovered on local filesystem.");
                 } else {
@@ -2538,7 +2715,13 @@ fn handle_nhi(
             }
         }
         other => {
-            handle_token(Some(other.to_string()), file_path, audience, issuer, json_output);
+            handle_token(
+                Some(other.to_string()),
+                file_path,
+                audience,
+                issuer,
+                json_output,
+            );
         }
     }
 }
@@ -2548,7 +2731,10 @@ fn handle_skill(json_output: bool) {
         let mut out = String::new();
         out.push_str("{\n");
         out.push_str("  \"name\": \"tanuki\",\n");
-        out.push_str(&format!("  \"version\": \"{}\",\n", env!("CARGO_PKG_VERSION")));
+        out.push_str(&format!(
+            "  \"version\": \"{}\",\n",
+            env!("CARGO_PKG_VERSION")
+        ));
         out.push_str("  \"description\": \"Non-Human Identity (NHI) and Hybrid Active Directory Operator for Linux.\",\n");
         out.push_str("  \"author\": \"Tanuki Open Source Initiative\",\n");
         out.push_str("  \"lineage\": {\n");
@@ -2560,18 +2746,23 @@ fn handle_skill(json_output: bool) {
         out.push_str("  ],\n");
         out.push_str("  \"output_standard\": \"[TARGET] -> [PREREQUISITE] -> [TACTICAL CMD] -> [BLUE TELEMETRY] -> [EXPECTED ARTIFACT] -> [OPSEC RATIONALE]\",\n");
         out.push_str(&format!("  \"ladder\": {}\n", ladder_to_json()));
-        out.push_str("}");
+        out.push('}');
         println!("{}", out);
         return;
     }
 
     print_card_header(
         "TANUKI AI AGENT SKILL MANIFEST",
-        Some(&format!("v{} · Dual-Engine Non-Human Identity Operator", env!("CARGO_PKG_VERSION"))),
+        Some(&format!(
+            "v{} · Dual-Engine Non-Human Identity Operator",
+            env!("CARGO_PKG_VERSION")
+        )),
         72,
     );
     println!("[*] Intellectual Lineage & Pioneers:");
-    println!("    ├─ Tim Brown (@timb-machine)        : Linikatz & UNIX Active Directory Assessment");
+    println!(
+        "    ├─ Tim Brown (@timb-machine)        : Linikatz & UNIX Active Directory Assessment"
+    );
     println!("    ╰─ Dietrich Gebert (@dietrichayala) : Ponytail Decision Ladder Methodology\n");
     println!("[*] Tactical Activation Triggers:");
     println!("    active directory, kerberos, keytab, sssd, kcm, certipy, ad cs, shadow credentials, ...\n");
@@ -2622,6 +2813,7 @@ fn handle_pac(source_opt: Option<String>, json_output: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_fix(
     keytab_path: Option<String>,
     realm: Option<&str>,
@@ -2745,6 +2937,7 @@ fn handle_adcs(source_opt: Option<String>, json_output: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_ldap(
     host_opt: Option<String>,
     query_type: &str,
@@ -2784,7 +2977,9 @@ fn handle_ldap(
         emit_cli_error(msg, code, cat, exit_code, verify_ca, None, json_output);
     }
 
-    let rep = query_active_directory_ldap(&host, query_type, base_dn, port, use_ssl, 5, username, password);
+    let rep = query_active_directory_ldap(
+        &host, query_type, base_dn, port, use_ssl, 5, username, password,
+    );
     if json_output {
         println!("{}", rep.to_json());
     } else {
@@ -2875,13 +3070,20 @@ fn handle_tgs(
 
     let fallback_cc = format!("/tmp/krb5cc_{}", resolve_current_uid());
     let ccache = ccache_path_opt
-        .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()))
+        .or_else(|| {
+            env::var("KRB5CCNAME")
+                .ok()
+                .map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string())
+        })
         .unwrap_or(fallback_cc);
 
     if let Ok(meta) = fs::symlink_metadata(&ccache) {
         if meta.file_type().is_symlink() {
             emit_cli_error(
-                &format!("Refusing to use symbolic link as credential cache: {}", ccache),
+                &format!(
+                    "Refusing to use symbolic link as credential cache: {}",
+                    ccache
+                ),
                 "SYMLINK_REJECTED",
                 "SECURITY_VIOLATION",
                 EXIT_POLICY_STOP,
@@ -2895,7 +3097,10 @@ fn handle_tgs(
     if let Some(ref kt) = keytab_path_opt {
         if !Path::new(kt).exists() {
             emit_cli_error(
-                &format!("Error reading keytab at '{}': No such file or directory", kt),
+                &format!(
+                    "Error reading keytab at '{}': No such file or directory",
+                    kt
+                ),
                 "MISSING_KEYTAB",
                 "RESOURCE_MISSING",
                 EXIT_RESOURCE_MISSING,
@@ -2951,7 +3156,8 @@ fn handle_tgs(
                 );
             }
             Err(_) => {
-                let guidance = "Install Kerberos client utilities (kinit): sudo apt install krb5-user";
+                let guidance =
+                    "Install Kerberos client utilities (kinit): sudo apt install krb5-user";
                 emit_cli_error(
                     &format!("kinit utility not found on host $PATH. {}", guidance),
                     "MISSING_KINIT_UTILITY",
@@ -2981,13 +3187,22 @@ fn handle_tgs(
     let mut target_kdc_host = kdc_opt;
     if target_kdc_host.is_none() {
         let conf_env = env::var("KRB5_CONFIG").ok();
-        let to_check = krb5_conf_opt.as_deref().or(conf_env.as_deref()).unwrap_or("/etc/krb5.conf");
+        let to_check = krb5_conf_opt
+            .as_deref()
+            .or(conf_env.as_deref())
+            .unwrap_or("/etc/krb5.conf");
         if let Ok(content) = fs::read_to_string(to_check) {
             for line in content.lines() {
                 let trimmed = line.trim();
                 if trimmed.starts_with("kdc") && trimmed.contains('=') {
                     if let Some(val) = trimmed.split('=').nth(1) {
-                        let candidate = val.trim().split_whitespace().next().unwrap_or("").split(',').next().unwrap_or("");
+                        let candidate = val
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("")
+                            .split(',')
+                            .next()
+                            .unwrap_or("");
                         if !candidate.is_empty() {
                             target_kdc_host = Some(candidate.to_string());
                             break;
@@ -2998,7 +3213,7 @@ fn handle_tgs(
         }
     }
     if target_kdc_host.is_none() && spn.contains('@') {
-        let realm = spn.split('@').last().unwrap_or("").trim();
+        let realm = spn.split('@').next_back().unwrap_or("").trim();
         if let Some(discovered) = tanuki::config::discover_dc_via_srv(realm) {
             target_kdc_host = Some(discovered);
         }
@@ -3011,9 +3226,13 @@ fn handle_tgs(
             if let Ok(mut addrs) = (clean_host.as_str(), port).to_socket_addrs() {
                 if let Some(addr) = addrs.next() {
                     if TcpStream::connect_timeout(&addr, Duration::from_millis(800)).is_err() {
-                        let remediation = format!("ssh -L 8888:{}:{} user@pivot -N", clean_host, port);
+                        let remediation =
+                            format!("ssh -L 8888:{}:{} user@pivot -N", clean_host, port);
                         emit_cli_error(
-                            &format!("KDC port {} unreachable on host '{}'. Tactical remediation: {}", port, clean_host, remediation),
+                            &format!(
+                                "KDC port {} unreachable on host '{}'. Tactical remediation: {}",
+                                port, clean_host, remediation
+                            ),
                             "KDC_UNREACHABLE",
                             "NETWORK_ERROR",
                             EXIT_RESOURCE_MISSING,
@@ -3070,7 +3289,11 @@ fn handle_tgs(
 }}"#,
                     escape_json(&spn),
                     escape_json(&spn),
-                    escape_json(principal_opt.as_deref().unwrap_or("authenticated-principal")),
+                    escape_json(
+                        principal_opt
+                            .as_deref()
+                            .unwrap_or("authenticated-principal")
+                    ),
                     escape_json(&ccache),
                     kvno_num,
                     escape_json(&ccache),
@@ -3083,7 +3306,12 @@ fn handle_tgs(
                     72,
                 );
                 println!("[+] Target SPN     : {}", spn);
-                println!("    |- Client Princ : {}", principal_opt.as_deref().unwrap_or("authenticated-principal"));
+                println!(
+                    "    |- Client Princ : {}",
+                    principal_opt
+                        .as_deref()
+                        .unwrap_or("authenticated-principal")
+                );
                 println!("    |- Ticket Cache : {}", ccache);
                 println!("    |- Mutual Auth  : VERIFIED (Living off the Domain)");
                 println!("    |- Event ID     : 4769 (Kerberos Service Ticket Request)");
@@ -3200,10 +3428,11 @@ fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>
             Some(v) => v,
             None => break,
         };
-        if server.contains('/') && !server.to_ascii_lowercase().starts_with("krbtgt/") {
-            if !spns.contains(&server) {
-                spns.push(server);
-            }
+        if server.contains('/')
+            && !server.to_ascii_lowercase().starts_with("krbtgt/")
+            && !spns.contains(&server)
+        {
+            spns.push(server);
         }
         if c2 + 4 > bytes.len() {
             break;
@@ -3217,7 +3446,8 @@ fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>
         if c2 + 4 > bytes.len() {
             break;
         }
-        let num_addrs = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        let num_addrs =
+            u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
         c2 += 4;
         if num_addrs > 1024 {
             break;
@@ -3228,7 +3458,9 @@ fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>
                 ok = false;
                 break;
             }
-            let alen = u32::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3], bytes[c2 + 4], bytes[c2 + 5]]) as usize;
+            let alen =
+                u32::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3], bytes[c2 + 4], bytes[c2 + 5]])
+                    as usize;
             c2 += 6;
             if alen > 4096 || c2 + alen > bytes.len() {
                 ok = false;
@@ -3239,7 +3471,8 @@ fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>
         if !ok || c2 + 4 > bytes.len() {
             break;
         }
-        let num_ad = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        let num_ad =
+            u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
         c2 += 4;
         if num_ad > 1024 {
             break;
@@ -3249,7 +3482,9 @@ fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>
                 ok = false;
                 break;
             }
-            let adlen = u32::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3], bytes[c2 + 4], bytes[c2 + 5]]) as usize;
+            let adlen =
+                u32::from_be_bytes([bytes[c2 + 2], bytes[c2 + 3], bytes[c2 + 4], bytes[c2 + 5]])
+                    as usize;
             c2 += 6;
             if adlen > 65536 || c2 + adlen > bytes.len() {
                 ok = false;
@@ -3260,13 +3495,15 @@ fn parse_ccache_principal_and_spns(bytes: &[u8]) -> (Option<String>, Vec<String>
         if !ok || c2 + 4 > bytes.len() {
             break;
         }
-        let tkt_len = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        let tkt_len =
+            u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
         c2 += 4;
         if tkt_len > 65536 || c2 + tkt_len + 4 > bytes.len() {
             break;
         }
         c2 += tkt_len;
-        let sec_len = u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
+        let sec_len =
+            u32::from_be_bytes([bytes[c2], bytes[c2 + 1], bytes[c2 + 2], bytes[c2 + 3]]) as usize;
         c2 += 4;
         if sec_len > 65536 || c2 + sec_len > bytes.len() {
             break;
@@ -3290,7 +3527,7 @@ fn is_ccache_path(path: &str) -> bool {
 }
 
 fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return None;
     }
     (0..hex.len())
@@ -3299,6 +3536,7 @@ fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_blast(
     source_opt: Option<String>,
     ccache_opt: Option<String>,
@@ -3411,7 +3649,11 @@ fn handle_blast(
                 None
             }
         })
-        .or_else(|| env::var("KRB5CCNAME").ok().map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string()));
+        .or_else(|| {
+            env::var("KRB5CCNAME")
+                .ok()
+                .map(|s| s.strip_prefix("FILE:").unwrap_or(&s).to_string())
+        });
     if let Some(ref cc_path) = target_cc {
         if let Ok(bytes) = fs::read(cc_path) {
             let (def_p, cc_spns) = parse_ccache_principal_and_spns(&bytes);
@@ -3476,16 +3718,18 @@ fn handle_blast(
                             if k.eq_ignore_ascii_case("objectSid") {
                                 if let Some(hex) = vals.first() {
                                     if let Some(sid_bytes) = hex_to_bytes(hex) {
-                                        if let Ok((sid, _)) = tanuki::parse_windows_sid(&sid_bytes, 0, None) {
+                                        if let Ok((sid, _)) =
+                                            tanuki::parse_windows_sid(&sid_bytes, 0, None)
+                                        {
                                             extracted_user_sid = Some(sid);
                                         }
                                     }
                                 }
-                            } else if k.eq_ignore_ascii_case("primaryGroupID") {
-                                if primary_group_rid.is_none() {
-                                    if let Some(pg) = vals.first().and_then(|v| v.parse::<u32>().ok()) {
-                                        primary_group_rid = Some(pg);
-                                    }
+                            } else if k.eq_ignore_ascii_case("primaryGroupID")
+                                && primary_group_rid.is_none()
+                            {
+                                if let Some(pg) = vals.first().and_then(|v| v.parse::<u32>().ok()) {
+                                    primary_group_rid = Some(pg);
                                 }
                             }
                         }
@@ -3528,7 +3772,9 @@ fn handle_blast(
                             if k.eq_ignore_ascii_case("objectSid") {
                                 if let Some(first_sid) = vals.first() {
                                     if let Some(sid_bytes) = hex_to_bytes(first_sid) {
-                                        if let Ok((sid, _)) = tanuki::parse_windows_sid(&sid_bytes, 0, None) {
+                                        if let Ok((sid, _)) =
+                                            tanuki::parse_windows_sid(&sid_bytes, 0, None)
+                                        {
                                             extracted_user_sid = Some(sid);
                                         }
                                     }
@@ -3588,34 +3834,37 @@ fn handle_blast(
                             }
                         }
                     }
-                } else if entry.query_category == "rbcd" {
-                    if !candidate_sids.is_empty() {
-                        // The DACL is stored raw (hex) under msDS-AllowedToActOnBehalfOfOtherIdentity;
-                        // decode it and match trustee SIDs, same as the ldap command does (parity with Python).
-                        let mut matches_trustee = false;
-                        let mut target_name = String::from("unknown");
-                        for (k, vals) in &entry.attributes {
-                            if k.eq_ignore_ascii_case("sAMAccountName") {
-                                if let Some(first) = vals.first() {
-                                    target_name = first.clone();
-                                }
-                            } else if k.eq_ignore_ascii_case("msDS-AllowedToActOnBehalfOfOtherIdentity") {
-                                if let Some(hex_val) = vals.first() {
-                                    if let Some(raw_bytes) = hex_to_bytes(hex_val) {
-                                        if let Ok(rbcd) = tanuki::parse_rbcd_security_descriptor(&raw_bytes) {
-                                            if rbcd.allowed_trustee_sids.iter()
-                                                .any(|t| candidate_sids.iter().any(|cs| cs == t))
-                                            {
-                                                matches_trustee = true;
-                                            }
+                } else if entry.query_category == "rbcd" && !candidate_sids.is_empty() {
+                    // The DACL is stored raw (hex) under msDS-AllowedToActOnBehalfOfOtherIdentity;
+                    // decode it and match trustee SIDs, same as the ldap command does (parity with Python).
+                    let mut matches_trustee = false;
+                    let mut target_name = String::from("unknown");
+                    for (k, vals) in &entry.attributes {
+                        if k.eq_ignore_ascii_case("sAMAccountName") {
+                            if let Some(first) = vals.first() {
+                                target_name = first.clone();
+                            }
+                        } else if k.eq_ignore_ascii_case("msDS-AllowedToActOnBehalfOfOtherIdentity")
+                        {
+                            if let Some(hex_val) = vals.first() {
+                                if let Some(raw_bytes) = hex_to_bytes(hex_val) {
+                                    if let Ok(rbcd) =
+                                        tanuki::parse_rbcd_security_descriptor(&raw_bytes)
+                                    {
+                                        if rbcd
+                                            .allowed_trustee_sids
+                                            .iter()
+                                            .any(|t| candidate_sids.iter().any(|cs| cs == t))
+                                        {
+                                            matches_trustee = true;
                                         }
                                     }
                                 }
                             }
                         }
-                        if matches_trustee {
-                            rbcd_targets.push(target_name);
-                        }
+                    }
+                    if matches_trustee {
+                        rbcd_targets.push(target_name);
                     }
                 }
             }
@@ -3631,7 +3880,8 @@ fn handle_blast(
     // has_spn = identity INTRINSICALLY owns an SPN (principal is an SPN, or LDAP found one on its account).
     // A user-supplied --spn is a lateral TARGET, not an owned SPN, so it must not inflate the tier (parity with Python blast.py).
     let has_spn = principal.contains('/') || owns_spn;
-    let is_dc = principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
+    let is_dc =
+        principal.starts_with("krbtgt/") || uac_flags.iter().any(|f| f == "SERVER_TRUST_ACCOUNT");
 
     let tier_info = classify_identity_tier(
         &principal,
@@ -3644,12 +3894,8 @@ fn handle_blast(
     );
     let user_sid = extracted_user_sid.unwrap_or_else(|| "UNKNOWN".to_string());
 
-    let (blast_score, severity, lateral_paths) = evaluate_blast_radius(
-        &tier_info,
-        &uac_flags,
-        &accessible_spns,
-        &rbcd_targets,
-    );
+    let (blast_score, severity, lateral_paths) =
+        evaluate_blast_radius(&tier_info, &uac_flags, &accessible_spns, &rbcd_targets);
 
     let remediation_recipes = generate_ad_remediations(
         &principal,
@@ -3685,12 +3931,24 @@ mod tests {
     #[test]
     fn test_resolve_nhi_subcommand_defaults_to_scan() {
         let empty: Vec<String> = Vec::new();
-        assert_eq!(resolve_nhi_subcommand(&empty, false, false), ("scan", &[][..]));
-        assert_eq!(resolve_nhi_subcommand(&empty, true, false), ("inspect", &[][..]));
-        assert_eq!(resolve_nhi_subcommand(&empty, false, true), ("inspect", &[][..]));
+        assert_eq!(
+            resolve_nhi_subcommand(&empty, false, false),
+            ("scan", &[][..])
+        );
+        assert_eq!(
+            resolve_nhi_subcommand(&empty, true, false),
+            ("inspect", &[][..])
+        );
+        assert_eq!(
+            resolve_nhi_subcommand(&empty, false, true),
+            ("inspect", &[][..])
+        );
 
         let mesh_args = vec!["mesh".to_string()];
-        assert_eq!(resolve_nhi_subcommand(&mesh_args, false, false), ("mesh", &[][..]));
+        assert_eq!(
+            resolve_nhi_subcommand(&mesh_args, false, false),
+            ("mesh", &[][..])
+        );
 
         let inspect_args = vec!["inspect".to_string(), "tok.val.sig".to_string()];
         assert_eq!(
@@ -3756,9 +4014,18 @@ mod tests {
 
     #[test]
     fn test_strip_kdc_transport_prefix() {
-        assert_eq!(strip_kdc_transport_prefix("tcp/dc01.corp.local"), "dc01.corp.local");
-        assert_eq!(strip_kdc_transport_prefix("UDP/[2001:db8::1]:88"), "[2001:db8::1]:88");
-        assert_eq!(strip_kdc_transport_prefix("192.168.56.106"), "192.168.56.106");
+        assert_eq!(
+            strip_kdc_transport_prefix("tcp/dc01.corp.local"),
+            "dc01.corp.local"
+        );
+        assert_eq!(
+            strip_kdc_transport_prefix("UDP/[2001:db8::1]:88"),
+            "[2001:db8::1]:88"
+        );
+        assert_eq!(
+            strip_kdc_transport_prefix("192.168.56.106"),
+            "192.168.56.106"
+        );
     }
 
     #[test]
@@ -3768,5 +4035,3 @@ mod tests {
         assert_eq!(hex_to_bytes("zzzz"), None);
     }
 }
-
-

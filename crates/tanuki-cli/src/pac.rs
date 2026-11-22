@@ -218,7 +218,10 @@ pub fn parse_windows_sid(
     max_len: Option<usize>,
 ) -> Result<(String, usize), String> {
     if data.len() < offset + 8 {
-        return Err(format!("Buffer underflow reading SID header at offset {}", offset));
+        return Err(format!(
+            "Buffer underflow reading SID header at offset {}",
+            offset
+        ));
     }
     if let Some(limit) = max_len {
         if limit < 8 {
@@ -382,7 +385,9 @@ pub fn parse_rbcd_security_descriptor(data: &[u8]) -> Result<RbcdSecurityDescrip
                 }
                 if sid_start + 8 <= cur_off + ace_size {
                     let max_sid_len = (cur_off + ace_size) - sid_start;
-                    if let Ok((parsed_sid, _)) = parse_windows_sid(data, sid_start, Some(max_sid_len)) {
+                    if let Ok((parsed_sid, _)) =
+                        parse_windows_sid(data, sid_start, Some(max_sid_len))
+                    {
                         sid_str = Some(parsed_sid);
                     }
                 }
@@ -396,7 +401,8 @@ pub fn parse_rbcd_security_descriptor(data: &[u8]) -> Result<RbcdSecurityDescrip
             ]);
             if cur_off + 8 + 8 <= cur_off + ace_size {
                 let max_sid_len = ace_size - 8;
-                if let Ok((parsed_sid, _)) = parse_windows_sid(data, cur_off + 8, Some(max_sid_len)) {
+                if let Ok((parsed_sid, _)) = parse_windows_sid(data, cur_off + 8, Some(max_sid_len))
+                {
                     sid_str = Some(parsed_sid);
                 }
             }
@@ -449,7 +455,7 @@ pub fn parse_pac_client_info(data: &[u8]) -> Result<PacClientInfo, String> {
 
     let raw_name = &data[10..10 + name_len];
     let mut utf16_units = Vec::new();
-    for chunk in raw_name.chunks_exact(2) {
+    for chunk in raw_name.as_chunks::<2>().0 {
         utf16_units.push(u16::from_le_bytes([chunk[0], chunk[1]]));
     }
     let client_name = String::from_utf16_lossy(&utf16_units)
@@ -464,7 +470,10 @@ pub fn parse_pac_client_info(data: &[u8]) -> Result<PacClientInfo, String> {
 
 pub fn parse_pac_attributes_info(data: &[u8]) -> Result<PacAttributesInfo, String> {
     if data.len() < 8 {
-        return Err(format!("PAC_ATTRIBUTES_INFO underflow: got {} bytes, expected at least 8", data.len()));
+        return Err(format!(
+            "PAC_ATTRIBUTES_INFO underflow: got {} bytes, expected at least 8",
+            data.len()
+        ));
     }
     let flags_length = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     let flags_raw = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
@@ -478,12 +487,17 @@ pub fn parse_pac_attributes_info(data: &[u8]) -> Result<PacAttributesInfo, Strin
     })
 }
 
-fn parse_rpc_unicode_string(data: &[u8], str_hdr_offset: usize, mut deferral_offset: usize) -> Option<(String, usize)> {
+fn parse_rpc_unicode_string(
+    data: &[u8],
+    str_hdr_offset: usize,
+    mut deferral_offset: usize,
+) -> Option<(String, usize)> {
     if str_hdr_offset + 8 > data.len() {
         return None;
     }
     let length = u16::from_le_bytes([data[str_hdr_offset], data[str_hdr_offset + 1]]) as usize;
-    let _max_length = u16::from_le_bytes([data[str_hdr_offset + 2], data[str_hdr_offset + 3]]) as usize;
+    let _max_length =
+        u16::from_le_bytes([data[str_hdr_offset + 2], data[str_hdr_offset + 3]]) as usize;
     let buffer_ptr = u32::from_le_bytes([
         data[str_hdr_offset + 4],
         data[str_hdr_offset + 5],
@@ -493,7 +507,7 @@ fn parse_rpc_unicode_string(data: &[u8], str_hdr_offset: usize, mut deferral_off
     if buffer_ptr == 0 || length == 0 {
         return Some((String::new(), deferral_offset));
     }
-    if deferral_offset % 4 != 0 {
+    if !deferral_offset.is_multiple_of(4) {
         deferral_offset += 4 - (deferral_offset % 4);
     }
     if deferral_offset + 12 > data.len() {
@@ -527,14 +541,14 @@ fn parse_rpc_unicode_string(data: &[u8], str_hdr_offset: usize, mut deferral_off
         return None;
     }
     let mut utf16_units = Vec::with_capacity(actual_count);
-    for chunk in data[char_start..char_end].chunks_exact(2) {
+    for chunk in data[char_start..char_end].as_chunks::<2>().0 {
         utf16_units.push(u16::from_le_bytes([chunk[0], chunk[1]]));
     }
     let decoded = String::from_utf16_lossy(&utf16_units)
         .trim_end_matches('\0')
         .to_string();
     let mut new_def = char_end;
-    if new_def % 4 != 0 {
+    if !new_def.is_multiple_of(4) {
         new_def += 4 - (new_def % 4);
     }
     Some((decoded, new_def))
@@ -634,11 +648,32 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
     ]);
     if eff_ptr != 0 && eff_len > 0 {
         let expected_chars = (eff_len / 2) as u32;
-        for cand_off in [struct_start + 176, struct_start + 172, struct_start + 200, struct_start + 204, struct_start + 216] {
+        for cand_off in [
+            struct_start + 176,
+            struct_start + 172,
+            struct_start + 200,
+            struct_start + 204,
+            struct_start + 216,
+        ] {
             if cand_off + 12 <= data.len() {
-                let mc = u32::from_le_bytes([data[cand_off], data[cand_off + 1], data[cand_off + 2], data[cand_off + 3]]);
-                let oc = u32::from_le_bytes([data[cand_off + 4], data[cand_off + 5], data[cand_off + 6], data[cand_off + 7]]);
-                let ac = u32::from_le_bytes([data[cand_off + 8], data[cand_off + 9], data[cand_off + 10], data[cand_off + 11]]);
+                let mc = u32::from_le_bytes([
+                    data[cand_off],
+                    data[cand_off + 1],
+                    data[cand_off + 2],
+                    data[cand_off + 3],
+                ]);
+                let oc = u32::from_le_bytes([
+                    data[cand_off + 4],
+                    data[cand_off + 5],
+                    data[cand_off + 6],
+                    data[cand_off + 7],
+                ]);
+                let ac = u32::from_le_bytes([
+                    data[cand_off + 8],
+                    data[cand_off + 9],
+                    data[cand_off + 10],
+                    data[cand_off + 11],
+                ]);
                 if oc == 0 && ac == expected_chars && mc >= ac {
                     deferral_start = cand_off;
                     break;
@@ -665,7 +700,12 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
         let mut found_group_offset = None;
         let mut probe = struct_start + min_fixed_hdr;
         while probe + 4 <= data.len() {
-            let val = u32::from_le_bytes([data[probe], data[probe + 1], data[probe + 2], data[probe + 3]]) as usize;
+            let val = u32::from_le_bytes([
+                data[probe],
+                data[probe + 1],
+                data[probe + 2],
+                data[probe + 3],
+            ]) as usize;
             if val == group_count && probe + 4 + (group_count * 8) <= data.len() {
                 found_group_offset = Some(probe + 4);
                 break;
@@ -676,14 +716,30 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
         if let Some(grp_off) = found_group_offset {
             for g_idx in 0..group_count {
                 let g_pos = grp_off + (g_idx * 8);
-                let rid = u32::from_le_bytes([data[g_pos], data[g_pos + 1], data[g_pos + 2], data[g_pos + 3]]);
-                let attr = u32::from_le_bytes([data[g_pos + 4], data[g_pos + 5], data[g_pos + 6], data[g_pos + 7]]);
+                let rid = u32::from_le_bytes([
+                    data[g_pos],
+                    data[g_pos + 1],
+                    data[g_pos + 2],
+                    data[g_pos + 3],
+                ]);
+                let attr = u32::from_le_bytes([
+                    data[g_pos + 4],
+                    data[g_pos + 5],
+                    data[g_pos + 6],
+                    data[g_pos + 7],
+                ]);
                 group_rids.push(rid);
                 group_details.push(GroupMembership {
                     rid,
                     attributes: attr,
                     name: get_rid_name(rid).to_string(),
-                    is_critical: matches!(rid, DOMAIN_ADMINS_RID | ENTERPRISE_ADMINS_RID | SCHEMA_ADMINS_RID | BUILTIN_ADMINISTRATORS_RID),
+                    is_critical: matches!(
+                        rid,
+                        DOMAIN_ADMINS_RID
+                            | ENTERPRISE_ADMINS_RID
+                            | SCHEMA_ADMINS_RID
+                            | BUILTIN_ADMINISTRATORS_RID
+                    ),
                 });
             }
         }
@@ -694,7 +750,10 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
         for probe in struct_start..data.len() - 8 {
             let sub_cnt = data[probe];
             let rev = data[probe + 1];
-            if rev == 1 && (3..=6).contains(&sub_cnt) && &data[probe + 2..probe + 8] == b"\x00\x00\x00\x00\x00\x05" {
+            if rev == 1
+                && (3..=6).contains(&sub_cnt)
+                && &data[probe + 2..probe + 8] == b"\x00\x00\x00\x00\x00\x05"
+            {
                 if let Ok((cand_sid, _)) = parse_rpc_sid(data, probe) {
                     if cand_sid.starts_with("S-1-5-21-") {
                         domain_sid = cand_sid;
@@ -721,7 +780,11 @@ pub fn parse_pac_logon_info(data: &[u8]) -> Result<PacLogonInfo, String> {
     let constrained = uac_flags.contains(&"TRUSTED_TO_AUTH_FOR_DELEGATION".to_string());
 
     Ok(PacLogonInfo {
-        user_name: if effective_name.is_empty() { "Unknown".to_string() } else { effective_name },
+        user_name: if effective_name.is_empty() {
+            "Unknown".to_string()
+        } else {
+            effective_name
+        },
         full_name,
         domain_sid,
         user_rid,
@@ -757,7 +820,10 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
         return Err(format!("Invalid PAC version: {} (expected 0)", version));
     }
     if c_buffers > 64 {
-        return Err(format!("PAC buffer count {} exceeds safety limit 64", c_buffers));
+        return Err(format!(
+            "PAC buffer count {} exceeds safety limit 64",
+            c_buffers
+        ));
     }
 
     let header_size = 8 + (c_buffers as usize * 16);
@@ -774,11 +840,27 @@ pub fn parse_pac_bytes(raw_bytes: &[u8]) -> Result<PacReport, String> {
 
     for i in 0..c_buffers as usize {
         let pos = 8 + (i * 16);
-        let ul_type = u32::from_le_bytes([raw_bytes[pos], raw_bytes[pos + 1], raw_bytes[pos + 2], raw_bytes[pos + 3]]);
-        let cb_size = u32::from_le_bytes([raw_bytes[pos + 4], raw_bytes[pos + 5], raw_bytes[pos + 6], raw_bytes[pos + 7]]);
+        let ul_type = u32::from_le_bytes([
+            raw_bytes[pos],
+            raw_bytes[pos + 1],
+            raw_bytes[pos + 2],
+            raw_bytes[pos + 3],
+        ]);
+        let cb_size = u32::from_le_bytes([
+            raw_bytes[pos + 4],
+            raw_bytes[pos + 5],
+            raw_bytes[pos + 6],
+            raw_bytes[pos + 7],
+        ]);
         let offset = u64::from_le_bytes([
-            raw_bytes[pos + 8], raw_bytes[pos + 9], raw_bytes[pos + 10], raw_bytes[pos + 11],
-            raw_bytes[pos + 12], raw_bytes[pos + 13], raw_bytes[pos + 14], raw_bytes[pos + 15],
+            raw_bytes[pos + 8],
+            raw_bytes[pos + 9],
+            raw_bytes[pos + 10],
+            raw_bytes[pos + 11],
+            raw_bytes[pos + 12],
+            raw_bytes[pos + 13],
+            raw_bytes[pos + 14],
+            raw_bytes[pos + 15],
         ]);
 
         let start = match usize::try_from(offset) {
@@ -846,19 +928,43 @@ pub fn extract_pac_from_authorization_data(data: &[u8]) -> &[u8] {
         return data;
     }
     for probe in 0..data.len().saturating_sub(8) {
-        let c_bufs = u32::from_le_bytes([data[probe], data[probe + 1], data[probe + 2], data[probe + 3]]);
-        let ver = u32::from_le_bytes([data[probe + 4], data[probe + 5], data[probe + 6], data[probe + 7]]);
+        let c_bufs = u32::from_le_bytes([
+            data[probe],
+            data[probe + 1],
+            data[probe + 2],
+            data[probe + 3],
+        ]);
+        let ver = u32::from_le_bytes([
+            data[probe + 4],
+            data[probe + 5],
+            data[probe + 6],
+            data[probe + 7],
+        ]);
         if (1..=16).contains(&c_bufs) && ver == 0 {
             let hdr_len = 8 + (c_bufs as usize * 16);
             if probe + hdr_len <= data.len() {
-                let first_size = u32::from_le_bytes([data[probe + 12], data[probe + 13], data[probe + 14], data[probe + 15]]) as usize;
+                let first_size = u32::from_le_bytes([
+                    data[probe + 12],
+                    data[probe + 13],
+                    data[probe + 14],
+                    data[probe + 15],
+                ]) as usize;
                 let first_offset_u64 = u64::from_le_bytes([
-                    data[probe + 16], data[probe + 17], data[probe + 18], data[probe + 19],
-                    data[probe + 20], data[probe + 21], data[probe + 22], data[probe + 23],
+                    data[probe + 16],
+                    data[probe + 17],
+                    data[probe + 18],
+                    data[probe + 19],
+                    data[probe + 20],
+                    data[probe + 21],
+                    data[probe + 22],
+                    data[probe + 23],
                 ]);
                 if let Ok(first_offset) = usize::try_from(first_offset_u64) {
                     if first_offset >= hdr_len {
-                        if let Some(end) = probe.checked_add(first_offset).and_then(|s| s.checked_add(first_size)) {
+                        if let Some(end) = probe
+                            .checked_add(first_offset)
+                            .and_then(|s| s.checked_add(first_size))
+                        {
                             if end <= data.len() {
                                 return &data[probe..];
                             }
@@ -882,7 +988,7 @@ pub fn parse_pac_source(source: &str) -> Result<PacReport, String> {
         fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?
     } else {
         // Try hex decode
-        if clean.len() % 2 == 0 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+        if clean.len().is_multiple_of(2) && clean.chars().all(|c| c.is_ascii_hexdigit()) {
             let mut hex_bytes = Vec::new();
             for i in (0..clean.len()).step_by(2) {
                 if let Ok(b) = u8::from_str_radix(&clean[i..i + 2], 16) {
@@ -892,8 +998,9 @@ pub fn parse_pac_source(source: &str) -> Result<PacReport, String> {
             hex_bytes
         } else {
             // Try base64 decode
-            crate::nhi::b64url_decode(clean)
-                .map_err(|_| "Input is not a readable file, valid hex, or valid base64".to_string())?
+            crate::nhi::b64url_decode(clean).map_err(|_| {
+                "Input is not a readable file, valid hex, or valid base64".to_string()
+            })?
         }
     };
 
@@ -910,15 +1017,39 @@ pub fn pac_report_to_json(report: &PacReport) -> String {
 
     if let Some(l) = &report.logon_info {
         out.push_str("  \"logon_info\": {\n");
-        out.push_str(&format!("    \"user_name\": \"{}\",\n", escape_json(&l.user_name)));
-        out.push_str(&format!("    \"domain_sid\": \"{}\",\n", escape_json(&l.domain_sid)));
-        out.push_str(&format!("    \"user_sid\": \"{}\",\n", escape_json(&l.user_sid)));
+        out.push_str(&format!(
+            "    \"user_name\": \"{}\",\n",
+            escape_json(&l.user_name)
+        ));
+        out.push_str(&format!(
+            "    \"domain_sid\": \"{}\",\n",
+            escape_json(&l.domain_sid)
+        ));
+        out.push_str(&format!(
+            "    \"user_sid\": \"{}\",\n",
+            escape_json(&l.user_sid)
+        ));
         out.push_str(&format!("    \"user_rid\": {},\n", l.user_rid));
-        out.push_str(&format!("    \"primary_group_rid\": {},\n", l.primary_group_rid));
-        out.push_str(&format!("    \"primary_group_sid\": \"{}\",\n", escape_json(&l.primary_group_sid)));
-        out.push_str(&format!("    \"is_domain_admin\": {},\n", l.is_domain_admin));
-        out.push_str(&format!("    \"is_enterprise_admin\": {},\n", l.is_enterprise_admin));
-        out.push_str(&format!("    \"unconstrained_delegation\": {},\n", l.unconstrained_delegation));
+        out.push_str(&format!(
+            "    \"primary_group_rid\": {},\n",
+            l.primary_group_rid
+        ));
+        out.push_str(&format!(
+            "    \"primary_group_sid\": \"{}\",\n",
+            escape_json(&l.primary_group_sid)
+        ));
+        out.push_str(&format!(
+            "    \"is_domain_admin\": {},\n",
+            l.is_domain_admin
+        ));
+        out.push_str(&format!(
+            "    \"is_enterprise_admin\": {},\n",
+            l.is_enterprise_admin
+        ));
+        out.push_str(&format!(
+            "    \"unconstrained_delegation\": {},\n",
+            l.unconstrained_delegation
+        ));
         out.push_str(&format!("    \"group_rids\": {:?},\n", l.group_rids));
         out.push_str(&format!("    \"uac_flags\": {:?}\n", l.uac_flags));
         out.push_str("  },\n");
@@ -930,8 +1061,14 @@ pub fn pac_report_to_json(report: &PacReport) -> String {
         out.push_str("  \"attributes_info\": {\n");
         out.push_str(&format!("    \"flags_length\": {},\n", a.flags_length));
         out.push_str(&format!("    \"flags_raw\": {},\n", a.flags_raw));
-        out.push_str(&format!("    \"pac_was_requested\": {},\n", a.pac_was_requested));
-        out.push_str(&format!("    \"pac_was_given_implicitly\": {}\n", a.pac_was_given_implicitly));
+        out.push_str(&format!(
+            "    \"pac_was_requested\": {},\n",
+            a.pac_was_requested
+        ));
+        out.push_str(&format!(
+            "    \"pac_was_given_implicitly\": {}\n",
+            a.pac_was_given_implicitly
+        ));
         out.push_str("  },\n");
     } else {
         out.push_str("  \"attributes_info\": null,\n");
@@ -956,12 +1093,18 @@ pub fn pac_report_to_json(report: &PacReport) -> String {
 pub fn format_pac_report_terminal(report: &PacReport) -> String {
     let mut out = String::new();
     out.push_str("[TANUKI MS-PAC PRIVILEGE DECODER]\n");
-    out.push_str(&format!(" RFC 4120 · [MS-PAC] Bounded NDR Decoder · {} Buffers\n\n", report.buffer_count));
+    out.push_str(&format!(
+        " RFC 4120 · [MS-PAC] Bounded NDR Decoder · {} Buffers\n\n",
+        report.buffer_count
+    ));
 
     if let Some(l) = &report.logon_info {
         out.push_str(&format!("[+] Account Identity : {}\n", l.user_name));
         out.push_str(&format!("    ├─ User SID       : {}\n", l.user_sid));
-        out.push_str(&format!("    ├─ Primary Group  : {}\n", l.primary_group_sid));
+        out.push_str(&format!(
+            "    ├─ Primary Group  : {}\n",
+            l.primary_group_sid
+        ));
         let priv_status = if l.is_domain_admin || l.is_enterprise_admin {
             "CRITICAL / DOMAIN ADMIN"
         } else {
@@ -969,15 +1112,24 @@ pub fn format_pac_report_terminal(report: &PacReport) -> String {
         };
         out.push_str(&format!("    ├─ Privilege Tier : {}\n", priv_status));
 
-        out.push_str(&format!("    ├─ Group Memberships ({} groups):\n", l.group_details.len()));
+        out.push_str(&format!(
+            "    ├─ Group Memberships ({} groups):\n",
+            l.group_details.len()
+        ));
         for (idx, g) in l.group_details.iter().enumerate() {
             let is_last = idx == l.group_details.len() - 1;
             let branch = if is_last { "╰─" } else { "├─" };
             let crit = if g.is_critical { " [CRITICAL]" } else { "" };
-            out.push_str(&format!("    │   {} RID {} ({}){}\n", branch, g.rid, g.name, crit));
+            out.push_str(&format!(
+                "    │   {} RID {} ({}){}\n",
+                branch, g.rid, g.name, crit
+            ));
         }
 
-        out.push_str(&format!("    ╰─ UAC Flags      : {}\n", l.uac_flags.join(", ")));
+        out.push_str(&format!(
+            "    ╰─ UAC Flags      : {}\n",
+            l.uac_flags.join(", ")
+        ));
         if l.unconstrained_delegation {
             out.push_str("\n[!] OPSEC RISK DETECTED:\n");
             out.push_str("    TRUSTED_FOR_DELEGATION flag is set (Unconstrained Delegation).\n");
@@ -988,8 +1140,14 @@ pub fn format_pac_report_terminal(report: &PacReport) -> String {
 
     if let Some(ref a) = report.attributes_info {
         out.push_str("\n[+] PAC Attributes Info (Buffer 17):\n");
-        out.push_str(&format!("    ├─ PAC Was Requested        : {}\n", a.pac_was_requested));
-        out.push_str(&format!("    ╰─ PAC Was Given Implicitly : {}\n", a.pac_was_given_implicitly));
+        out.push_str(&format!(
+            "    ├─ PAC Was Requested        : {}\n",
+            a.pac_was_requested
+        ));
+        out.push_str(&format!(
+            "    ╰─ PAC Was Given Implicitly : {}\n",
+            a.pac_was_given_implicitly
+        ));
     }
     if let Some(ref s) = report.requestor_sid {
         out.push_str(&format!("[+] Requestor SID (Buffer 18)   : {}\n", s));

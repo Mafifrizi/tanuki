@@ -14,10 +14,7 @@ use std::time::Instant;
 pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
     let start = Instant::now();
 
-    let keytab_path = opts
-        .keytab_path
-        .as_deref()
-        .unwrap_or("/etc/krb5.keytab");
+    let keytab_path = opts.keytab_path.as_deref().unwrap_or("/etc/krb5.keytab");
     let env_krb5_conf = std::env::var("KRB5_CONFIG").ok();
     let krb5_conf_path = opts
         .krb5_conf_path
@@ -28,10 +25,7 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
         .sssd_pipe
         .as_deref()
         .unwrap_or("/var/lib/sss/pipes/kcm");
-    let sssd_pid = opts
-        .sssd_pid
-        .as_deref()
-        .unwrap_or("/var/run/sssd.pid");
+    let sssd_pid = opts.sssd_pid.as_deref().unwrap_or("/var/run/sssd.pid");
 
     let check1 = keytab::audit_keytab(keytab_path);
     let check2 = krb5_conf::audit_krb5_conf(krb5_conf_path);
@@ -42,7 +36,8 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
     let mut checks = vec![check1, check2, check3, check4, check5];
 
     if opts.ad_supported_enctypes.is_some() || opts.ad_kvno.is_some() {
-        let check6 = enctype::audit_enctype_kvno(keytab_path, opts.ad_supported_enctypes, opts.ad_kvno);
+        let check6 =
+            enctype::audit_enctype_kvno(keytab_path, opts.ad_supported_enctypes, opts.ad_kvno);
         checks.push(check6);
     }
 
@@ -82,7 +77,11 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
         let mut y = 1970;
         let mut rem_days = days;
         loop {
-            let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+            let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+                1
+            } else {
+                0
+            };
             let days_in_year = 365 + leap;
             if rem_days >= days_in_year {
                 rem_days -= days_in_year;
@@ -92,7 +91,11 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
             }
         }
 
-        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+            1
+        } else {
+            0
+        };
         let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         let mut m = 1;
         for &d in &month_days {
@@ -104,7 +107,10 @@ pub fn run_doctor(opts: &DoctorOptions) -> DoctorReport {
             }
         }
         let d = rem_days + 1;
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, hours, mins, secs)
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            y, m, d, hours, mins, secs
+        )
     };
 
     DoctorReport {

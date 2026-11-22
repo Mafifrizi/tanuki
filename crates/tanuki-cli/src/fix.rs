@@ -27,7 +27,10 @@ impl FixResult {
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("{\n");
-        out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
+        out.push_str(&format!(
+            "  \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
         out.push_str(&format!("  \"idempotent\": {},\n", self.idempotent));
         out.push_str(&format!("  \"dry_run\": {},\n", self.dry_run));
         match &self.keytab_path {
@@ -42,22 +45,43 @@ impl FixResult {
             Some(cc) => out.push_str(&format!("  \"ccache_path\": \"{}\",\n", escape_json(cc))),
             None => out.push_str("  \"ccache_path\": null,\n"),
         }
-        let applied_count = self.actions.iter().filter(|a| a.status == "APPLIED").count();
-        let proposed_count = self.actions.iter().filter(|a| a.status == "PROPOSED").count();
-        let skipped_count = self.actions.iter().filter(|a| a.status == "IDEMPOTENT_SKIPPED").count();
+        let applied_count = self
+            .actions
+            .iter()
+            .filter(|a| a.status == "APPLIED")
+            .count();
+        let proposed_count = self
+            .actions
+            .iter()
+            .filter(|a| a.status == "PROPOSED")
+            .count();
+        let skipped_count = self
+            .actions
+            .iter()
+            .filter(|a| a.status == "IDEMPOTENT_SKIPPED")
+            .count();
         out.push_str(&format!("  \"applied_count\": {},\n", applied_count));
         out.push_str(&format!("  \"proposed_count\": {},\n", proposed_count));
         out.push_str(&format!("  \"skipped_count\": {},\n", skipped_count));
         out.push_str("  \"actions\": [\n");
         for (i, a) in self.actions.iter().enumerate() {
             out.push_str("    {\n");
-            out.push_str(&format!("      \"action\": \"{}\",\n", escape_json(&a.action)));
+            out.push_str(&format!(
+                "      \"action\": \"{}\",\n",
+                escape_json(&a.action)
+            ));
             match &a.target {
                 Some(t) => out.push_str(&format!("      \"target\": \"{}\",\n", escape_json(t))),
                 None => out.push_str("      \"target\": null,\n"),
             }
-            out.push_str(&format!("      \"status\": \"{}\",\n", escape_json(&a.status)));
-            out.push_str(&format!("      \"details\": \"{}\"", escape_json(&a.details)));
+            out.push_str(&format!(
+                "      \"status\": \"{}\",\n",
+                escape_json(&a.status)
+            ));
+            out.push_str(&format!(
+                "      \"details\": \"{}\"",
+                escape_json(&a.details)
+            ));
             if let Some(b) = &a.backup {
                 out.push_str(&format!(",\n      \"backup\": \"{}\"", escape_json(b)));
             }
@@ -73,8 +97,16 @@ impl FixResult {
 
     pub fn format_terminal(&self) -> String {
         let mut out = String::new();
-        let mode = if self.dry_run { "DRY RUN (Simulated)" } else { "CLOSED-LOOP EXECUTION" };
-        let idemp = if self.idempotent { "CONFIRMED STABLE" } else { "ACTIONS REQUIRED" };
+        let mode = if self.dry_run {
+            "DRY RUN (Simulated)"
+        } else {
+            "CLOSED-LOOP EXECUTION"
+        };
+        let idemp = if self.idempotent {
+            "CONFIRMED STABLE"
+        } else {
+            "ACTIONS REQUIRED"
+        };
         out.push_str("[TANUKI CLOSED-LOOP SELF-HEALING]\n");
         out.push_str(&format!(" Mode: {} · Idempotency: {}\n\n", mode, idemp));
 
@@ -92,16 +124,26 @@ impl FixResult {
 
         out.push('\n');
         if self.idempotent {
-            out.push_str("[+] System State: 100% HEALTHY & IDEMPOTENT (No further changes needed)\n");
+            out.push_str(
+                "[+] System State: 100% HEALTHY & IDEMPOTENT (No further changes needed)\n",
+            );
         } else {
-            let count = self.actions.iter().filter(|a| a.status == "APPLIED" || a.status == "PROPOSED").count();
-            out.push_str(&format!("[+] Remediation Summary: {} actions processed\n", count));
+            let count = self
+                .actions
+                .iter()
+                .filter(|a| a.status == "APPLIED" || a.status == "PROPOSED")
+                .count();
+            out.push_str(&format!(
+                "[+] Remediation Summary: {} actions processed\n",
+                count
+            ));
         }
 
         out
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_fix(
     keytab_path: Option<&str>,
     realm: Option<&str>,
@@ -154,7 +196,10 @@ pub fn run_fix(
                                     action: "keytab_permissions".to_string(),
                                     target: Some(target_kt.to_string()),
                                     status: "PROPOSED".to_string(),
-                                    details: format!("Would chmod 0600 (current mode: 0{:o})", mode),
+                                    details: format!(
+                                        "Would chmod 0600 (current mode: 0{:o})",
+                                        mode
+                                    ),
                                     backup: None,
                                 });
                             } else {
@@ -166,7 +211,10 @@ pub fn run_fix(
                                             action: "keytab_permissions".to_string(),
                                             target: Some(target_kt.to_string()),
                                             status: "APPLIED".to_string(),
-                                            details: format!("Remediated permissions from 0{:o} to 0600", mode),
+                                            details: format!(
+                                                "Remediated permissions from 0{:o} to 0600",
+                                                mode
+                                            ),
                                             backup: None,
                                         });
                                     }
@@ -175,7 +223,10 @@ pub fn run_fix(
                                             action: "keytab_permissions".to_string(),
                                             target: Some(target_kt.to_string()),
                                             status: "ERROR".to_string(),
-                                            details: format!("Failed to chmod 0600 on {}: {}", target_kt, e),
+                                            details: format!(
+                                                "Failed to chmod 0600 on {}: {}",
+                                                target_kt, e
+                                            ),
                                             backup: None,
                                         });
                                     }
@@ -222,7 +273,10 @@ pub fn run_fix(
     let extracted_realm = if let Some(ref kt) = resolved_keytab {
         if let Ok(bytes) = fs::read(kt) {
             if let Ok(entries) = crate::keytab::parse_keytab_bytes(&bytes) {
-                entries.into_iter().find(|e| !e.realm.is_empty()).map(|e| e.realm)
+                entries
+                    .into_iter()
+                    .find(|e| !e.realm.is_empty())
+                    .map(|e| e.realm)
             } else {
                 None
             }
@@ -234,16 +288,17 @@ pub fn run_fix(
     };
     let target_realm = realm.map(|r| r.trim().to_uppercase()).or(extracted_realm);
 
-    let extracted_kdc = if let Ok(content) = fs::read_to_string(target_conf).or_else(|_| fs::read_to_string("/etc/krb5.conf")) {
-        content.lines()
-            .find_map(|line| {
-                let trimmed = line.trim();
-                if trimmed.starts_with("kdc") && trimmed.contains('=') {
-                    trimmed.split('=').nth(1).map(|v| v.trim().to_string())
-                } else {
-                    None
-                }
-            })
+    let extracted_kdc = if let Ok(content) =
+        fs::read_to_string(target_conf).or_else(|_| fs::read_to_string("/etc/krb5.conf"))
+    {
+        content.lines().find_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("kdc") && trimmed.contains('=') {
+                trimmed.split('=').nth(1).map(|v| v.trim().to_string())
+            } else {
+                None
+            }
+        })
     } else {
         None
     };
@@ -259,12 +314,15 @@ pub fn run_fix(
             {
                 fs::read(err_val).unwrap_or_default()
             } else {
-                let clean_hex = err_val.trim().replace(' ', "").replace('\n', "");
+                let clean_hex = err_val.trim().replace([' ', '\n'], "");
                 let clean_hex = clean_hex.strip_prefix("0x").unwrap_or(&clean_hex);
-                if clean_hex.len() >= 30 && clean_hex.chars().all(|c| c.is_ascii_hexdigit()) && clean_hex.len() % 2 == 0 {
+                if clean_hex.len() >= 30
+                    && clean_hex.chars().all(|c| c.is_ascii_hexdigit())
+                    && clean_hex.len().is_multiple_of(2)
+                {
                     let mut decoded = Vec::new();
                     for i in (0..clean_hex.len()).step_by(2) {
-                        if let Ok(b) = u8::from_str_radix(&clean_hex[i..i+2], 16) {
+                        if let Ok(b) = u8::from_str_radix(&clean_hex[i..i + 2], 16) {
                             decoded.push(b);
                         }
                     }
@@ -305,7 +363,10 @@ pub fn run_fix(
                 action: "krb5_configuration".to_string(),
                 target: Some(bak),
                 status: "ERROR".to_string(),
-                details: format!("Refusing to overwrite symbolic link backup: {}.bak", target_conf),
+                details: format!(
+                    "Refusing to overwrite symbolic link backup: {}.bak",
+                    target_conf
+                ),
                 backup: None,
             });
         } else {
@@ -321,7 +382,10 @@ pub fn run_fix(
                             let st = line.trim();
                             if st.starts_with('[') && st.ends_with(']') && st.len() > 2 {
                                 let sec = st[1..st.len() - 1].trim().to_ascii_lowercase();
-                                in_preserved = !matches!(sec.as_str(), "libdefaults" | "realms" | "domain_realm");
+                                in_preserved = !matches!(
+                                    sec.as_str(),
+                                    "libdefaults" | "realms" | "domain_realm"
+                                );
                             }
                             if in_preserved {
                                 preserved.push(line);
@@ -355,23 +419,37 @@ pub fn run_fix(
                             action: "krb5_configuration".to_string(),
                             target: Some(target_conf.to_string()),
                             status: "PROPOSED".to_string(),
-                            details: "Would create .bak and write optimal unprivileged krb5.conf".to_string(),
+                            details: "Would create .bak and write optimal unprivileged krb5.conf"
+                                .to_string(),
                             backup: None,
                         });
                     } else {
                         let mut backup_path = None;
                         if let Some(ref existing) = existing_content {
-                            if crate::util::write_bytes_nofollow(Path::new(&bak), existing.as_bytes(), 0o644).is_ok() {
+                            if crate::util::write_bytes_nofollow(
+                                Path::new(&bak),
+                                existing.as_bytes(),
+                                0o644,
+                            )
+                            .is_ok()
+                            {
                                 backup_path = Some(bak);
                             }
                         }
-                        match crate::util::write_bytes_nofollow(Path::new(target_conf), optimal_content.as_bytes(), 0o644) {
+                        match crate::util::write_bytes_nofollow(
+                            Path::new(target_conf),
+                            optimal_content.as_bytes(),
+                            0o644,
+                        ) {
                             Ok(_) => {
                                 actions.push(FixAction {
                                     action: "krb5_configuration".to_string(),
                                     target: Some(target_conf.to_string()),
                                     status: "APPLIED".to_string(),
-                                    details: format!("Generated unprivileged krb5.conf (clockskew={}s)", effective_skew),
+                                    details: format!(
+                                        "Generated unprivileged krb5.conf (clockskew={}s)",
+                                        effective_skew
+                                    ),
                                     backup: backup_path,
                                 });
                             }
@@ -434,7 +512,10 @@ pub fn run_fix(
                     action: "ticket_cache".to_string(),
                     target: Some(cc.clone()),
                     status: "IDEMPOTENT_SKIPPED".to_string(),
-                    details: format!("Active Kerberos ticket valid (remaining lifetime: {}s)", lifetime),
+                    details: format!(
+                        "Active Kerberos ticket valid (remaining lifetime: {}s)",
+                        lifetime
+                    ),
                     backup: None,
                 });
             } else {
@@ -442,7 +523,8 @@ pub fn run_fix(
                     action: "ticket_cache".to_string(),
                     target: Some(cc.clone()),
                     status: "PROPOSED".to_string(),
-                    details: "Kerberos ticket expired or unreadable; re-authentication recommended".to_string(),
+                    details: "Kerberos ticket expired or unreadable; re-authentication recommended"
+                        .to_string(),
                     backup: None,
                 });
             }
@@ -466,7 +548,11 @@ pub fn run_fix(
     }
 
     let has_error = actions.iter().any(|a| a.status == "ERROR");
-    let status = if has_error { "ERROR".to_string() } else { "SUCCESS".to_string() };
+    let status = if has_error {
+        "ERROR".to_string()
+    } else {
+        "SUCCESS".to_string()
+    };
     let idempotent = actions.iter().all(|a| a.status == "IDEMPOTENT_SKIPPED");
     FixResult {
         status,

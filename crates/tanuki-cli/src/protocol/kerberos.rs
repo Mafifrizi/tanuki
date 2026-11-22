@@ -170,28 +170,35 @@ pub fn find_error_resolution(query: &str) -> Option<&'static ErrorResolution> {
     if clean.is_empty() {
         return None;
     }
-    let query_int: Option<u32> = if clean.starts_with("0X") {
-        u32::from_str_radix(&clean[2..], 16).ok()
+    let query_int: Option<u32> = if let Some(stripped) = clean.strip_prefix("0X") {
+        u32::from_str_radix(stripped, 16).ok()
     } else {
         clean.parse().ok()
     };
 
     if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
         item.code == clean
-            || item.event_id.map(|id| id.to_string() == clean).unwrap_or(false)
+            || item
+                .event_id
+                .map(|id| id.to_string() == clean)
+                .unwrap_or(false)
             || (query_int.is_some() && item.event_id == query_int)
     }) {
         return Some(item);
     }
 
-    if let Some(item) = ERROR_DICTIONARY.iter().find(|item| item.code.contains(&clean)) {
+    if let Some(item) = ERROR_DICTIONARY
+        .iter()
+        .find(|item| item.code.contains(&clean))
+    {
         return Some(item);
     }
 
     if let Some(qid) = query_int {
-        if let Some(item) = ERROR_DICTIONARY.iter().find(|item| {
-            item.telemetry.event_ids.contains(&qid)
-        }) {
+        if let Some(item) = ERROR_DICTIONARY
+            .iter()
+            .find(|item| item.telemetry.event_ids.contains(&qid))
+        {
             return Some(item);
         }
     }
@@ -271,15 +278,29 @@ fn parse_ymd_hms(time_str: &str) -> Option<u64> {
     let h = time_str[8..10].parse::<u64>().ok()?;
     let mn = time_str[10..12].parse::<u64>().ok()?;
     let s = time_str[12..14].parse::<u64>().ok()?;
-    if !(1970..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) || h >= 24 || mn >= 60 || s >= 60 {
+    if !(1970..=2100).contains(&y)
+        || !(1..=12).contains(&m)
+        || !(1..=31).contains(&d)
+        || h >= 24
+        || mn >= 60
+        || s >= 60
+    {
         return None;
     }
     let mut days = 0u64;
     for year in 1970..y {
-        let leap = if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) { 1 } else { 0 };
+        let leap = if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
+            1
+        } else {
+            0
+        };
         days += 365 + leap;
     }
-    let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+    let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+        1
+    } else {
+        0
+    };
     let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     for month_idx in 1..m {
         days += month_days[(month_idx - 1) as usize];
@@ -367,11 +388,7 @@ pub fn parse_krb_error_stime(data: &[u8]) -> Option<u64> {
 }
 
 pub fn calculate_clock_drift(kdc_time: u64, local_time: u64) -> u64 {
-    if kdc_time > local_time {
-        kdc_time - local_time
-    } else {
-        local_time - kdc_time
-    }
+    kdc_time.abs_diff(local_time)
 }
 
 pub fn calculate_remediated_clockskew(drift: u64, padding: u64) -> u32 {
@@ -388,7 +405,10 @@ mod tests {
     fn test_lookup_by_code() {
         let res = find_error_resolution("KRB_AP_ERR_SKEW").expect("Should find error");
         assert_eq!(res.event_id, Some(37));
-        assert_eq!(res.tactical_cmd, "chronyc -q 'server <DC_IP> iburst' || ntpdate <DC_IP>");
+        assert_eq!(
+            res.tactical_cmd,
+            "chronyc -q 'server <DC_IP> iburst' || ntpdate <DC_IP>"
+        );
         assert_eq!(res.telemetry.event_ids, &[4768, 4771]);
     }
 

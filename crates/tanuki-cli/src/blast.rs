@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use crate::util::escape_json;
+use std::collections::HashSet;
 
 pub const RID_ADMINISTRATOR: u32 = 500;
 pub const RID_KRBTGT: u32 = 502;
@@ -89,7 +89,10 @@ pub fn classify_identity_tier(
         (RID_DOMAIN_CONTROLLERS, "Domain Controllers"),
         (RID_SCHEMA_ADMINS, "Schema Admins"),
         (RID_ENTERPRISE_ADMINS, "Enterprise Admins"),
-        (RID_GROUP_POLICY_CREATOR_OWNERS, "Group Policy Creator Owners"),
+        (
+            RID_GROUP_POLICY_CREATOR_OWNERS,
+            "Group Policy Creator Owners",
+        ),
         (RID_BUILTIN_ADMINISTRATORS, "Administrators"),
     ];
 
@@ -129,8 +132,14 @@ pub fn classify_identity_tier(
         (RID_BACKUP_OPERATORS, "Backup Operators"),
         (RID_REPLICATORS, "Replicators"),
         (RID_REMOTE_DESKTOP_USERS, "Remote Desktop Users"),
-        (RID_NETWORK_CONFIGURATION_OPS, "Network Configuration Operators"),
-        (RID_INCOMING_FOREST_TRUST_BUILDERS, "Incoming Forest Trust Builders"),
+        (
+            RID_NETWORK_CONFIGURATION_OPS,
+            "Network Configuration Operators",
+        ),
+        (
+            RID_INCOMING_FOREST_TRUST_BUILDERS,
+            "Incoming Forest Trust Builders",
+        ),
         (RID_CRYPTOGRAPHIC_OPERATORS, "Cryptographic Operators"),
     ];
 
@@ -143,17 +152,25 @@ pub fn classify_identity_tier(
 
     if upper_flags.iter().any(|f| f == "TRUSTED_FOR_DELEGATION") {
         is_tier_1 = true;
-        matched_rules.push("Configured with Unconstrained Delegation (TRUSTED_FOR_DELEGATION)".to_string());
+        matched_rules
+            .push("Configured with Unconstrained Delegation (TRUSTED_FOR_DELEGATION)".to_string());
     }
 
-    if upper_flags.iter().any(|f| f == "TRUSTED_TO_AUTH_FOR_DELEGATION") {
+    if upper_flags
+        .iter()
+        .any(|f| f == "TRUSTED_TO_AUTH_FOR_DELEGATION")
+    {
         is_tier_1 = true;
-        matched_rules.push("Configured with Constrained Delegation / S4U (TRUSTED_TO_AUTH_FOR_DELEGATION)".to_string());
+        matched_rules.push(
+            "Configured with Constrained Delegation / S4U (TRUSTED_TO_AUTH_FOR_DELEGATION)"
+                .to_string(),
+        );
     }
 
     if has_spn {
         is_tier_1 = true;
-        matched_rules.push("Registered Service Principal Name (Enterprise Service Workload)".to_string());
+        matched_rules
+            .push("Registered Service Principal Name (Enterprise Service Workload)".to_string());
     }
 
     if is_tier_1 {
@@ -167,7 +184,8 @@ pub fn classify_identity_tier(
         };
     }
 
-    matched_rules.push("Standard domain user or workstation identity (no administrative RIDs)".to_string());
+    matched_rules
+        .push("Standard domain user or workstation identity (no administrative RIDs)".to_string());
     TierInfo {
         tier: 2,
         tier_label: "Tier 2 (Workstation & User Endpoints)".to_string(),
@@ -184,7 +202,10 @@ pub fn evaluate_blast_radius(
     accessible_spns: &[String],
     rbcd_targets: &[String],
 ) -> (u32, String, Vec<LateralPath>) {
-    let upper_flags: Vec<String> = delegation_flags.iter().map(|f| f.to_ascii_uppercase()).collect();
+    let upper_flags: Vec<String> = delegation_flags
+        .iter()
+        .map(|f| f.to_ascii_uppercase())
+        .collect();
     let mut score = tier_info.base_score;
     let mut lateral_paths = Vec::new();
 
@@ -192,17 +213,22 @@ pub fn evaluate_blast_radius(
         score += 25;
         lateral_paths.push(LateralPath {
             vector: "Unconstrained Delegation TGT Harvesting".to_string(),
-            risk: "Adversary can harvest forwarded TGTs of Tier 0 admins connecting to this host".to_string(),
+            risk: "Adversary can harvest forwarded TGTs of Tier 0 admins connecting to this host"
+                .to_string(),
             impact: "Tier 0 Domain Compromise".to_string(),
             target: None,
         });
     }
 
-    if upper_flags.iter().any(|f| f == "TRUSTED_TO_AUTH_FOR_DELEGATION") {
+    if upper_flags
+        .iter()
+        .any(|f| f == "TRUSTED_TO_AUTH_FOR_DELEGATION")
+    {
         score += 20;
         lateral_paths.push(LateralPath {
             vector: "Constrained Delegation (S4U2Self / S4U2Proxy)".to_string(),
-            risk: "Identity can impersonate any domain user to allowed forward target services".to_string(),
+            risk: "Identity can impersonate any domain user to allowed forward target services"
+                .to_string(),
             impact: "Arbitrary User Impersonation on Target Services".to_string(),
             target: None,
         });
@@ -213,7 +239,10 @@ pub fn evaluate_blast_radius(
         for t in rbcd_targets {
             lateral_paths.push(LateralPath {
                 vector: "Resource-Based Constrained Delegation (RBCD) Pivot".to_string(),
-                risk: format!("Identity SID matches DACL on {} (msDS-AllowedToActOnBehalfOfOtherIdentity)", t),
+                risk: format!(
+                    "Identity SID matches DACL on {} (msDS-AllowedToActOnBehalfOfOtherIdentity)",
+                    t
+                ),
                 impact: format!("Takeover of host {} via S4U2Proxy impersonation", t),
                 target: Some(t.clone()),
             });
@@ -279,7 +308,10 @@ pub fn generate_ad_remediations(
     accessible_spns: &[String],
 ) -> Vec<RemediationRecipe> {
     let mut recipes = Vec::new();
-    let upper_flags: Vec<String> = delegation_flags.iter().map(|f| f.to_ascii_uppercase()).collect();
+    let upper_flags: Vec<String> = delegation_flags
+        .iter()
+        .map(|f| f.to_ascii_uppercase())
+        .collect();
     let clean_account = extract_ad_account_name(principal);
 
     for t in rbcd_targets {
@@ -293,9 +325,17 @@ pub fn generate_ad_remediations(
 
     recipes.push(RemediationRecipe {
         category: "ENCRYPTION_HARDENING".to_string(),
-        title: format!("Enforce Modern AES Kerberos Encryption for {}", clean_account),
-        description: "Reject legacy RC4-HMAC ciphers to prevent Kerberoasting offline ticket cracking.".to_string(),
-        powershell: format!("Set-ADUser -Identity \"{}\" -KerberosEncryptionType AES128,AES256", clean_account),
+        title: format!(
+            "Enforce Modern AES Kerberos Encryption for {}",
+            clean_account
+        ),
+        description:
+            "Reject legacy RC4-HMAC ciphers to prevent Kerberoasting offline ticket cracking."
+                .to_string(),
+        powershell: format!(
+            "Set-ADUser -Identity \"{}\" -KerberosEncryptionType AES128,AES256",
+            clean_account
+        ),
     });
 
     if upper_flags.iter().any(|f| f == "TRUSTED_FOR_DELEGATION") {
@@ -331,11 +371,20 @@ pub fn generate_ad_remediations(
 pub fn format_blast_report_terminal(report: &BlastReport) -> String {
     let mut out = String::new();
     out.push_str("[TANUKI PRIVILEGE TIERING & BLAST RADIUS ENGINE]\n");
-    out.push_str(&format!(" Active Directory Identity Climax | Score: {}/100 [{}]\n", report.blast_score, report.severity));
+    out.push_str(&format!(
+        " Active Directory Identity Climax | Score: {}/100 [{}]\n",
+        report.blast_score, report.severity
+    ));
     out.push_str(&format!("[+] Account Identity : {}\n", report.principal));
     out.push_str(&format!("    |- Identity SID   : {}\n", report.user_sid));
-    out.push_str(&format!("    |- Privilege Tier : {}\n", report.tier_info.tier_label));
-    out.push_str(&format!("    |- Blast Radius   : {}/100 [{} IMPACT]\n", report.blast_score, report.severity));
+    out.push_str(&format!(
+        "    |- Privilege Tier : {}\n",
+        report.tier_info.tier_label
+    ));
+    out.push_str(&format!(
+        "    |- Blast Radius   : {}/100 [{} IMPACT]\n",
+        report.blast_score, report.severity
+    ));
 
     out.push_str("    |- Tiering Rationale:\n");
     for (idx, r) in report.tier_info.matched_rules.iter().enumerate() {
@@ -354,7 +403,10 @@ pub fn format_blast_report_terminal(report: &BlastReport) -> String {
     if report.accessible_spns.is_empty() {
         out.push_str("    |- Accessible SPNs : None discovered\n");
     } else {
-        out.push_str(&format!("    |- Accessible SPNs ({} reachable):\n", report.accessible_spns.len()));
+        out.push_str(&format!(
+            "    |- Accessible SPNs ({} reachable):\n",
+            report.accessible_spns.len()
+        ));
         for (idx, spn) in report.accessible_spns.iter().enumerate() {
             let is_last = idx == report.accessible_spns.len() - 1;
             let branch = if is_last { "`-" } else { "|-" };
@@ -365,17 +417,26 @@ pub fn format_blast_report_terminal(report: &BlastReport) -> String {
     if report.lateral_paths.is_empty() {
         out.push_str("    |- Lateral Paths  : 0 direct hops identified\n");
     } else {
-        out.push_str(&format!("    |- Potential Lateral Paths ({} identified):\n", report.lateral_paths.len()));
+        out.push_str(&format!(
+            "    |- Potential Lateral Paths ({} identified):\n",
+            report.lateral_paths.len()
+        ));
         for (idx, p) in report.lateral_paths.iter().enumerate() {
             let is_last = idx == report.lateral_paths.len() - 1;
             let branch = if is_last { "`-" } else { "|-" };
-            out.push_str(&format!("    |   {} [{}] -> {}\n", branch, p.vector, p.impact));
+            out.push_str(&format!(
+                "    |   {} [{}] -> {}\n",
+                branch, p.vector, p.impact
+            ));
             out.push_str(&format!("    |   |   Risk: {}\n", p.risk));
         }
     }
 
     if !report.remediation_recipes.is_empty() {
-        out.push_str(&format!("\n[+] Sovereign Active Directory Remediation Recipes ({} cmdlets):\n", report.remediation_recipes.len()));
+        out.push_str(&format!(
+            "\n[+] Sovereign Active Directory Remediation Recipes ({} cmdlets):\n",
+            report.remediation_recipes.len()
+        ));
         for (idx, r) in report.remediation_recipes.iter().enumerate() {
             out.push_str(&format!("    [{}] {}:\n", idx + 1, r.title));
             out.push_str(&format!("        PS> {}\n", r.powershell));
@@ -384,7 +445,11 @@ pub fn format_blast_report_terminal(report: &BlastReport) -> String {
 
     out.push_str("\n[+] Blue Team Telemetry Correlation (Security Event ID 4769):\n");
     out.push_str("    |- Event ID       : 4769 (Kerberos Service Ticket Request)\n");
-    let spn_display = report.accessible_spns.first().map(|s| s.as_str()).unwrap_or("<target-spn>");
+    let spn_display = report
+        .accessible_spns
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("<target-spn>");
     out.push_str(&format!("    |- Service Name   : {}\n", spn_display));
     out.push_str("    |- Ticket Enctype : 0x12 (AES-256-CTS-HMAC-SHA1-96)\n");
     out.push_str("    |- Auditd Rule    : -w /tmp/krb5cc_* -p rwa -k krb5_ccache_tgs_access\n");
@@ -401,23 +466,51 @@ pub fn blast_report_to_json(report: &BlastReport) -> String {
     out.push_str("{\n");
     out.push_str("  \"status\": \"SUCCESS\",\n");
     out.push_str("  \"operation\": \"BLAST_RADIUS_ANALYSIS\",\n");
-    out.push_str(&format!("  \"principal\": \"{}\",\n", escape_json(&report.principal)));
-    out.push_str(&format!("  \"user_sid\": \"{}\",\n", escape_json(&report.user_sid)));
+    out.push_str(&format!(
+        "  \"principal\": \"{}\",\n",
+        escape_json(&report.principal)
+    ));
+    out.push_str(&format!(
+        "  \"user_sid\": \"{}\",\n",
+        escape_json(&report.user_sid)
+    ));
     out.push_str(&format!("  \"tier\": {},\n", report.tier_info.tier));
-    out.push_str(&format!("  \"tier_label\": \"{}\",\n", escape_json(&report.tier_info.tier_label)));
+    out.push_str(&format!(
+        "  \"tier_label\": \"{}\",\n",
+        escape_json(&report.tier_info.tier_label)
+    ));
     out.push_str(&format!("  \"blast_score\": {},\n", report.blast_score));
-    out.push_str(&format!("  \"severity\": \"{}\",\n", escape_json(&report.severity)));
-    
+    out.push_str(&format!(
+        "  \"severity\": \"{}\",\n",
+        escape_json(&report.severity)
+    ));
+
     // Tier details
     out.push_str("  \"tier_details\": {\n");
     out.push_str(&format!("    \"tier\": {},\n", report.tier_info.tier));
-    out.push_str(&format!("    \"tier_label\": \"{}\",\n", escape_json(&report.tier_info.tier_label)));
-    out.push_str(&format!("    \"severity\": \"{}\",\n", escape_json(&report.tier_info.severity)));
-    out.push_str(&format!("    \"base_score\": {},\n", report.tier_info.base_score));
-    out.push_str(&format!("    \"is_critical\": {},\n", report.tier_info.is_critical));
+    out.push_str(&format!(
+        "    \"tier_label\": \"{}\",\n",
+        escape_json(&report.tier_info.tier_label)
+    ));
+    out.push_str(&format!(
+        "    \"severity\": \"{}\",\n",
+        escape_json(&report.tier_info.severity)
+    ));
+    out.push_str(&format!(
+        "    \"base_score\": {},\n",
+        report.tier_info.base_score
+    ));
+    out.push_str(&format!(
+        "    \"is_critical\": {},\n",
+        report.tier_info.is_critical
+    ));
     out.push_str("    \"matched_rules\": [\n");
     for (idx, r) in report.tier_info.matched_rules.iter().enumerate() {
-        let comma = if idx + 1 < report.tier_info.matched_rules.len() { "," } else { "" };
+        let comma = if idx + 1 < report.tier_info.matched_rules.len() {
+            ","
+        } else {
+            ""
+        };
         out.push_str(&format!("      \"{}\"{}\n", escape_json(r), comma));
     }
     out.push_str("    ]\n");
@@ -426,7 +519,11 @@ pub fn blast_report_to_json(report: &BlastReport) -> String {
     // Accessible SPNs
     out.push_str("  \"accessible_spns\": [\n");
     for (idx, s) in report.accessible_spns.iter().enumerate() {
-        let comma = if idx + 1 < report.accessible_spns.len() { "," } else { "" };
+        let comma = if idx + 1 < report.accessible_spns.len() {
+            ","
+        } else {
+            ""
+        };
         out.push_str(&format!("    \"{}\"{}\n", escape_json(s), comma));
     }
     out.push_str("  ],\n");
@@ -434,11 +531,21 @@ pub fn blast_report_to_json(report: &BlastReport) -> String {
     // Lateral paths
     out.push_str("  \"lateral_paths\": [\n");
     for (idx, p) in report.lateral_paths.iter().enumerate() {
-        let comma = if idx + 1 < report.lateral_paths.len() { "," } else { "" };
+        let comma = if idx + 1 < report.lateral_paths.len() {
+            ","
+        } else {
+            ""
+        };
         out.push_str("    {\n");
-        out.push_str(&format!("      \"vector\": \"{}\",\n", escape_json(&p.vector)));
+        out.push_str(&format!(
+            "      \"vector\": \"{}\",\n",
+            escape_json(&p.vector)
+        ));
         out.push_str(&format!("      \"risk\": \"{}\",\n", escape_json(&p.risk)));
-        out.push_str(&format!("      \"impact\": \"{}\"\n", escape_json(&p.impact)));
+        out.push_str(&format!(
+            "      \"impact\": \"{}\"\n",
+            escape_json(&p.impact)
+        ));
         out.push_str(&format!("    }}{}\n", comma));
     }
     out.push_str("  ],\n");
@@ -446,24 +553,50 @@ pub fn blast_report_to_json(report: &BlastReport) -> String {
     // Remediation recipes
     out.push_str("  \"remediation_recipes\": [\n");
     for (idx, r) in report.remediation_recipes.iter().enumerate() {
-        let comma = if idx + 1 < report.remediation_recipes.len() { "," } else { "" };
+        let comma = if idx + 1 < report.remediation_recipes.len() {
+            ","
+        } else {
+            ""
+        };
         out.push_str("    {\n");
-        out.push_str(&format!("      \"category\": \"{}\",\n", escape_json(&r.category)));
-        out.push_str(&format!("      \"title\": \"{}\",\n", escape_json(&r.title)));
-        out.push_str(&format!("      \"description\": \"{}\",\n", escape_json(&r.description)));
-        out.push_str(&format!("      \"powershell\": \"{}\"\n", escape_json(&r.powershell)));
+        out.push_str(&format!(
+            "      \"category\": \"{}\",\n",
+            escape_json(&r.category)
+        ));
+        out.push_str(&format!(
+            "      \"title\": \"{}\",\n",
+            escape_json(&r.title)
+        ));
+        out.push_str(&format!(
+            "      \"description\": \"{}\",\n",
+            escape_json(&r.description)
+        ));
+        out.push_str(&format!(
+            "      \"powershell\": \"{}\"\n",
+            escape_json(&r.powershell)
+        ));
         out.push_str(&format!("    }}{}\n", comma));
     }
     out.push_str("  ],\n");
 
     // Telemetry block
-    let spn_first = report.accessible_spns.first().map(|s| s.as_str()).unwrap_or("<target-spn>");
+    let spn_first = report
+        .accessible_spns
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("<target-spn>");
     out.push_str("  \"telemetry\": {\n");
     out.push_str("    \"event_id\": 4769,\n");
     out.push_str("    \"event_name\": \"Kerberos Service Ticket Request\",\n");
     out.push_str("    \"fields\": {\n");
-    out.push_str(&format!("      \"ServiceName\": \"{}\",\n", escape_json(spn_first)));
-    out.push_str(&format!("      \"TargetUserName\": \"{}\",\n", escape_json(&report.principal)));
+    out.push_str(&format!(
+        "      \"ServiceName\": \"{}\",\n",
+        escape_json(spn_first)
+    ));
+    out.push_str(&format!(
+        "      \"TargetUserName\": \"{}\",\n",
+        escape_json(&report.principal)
+    ));
     out.push_str("      \"TicketOptions\": \"0x40810000\",\n");
     out.push_str("      \"TicketEncryptionType\": \"0x12 (AES-256-CTS-HMAC-SHA1-96)\",\n");
     out.push_str("      \"Status\": \"0x0 (Success)\"\n");

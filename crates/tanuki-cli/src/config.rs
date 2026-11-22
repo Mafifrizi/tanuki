@@ -57,7 +57,10 @@ fn validate_kdc_token(kdc_token: &str) -> Result<(), String> {
         let rest = &body[close_idx + 1..];
         if !rest.is_empty() {
             if !rest.starts_with(':') {
-                return Err(format!("Invalid trailing characters after IPv6 KDC: {}", body));
+                return Err(format!(
+                    "Invalid trailing characters after IPv6 KDC: {}",
+                    body
+                ));
             }
             let port_str = &rest[1..];
             let port = port_str
@@ -84,13 +87,7 @@ fn validate_kdc_token(kdc_token: &str) -> Result<(), String> {
 }
 
 pub fn parse_kdc_host_port(token: &str) -> Option<(String, u16)> {
-    let first = token
-        .trim()
-        .split_whitespace()
-        .next()?
-        .split(',')
-        .next()?
-        .trim();
+    let first = token.split_whitespace().next()?.split(',').next()?.trim();
     let body = strip_kdc_transport_prefix(first);
     if body.is_empty() {
         return None;
@@ -104,14 +101,13 @@ pub fn parse_kdc_host_port(token: &str) -> Option<(String, u16)> {
         let rest = &body[close_idx + 1..];
         let port = if rest.is_empty() {
             88
-        } else if let Some(p_str) = rest.strip_prefix(':') {
+        } else {
+            let p_str = rest.strip_prefix(':')?;
             let p = p_str.parse::<u16>().ok()?;
             if p == 0 {
                 return None;
             }
             p
-        } else {
-            return None;
         };
         return Some((host, port));
     }
@@ -186,9 +182,7 @@ pub fn generate_krb5_conf(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| strip_kdc_transport_prefix(kdc_candidates[0]));
 
-    let mut libdefaults = String::from(
-        "[libdefaults]\n    default_realm = ",
-    );
+    let mut libdefaults = String::from("[libdefaults]\n    default_realm = ");
     libdefaults.push_str(&clean_realm);
     libdefaults.push_str("\n    dns_lookup_realm = false\n    dns_lookup_kdc = false\n    rdns = false\n    udp_preference_limit = 0\n    ticket_lifetime = 24h\n    renew_lifetime = 7d\n    forwardable = true\n");
 
@@ -197,8 +191,11 @@ pub fn generate_krb5_conf(
     }
 
     if enforce_aes {
-        libdefaults.push_str("    default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n");
-        libdefaults.push_str("    permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n");
+        libdefaults.push_str(
+            "    default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n",
+        );
+        libdefaults
+            .push_str("    permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96\n");
     }
 
     let mut has_armor = false;
@@ -303,7 +300,12 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
         format!("_ldap._tcp.{}", clean),
     ];
 
-    let nameservers = ["127.0.0.53:53", "127.0.0.1:53", "10.0.2.3:53", "192.168.56.1:53"];
+    let nameservers = [
+        "127.0.0.53:53",
+        "127.0.0.1:53",
+        "10.0.2.3:53",
+        "192.168.56.1:53",
+    ];
 
     for srv_qname in &srv_qnames {
         let mut txid = [0u8; 2];
@@ -311,7 +313,9 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
             return None;
         }
         let mut packet = Vec::new();
-        packet.extend_from_slice(&[txid[0], txid[1], 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        packet.extend_from_slice(&[
+            txid[0], txid[1], 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]);
         for label in srv_qname.split('.') {
             if !label.is_empty() && label.len() <= 63 {
                 packet.push(label.len() as u8);
@@ -328,27 +332,40 @@ pub fn discover_dc_via_srv(realm: &str) -> Option<String> {
                 if socket.send_to(&packet, ns).is_ok() {
                     let mut buf = [0u8; 2048];
                     if let Ok((len, _)) = socket.recv_from(&mut buf) {
-                        if len > 12 && buf[0] == txid[0] && buf[1] == txid[1] && (buf[2] & 0x80) != 0 && (buf[3] & 0x0F) == 0 {
+                        if len > 12
+                            && buf[0] == txid[0]
+                            && buf[1] == txid[1]
+                            && (buf[2] & 0x80) != 0
+                            && (buf[3] & 0x0F) == 0
+                        {
                             let qdcount = ((buf[4] as usize) << 8) | (buf[5] as usize);
                             let ancount = ((buf[6] as usize) << 8) | (buf[7] as usize);
                             if ancount > 0 {
                                 let mut offset = 12;
                                 for _ in 0..qdcount {
-                                    if let Some((_, next_off)) = parse_dns_name(&buf[..len], offset) {
+                                    if let Some((_, next_off)) = parse_dns_name(&buf[..len], offset)
+                                    {
                                         offset = next_off + 4;
                                     } else {
                                         break;
                                     }
                                 }
                                 for _ in 0..ancount {
-                                    if let Some((_, next_off)) = parse_dns_name(&buf[..len], offset) {
+                                    if let Some((_, next_off)) = parse_dns_name(&buf[..len], offset)
+                                    {
                                         if next_off + 10 <= len {
-                                            let rtype = ((buf[next_off] as u16) << 8) | (buf[next_off + 1] as u16);
-                                            let rdlength = ((buf[next_off + 8] as usize) << 8) | (buf[next_off + 9] as usize);
+                                            let rtype = ((buf[next_off] as u16) << 8)
+                                                | (buf[next_off + 1] as u16);
+                                            let rdlength = ((buf[next_off + 8] as usize) << 8)
+                                                | (buf[next_off + 9] as usize);
                                             let rdata_start = next_off + 10;
-                                            if rtype == 33 && rdlength >= 6 && rdata_start + 6 < len {
-                                                if let Some((target, _)) = parse_dns_name(&buf[..len], rdata_start + 6) {
-                                                    let trimmed_target = target.trim_end_matches('.');
+                                            if rtype == 33 && rdlength >= 6 && rdata_start + 6 < len
+                                            {
+                                                if let Some((target, _)) =
+                                                    parse_dns_name(&buf[..len], rdata_start + 6)
+                                                {
+                                                    let trimmed_target =
+                                                        target.trim_end_matches('.');
                                                     if is_valid_dns_hostname(trimmed_target) {
                                                         return Some(trimmed_target.to_string());
                                                     }

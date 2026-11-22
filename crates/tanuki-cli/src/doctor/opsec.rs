@@ -27,7 +27,9 @@ pub fn audit_opsec_sensors(keytab_path: &str, ccache_path: Option<&str>) -> Chec
     }
 
     // 3. Falco Socket & /proc Process Probe
-    if Path::new("/var/run/falco/falco.sock").exists() || Path::new("/run/falco/falco.sock").exists() {
+    if Path::new("/var/run/falco/falco.sock").exists()
+        || Path::new("/run/falco/falco.sock").exists()
+    {
         falco_active = true;
     }
 
@@ -41,7 +43,10 @@ pub fn audit_opsec_sensors(keytab_path: &str, ccache_path: Option<&str>) -> Chec
                             let c_lower = comm.trim().to_ascii_lowercase();
                             if c_lower == "auditd" {
                                 auditd_running = true;
-                            } else if matches!(c_lower.as_str(), "falco" | "tetragon" | "tracee" | "bpftrace") {
+                            } else if matches!(
+                                c_lower.as_str(),
+                                "falco" | "tetragon" | "tracee" | "bpftrace"
+                            ) {
                                 falco_active = true;
                             }
                         }
@@ -140,8 +145,13 @@ pub fn audit_opsec_sensors(keytab_path: &str, ccache_path: Option<&str>) -> Chec
         CheckResult {
             name: "opsec_sensors".to_string(),
             status: "WARN".to_string(),
-            details: "Falco daemon socket active on host; credential file syscalls may trigger alerts".to_string(),
-            recommendation: Some("Verify Falco rule coverage for /etc/krb5.keytab access before reading.".to_string()),
+            details:
+                "Falco daemon socket active on host; credential file syscalls may trigger alerts"
+                    .to_string(),
+            recommendation: Some(
+                "Verify Falco rule coverage for /etc/krb5.keytab access before reading."
+                    .to_string(),
+            ),
             remaining_seconds: None,
             extra_fields: extra,
         }
@@ -149,7 +159,8 @@ pub fn audit_opsec_sensors(keytab_path: &str, ccache_path: Option<&str>) -> Chec
         CheckResult {
             name: "opsec_sensors".to_string(),
             status: "PASS".to_string(),
-            details: "Audit daemon active, but no watch rules targeting keytab or ccache".to_string(),
+            details: "Audit daemon active, but no watch rules targeting keytab or ccache"
+                .to_string(),
             recommendation: None,
             remaining_seconds: None,
             extra_fields: extra,

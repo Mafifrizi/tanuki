@@ -36,7 +36,10 @@ impl AdcsReport {
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("{\n");
-        out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
+        out.push_str(&format!(
+            "  \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
         out.push_str(&format!("  \"scanned_count\": {},\n", self.scanned_count));
         out.push_str("  \"summary\": {\n");
         out.push_str(&format!("    \"critical\": {},\n", self.critical_count));
@@ -47,12 +50,30 @@ impl AdcsReport {
         out.push_str("  \"findings\": [\n");
         for (i, f) in self.findings.iter().enumerate() {
             out.push_str("    {\n");
-            out.push_str(&format!("      \"vector\": \"{}\",\n", escape_json(&f.vector)));
-            out.push_str(&format!("      \"severity\": \"{}\",\n", escape_json(&f.severity)));
-            out.push_str(&format!("      \"template\": \"{}\",\n", escape_json(&f.template)));
-            out.push_str(&format!("      \"title\": \"{}\",\n", escape_json(&f.title)));
-            out.push_str(&format!("      \"description\": \"{}\",\n", escape_json(&f.description)));
-            out.push_str(&format!("      \"remediation\": \"{}\"\n", escape_json(&f.remediation)));
+            out.push_str(&format!(
+                "      \"vector\": \"{}\",\n",
+                escape_json(&f.vector)
+            ));
+            out.push_str(&format!(
+                "      \"severity\": \"{}\",\n",
+                escape_json(&f.severity)
+            ));
+            out.push_str(&format!(
+                "      \"template\": \"{}\",\n",
+                escape_json(&f.template)
+            ));
+            out.push_str(&format!(
+                "      \"title\": \"{}\",\n",
+                escape_json(&f.title)
+            ));
+            out.push_str(&format!(
+                "      \"description\": \"{}\",\n",
+                escape_json(&f.description)
+            ));
+            out.push_str(&format!(
+                "      \"remediation\": \"{}\"\n",
+                escape_json(&f.remediation)
+            ));
             out.push_str("    }");
             if i + 1 < self.findings.len() {
                 out.push(',');
@@ -66,7 +87,10 @@ impl AdcsReport {
     pub fn format_terminal(&self) -> String {
         let mut out = String::new();
         out.push_str("[TANUKI AD CS TEMPLATE & CERTIFICATE SCANNER]\n");
-        out.push_str(&format!(" ESC1 through ESC11 Offline Diagnostic · {} Misconfigurations Detected\n\n", self.findings.len()));
+        out.push_str(&format!(
+            " ESC1 through ESC11 Offline Diagnostic · {} Misconfigurations Detected\n\n",
+            self.findings.len()
+        ));
 
         if self.findings.is_empty() {
             out.push_str("[*] Scanned Templates: No ESC1-ESC11 misconfigurations detected. All templates secure.\n");
@@ -79,7 +103,10 @@ impl AdcsReport {
                 self.medium_count
             ));
             for (idx, f) in self.findings.iter().enumerate() {
-                out.push_str(&format!("[{}] {} · {} [{}]\n", f.severity, f.vector, f.title, f.template));
+                out.push_str(&format!(
+                    "[{}] {} · {} [{}]\n",
+                    f.severity, f.vector, f.title, f.template
+                ));
                 out.push_str(&format!("    ├─ Description : {}\n", f.description));
                 out.push_str(&format!("    ╰─ Remediation : {}\n", f.remediation));
                 if idx + 1 < self.findings.len() {
@@ -104,7 +131,10 @@ fn json_get_u32(obj: &JsonValue, key: &str) -> Option<u32> {
     }
     if let Some(s) = val.as_str() {
         let clean = s.trim();
-        if let Some(hex_part) = clean.strip_prefix("0x").or_else(|| clean.strip_prefix("0X")) {
+        if let Some(hex_part) = clean
+            .strip_prefix("0x")
+            .or_else(|| clean.strip_prefix("0X"))
+        {
             return u32::from_str_radix(hex_part, 16).ok();
         }
         return clean.parse::<u32>().ok();
@@ -130,7 +160,7 @@ fn json_get_str_array(obj: &JsonValue, key: &str) -> Vec<String> {
     out
 }
 
-fn extract_json_objects<'a>(root: &'a JsonValue) -> Vec<&'a JsonValue> {
+fn extract_json_objects(root: &JsonValue) -> Vec<&JsonValue> {
     match root {
         JsonValue::Array(items) => items
             .iter()
@@ -215,11 +245,17 @@ pub fn evaluate_template(
     let has_enrollment_agent = ekus.iter().any(|raw_e| {
         let e = raw_e.trim();
         let low = e.to_lowercase();
-        e == OID_CERT_REQUEST_AGENT || low.contains("enrollment agent") || low.contains("request agent")
+        e == OID_CERT_REQUEST_AGENT
+            || low.contains("enrollment agent")
+            || low.contains("request agent")
     });
 
     // ESC1
-    if enrollee_supplies_subject && (has_client_auth || has_any_purpose) && !requires_manager_approval && ra_signatures == 0 {
+    if enrollee_supplies_subject
+        && (has_client_auth || has_any_purpose)
+        && !requires_manager_approval
+        && ra_signatures == 0
+    {
         findings.push(AdcsFinding {
             vector: "ESC1".to_string(),
             severity: "CRITICAL".to_string(),
@@ -237,7 +273,10 @@ pub fn evaluate_template(
             severity: "HIGH".to_string(),
             template: name.to_string(),
             title: "Any Purpose EKU or Subordinate CA Capabilities".to_string(),
-            description: format!("Template '{}' contains Any Purpose EKU without approval requirements.", name),
+            description: format!(
+                "Template '{}' contains Any Purpose EKU without approval requirements.",
+                name
+            ),
             remediation: "Constrain EKU and enforce issuance requirements.".to_string(),
         });
     }
@@ -261,8 +300,14 @@ pub fn evaluate_template(
             severity: "CRITICAL".to_string(),
             template: name.to_string(),
             title: "Vulnerable Template ACL Write Permissions".to_string(),
-            description: format!("Template '{}' grants write permissions to low-privileged principals: {}.", name, low_priv_writers.join(", ")),
-            remediation: "Remove write permissions from non-administrative domain security principals.".to_string(),
+            description: format!(
+                "Template '{}' grants write permissions to low-privileged principals: {}.",
+                name,
+                low_priv_writers.join(", ")
+            ),
+            remediation:
+                "Remove write permissions from non-administrative domain security principals."
+                    .to_string(),
         });
     }
 
@@ -273,14 +318,19 @@ pub fn evaluate_template(
             severity: "HIGH".to_string(),
             template: name.to_string(),
             title: "CT_FLAG_NO_SECURITY_EXTENSION Enabled (No objectSid Extension)".to_string(),
-            description: format!("Template '{}' omits the objectSid extension, exposing domain to UPN spoofing.", name),
-            remediation: "Unset CT_FLAG_NO_SECURITY_EXTENSION in msPKI-Enrollment-Flag.".to_string(),
+            description: format!(
+                "Template '{}' omits the objectSid extension, exposing domain to UPN spoofing.",
+                name
+            ),
+            remediation: "Unset CT_FLAG_NO_SECURITY_EXTENSION in msPKI-Enrollment-Flag."
+                .to_string(),
         });
     }
 
     findings
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_ca(
     ca_name: &str,
     editf_san2: bool,
@@ -318,8 +368,12 @@ pub fn evaluate_ca(
             severity: "CRITICAL".to_string(),
             template: ca_name.to_string(),
             title: "CA EDITF_ATTRIBUTESUBJECTALTNAME2 Flag Enabled".to_string(),
-            description: format!("Certificate Authority '{}' allows arbitrary SANs on all templates.", ca_name),
-            remediation: "certutil -setreg policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2".to_string(),
+            description: format!(
+                "Certificate Authority '{}' allows arbitrary SANs on all templates.",
+                ca_name
+            ),
+            remediation: "certutil -setreg policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2"
+                .to_string(),
         });
     }
 
@@ -329,7 +383,11 @@ pub fn evaluate_ca(
             severity: "HIGH".to_string(),
             template: ca_name.to_string(),
             title: "Vulnerable CA Administrative Permissions".to_string(),
-            description: format!("CA '{}' grants administrative permissions to low-privileged users: {}.", ca_name, low_priv_ca_managers.join(", ")),
+            description: format!(
+                "CA '{}' grants administrative permissions to low-privileged users: {}.",
+                ca_name,
+                low_priv_ca_managers.join(", ")
+            ),
             remediation: "Restrict CA security permissions to Enterprise Admins only.".to_string(),
         });
     }
@@ -340,8 +398,12 @@ pub fn evaluate_ca(
             severity: "HIGH".to_string(),
             template: ca_name.to_string(),
             title: "AD CS HTTP Web Enrollment Vulnerable to NTLM Relay".to_string(),
-            description: format!("CA '{}' web enrollment does not enforce EPA with HTTPS channel binding.", ca_name),
-            remediation: "Enable EPA in IIS for CertSrv and enforce HTTPS-only binding.".to_string(),
+            description: format!(
+                "CA '{}' web enrollment does not enforce EPA with HTTPS channel binding.",
+                ca_name
+            ),
+            remediation: "Enable EPA in IIS for CertSrv and enforce HTTPS-only binding."
+                .to_string(),
         });
     }
 
@@ -352,7 +414,10 @@ pub fn evaluate_ca(
                 severity: "HIGH".to_string(),
                 template: ca_name.to_string(),
                 title: "Weak DC Certificate Mapping Methods (UPN vs objectSid)".to_string(),
-                description: format!("Domain Controller certificate mapping registry key is set to 0x{:x}.", m),
+                description: format!(
+                    "Domain Controller certificate mapping registry key is set to 0x{:x}.",
+                    m
+                ),
                 remediation: "Set CertificateMappingMethods to 0x18.".to_string(),
             });
         }
@@ -364,7 +429,10 @@ pub fn evaluate_ca(
             severity: "HIGH".to_string(),
             template: ca_name.to_string(),
             title: "Relaying NTLM to RPC Enrollment Endpoint".to_string(),
-            description: format!("RPC enrollment interface on '{}' does not enforce packet privacy.", ca_name),
+            description: format!(
+                "RPC enrollment interface on '{}' does not enforce packet privacy.",
+                ca_name
+            ),
             remediation: "Enforce RPC packet privacy (RPC_C_AUTHN_LEVEL_PKT_PRIVACY).".to_string(),
         });
     }
@@ -373,17 +441,33 @@ pub fn evaluate_ca(
 }
 
 fn scan_der_cert_for_client_auth(der_bytes: &[u8]) -> bool {
-    let oids = [OID_CLIENT_AUTH, OID_SMARTCARD_LOGON, OID_PKINIT_CLIENT_AUTH, OID_ANY_PURPOSE];
+    let oids = [
+        OID_CLIENT_AUTH,
+        OID_SMARTCARD_LOGON,
+        OID_PKINIT_CLIENT_AUTH,
+        OID_ANY_PURPOSE,
+    ];
     for oid in &oids {
         let der_pat = encode_oid_to_der_bytes(oid);
-        if !der_pat.is_empty() && der_bytes.windows(der_pat.len()).any(|w| w == der_pat.as_slice()) {
+        if !der_pat.is_empty()
+            && der_bytes
+                .windows(der_pat.len())
+                .any(|w| w == der_pat.as_slice())
+        {
             return true;
         }
-        if der_pat.len() > 2 && der_bytes.windows(der_pat.len() - 2).any(|w| w == &der_pat[2..]) {
+        if der_pat.len() > 2
+            && der_bytes
+                .windows(der_pat.len() - 2)
+                .any(|w| w == &der_pat[2..])
+        {
             return true;
         }
         let ascii_bytes = oid.as_bytes();
-        if der_bytes.windows(ascii_bytes.len()).any(|w| w == ascii_bytes) {
+        if der_bytes
+            .windows(ascii_bytes.len())
+            .any(|w| w == ascii_bytes)
+        {
             return true;
         }
     }
@@ -410,7 +494,10 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
     let mut scanned_count = 0;
 
     // Check raw binary DER certificate first
-    if raw_bytes.len() >= 4 && raw_bytes[0] == 0x30 && (raw_bytes[1] == 0x82 || raw_bytes[1] == 0x81) {
+    if raw_bytes.len() >= 4
+        && raw_bytes[0] == 0x30
+        && (raw_bytes[1] == 0x82 || raw_bytes[1] == 0x81)
+    {
         scanned_count = 1;
         if scan_der_cert_for_client_auth(&raw_bytes) {
             all_findings.push(AdcsFinding {
@@ -439,7 +526,12 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                 }
             }
             if !has_client {
-                let oids = [OID_CLIENT_AUTH, OID_SMARTCARD_LOGON, OID_PKINIT_CLIENT_AUTH, OID_ANY_PURPOSE];
+                let oids = [
+                    OID_CLIENT_AUTH,
+                    OID_SMARTCARD_LOGON,
+                    OID_PKINIT_CLIENT_AUTH,
+                    OID_ANY_PURPOSE,
+                ];
                 for oid in &oids {
                     if content.contains(oid) {
                         has_client = true;
@@ -453,7 +545,8 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                     severity: "INFO".to_string(),
                     template: "X509Certificate".to_string(),
                     title: "Certificate Contains Client Authentication EKU".to_string(),
-                    description: "X.509 certificate specifies Client Authentication EKUs.".to_string(),
+                    description: "X.509 certificate specifies Client Authentication EKUs."
+                        .to_string(),
                     remediation: "Review certificate issuance and usage constraints.".to_string(),
                 });
             }
@@ -465,7 +558,8 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                         .or_else(|| json_get_bool(obj, "editf_san2"))
                         .unwrap_or(false);
                     let http_en = json_get_bool(obj, "http_enrollment_enabled").unwrap_or(false);
-                    let rpc_no_priv = json_get_bool(obj, "rpc_enrollment_without_packet_privacy").unwrap_or(false);
+                    let rpc_no_priv = json_get_bool(obj, "rpc_enrollment_without_packet_privacy")
+                        .unwrap_or(false);
                     let cert_map = json_get_u32(obj, "CertificateMappingMethods");
                     let low_mgrs = json_get_str_array(obj, "low_privileged_ca_managers");
                     let mut pki_writers = json_get_str_array(obj, "low_privileged_pki_writers");
@@ -489,10 +583,23 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                         || obj.get("enrollment_flags").is_some();
 
                     if has_ca_keys && !has_template_keys {
-                        let ca_name = json_get_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
-                        let epa = json_get_bool(obj, "extended_protection_enabled").unwrap_or(false);
+                        let ca_name = json_get_str(obj, "ca_name")
+                            .unwrap_or_else(|| "Enterprise-CA".to_string());
+                        let epa =
+                            json_get_bool(obj, "extended_protection_enabled").unwrap_or(false);
                         let https = json_get_bool(obj, "https_enforced").unwrap_or(false);
-                        let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, &pki_writers, vuln_pki_acl, http_en, epa, https, cert_map, rpc_no_priv);
+                        let ca_f = evaluate_ca(
+                            &ca_name,
+                            editf,
+                            &low_mgrs,
+                            &pki_writers,
+                            vuln_pki_acl,
+                            http_en,
+                            epa,
+                            https,
+                            cert_map,
+                            rpc_no_priv,
+                        );
                         all_findings.extend(ca_f);
                     } else {
                         scanned_count += 1;
@@ -514,40 +621,66 @@ pub fn scan_adcs_source(source: &str) -> Result<AdcsReport, String> {
                             .unwrap_or(0);
                         let ekus = json_get_str_array(obj, "pKIExtendedKeyUsage");
                         let writers = json_get_str_array(obj, "low_privileged_writers");
-                        let f = evaluate_template(&name, name_flags, enroll_flags, ra_sigs, &ekus, &writers);
+                        let f = evaluate_template(
+                            &name,
+                            name_flags,
+                            enroll_flags,
+                            ra_sigs,
+                            &ekus,
+                            &writers,
+                        );
                         all_findings.extend(f);
                         if has_ca_keys {
-                            let ca_name = json_get_str(obj, "ca_name").unwrap_or_else(|| "Enterprise-CA".to_string());
-                            let epa = json_get_bool(obj, "extended_protection_enabled").unwrap_or(false);
+                            let ca_name = json_get_str(obj, "ca_name")
+                                .unwrap_or_else(|| "Enterprise-CA".to_string());
+                            let epa =
+                                json_get_bool(obj, "extended_protection_enabled").unwrap_or(false);
                             let https = json_get_bool(obj, "https_enforced").unwrap_or(false);
-                            let ca_f = evaluate_ca(&ca_name, editf, &low_mgrs, &pki_writers, vuln_pki_acl, http_en, epa, https, cert_map, rpc_no_priv);
+                            let ca_f = evaluate_ca(
+                                &ca_name,
+                                editf,
+                                &low_mgrs,
+                                &pki_writers,
+                                vuln_pki_acl,
+                                http_en,
+                                epa,
+                                https,
+                                cert_map,
+                                rpc_no_priv,
+                            );
                             all_findings.extend(ca_f);
                         }
                     }
                 }
             }
         } else {
-                scanned_count = 1;
-                let mut name_flags = 0;
-                if content.contains("CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT") {
-                    name_flags |= CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT;
-                }
-                let mut enroll_flags = 0;
-                if content.contains("CT_FLAG_NO_SECURITY_EXTENSION") {
-                    enroll_flags |= CT_FLAG_NO_SECURITY_EXTENSION;
-                }
-                let mut ekus = Vec::new();
-                if content.contains(OID_CLIENT_AUTH) || content.contains("Client Auth") {
-                    ekus.push(OID_CLIENT_AUTH.to_string());
-                }
+            scanned_count = 1;
+            let mut name_flags = 0;
+            if content.contains("CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT") {
+                name_flags |= CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT;
+            }
+            let mut enroll_flags = 0;
+            if content.contains("CT_FLAG_NO_SECURITY_EXTENSION") {
+                enroll_flags |= CT_FLAG_NO_SECURITY_EXTENSION;
+            }
+            let mut ekus = Vec::new();
+            if content.contains(OID_CLIENT_AUTH) || content.contains("Client Auth") {
+                ekus.push(OID_CLIENT_AUTH.to_string());
+            }
             let f = evaluate_template("Template-1", name_flags, enroll_flags, 0, &ekus, &[]);
             all_findings.extend(f);
         }
     }
 
-    let critical_count = all_findings.iter().filter(|f| f.severity == "CRITICAL").count();
+    let critical_count = all_findings
+        .iter()
+        .filter(|f| f.severity == "CRITICAL")
+        .count();
     let high_count = all_findings.iter().filter(|f| f.severity == "HIGH").count();
-    let medium_count = all_findings.iter().filter(|f| f.severity == "MEDIUM").count();
+    let medium_count = all_findings
+        .iter()
+        .filter(|f| f.severity == "MEDIUM")
+        .count();
 
     Ok(AdcsReport {
         status: "SUCCESS".to_string(),

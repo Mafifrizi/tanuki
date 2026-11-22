@@ -62,7 +62,11 @@ pub fn parse_filetime_to_iso(ft: u64) -> Option<String> {
     let mut y = 1970u64;
     let mut rem_days = days;
     loop {
-        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+        let leap = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) {
+            1
+        } else {
+            0
+        };
         let days_in_year = 365 + leap;
         if rem_days >= days_in_year {
             rem_days -= days_in_year;
@@ -72,7 +76,11 @@ pub fn parse_filetime_to_iso(ft: u64) -> Option<String> {
         }
     }
 
-    let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+    let leap = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) {
+        1
+    } else {
+        0
+    };
     let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut m = 1usize;
     for &d in &month_days {
@@ -85,7 +93,10 @@ pub fn parse_filetime_to_iso(ft: u64) -> Option<String> {
     }
     let d = rem_days + 1;
 
-    Some(format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, hours, mins, secs))
+    Some(format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y, m, d, hours, mins, secs
+    ))
 }
 
 pub fn parse_guid_bytes(data: &[u8]) -> Result<String, String> {
@@ -120,14 +131,20 @@ pub struct KeyMaterialInfo {
 
 pub fn parse_cng_public_key(data: &[u8]) -> Result<KeyMaterialInfo, String> {
     if data.len() < 8 {
-        return Err(format!("Truncated CNG public key header: {} < 8 bytes", data.len()));
+        return Err(format!(
+            "Truncated CNG public key header: {} < 8 bytes",
+            data.len()
+        ));
     }
     let magic_bytes = &data[0..4];
     let magic_str = String::from_utf8_lossy(magic_bytes).to_string();
 
     if magic_bytes == b"RSA1" || magic_bytes == b"RSA2" {
         if data.len() < 24 {
-            return Err(format!("Truncated BCRYPT_RSAKEY_BLOB: {} < 24 bytes", data.len()));
+            return Err(format!(
+                "Truncated BCRYPT_RSAKEY_BLOB: {} < 24 bytes",
+                data.len()
+            ));
         }
         let bit_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
         let cb_pub_exp = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
@@ -288,13 +305,19 @@ pub struct ShadowCredentialReport {
     pub entries: Vec<ShadowEntry>,
 }
 
-pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -> Result<ShadowCredentialReport, String> {
+pub fn parse_key_credential_bytes(
+    raw_bytes: &[u8],
+    target_dn: Option<String>,
+) -> Result<ShadowCredentialReport, String> {
     if raw_bytes.len() < 4 {
         return Err(format!("Buffer underflow: {} < 4 bytes", raw_bytes.len()));
     }
     let version = u32::from_le_bytes([raw_bytes[0], raw_bytes[1], raw_bytes[2], raw_bytes[3]]);
     if version != 0x00000100 && version != 0x00000200 {
-        return Err(format!("Unsupported Key Credential version: 0x{:08x}", version));
+        return Err(format!(
+            "Unsupported Key Credential version: 0x{:08x}",
+            version
+        ));
     }
 
     let version_str = if version == 0x00000200 { "2.0" } else { "1.0" }.to_string();
@@ -320,7 +343,11 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
         let val_start = offset + 3;
         let val_end = val_start + length;
         if val_end > raw_bytes.len() {
-            return Err(format!("Entry value out of bounds: {} > {}", val_end, raw_bytes.len()));
+            return Err(format!(
+                "Entry value out of bounds: {} > {}",
+                val_end,
+                raw_bytes.len()
+            ));
         }
         let val_bytes = &raw_bytes[val_start..val_end];
         let id_name = get_identifier_name(identifier).to_string();
@@ -372,15 +399,27 @@ pub fn parse_key_credential_bytes(raw_bytes: &[u8], target_dn: Option<String>) -
             }
             ID_KEY_APPROXIMATE_LAST_LOGON_TIME if val_bytes.len() == 8 => {
                 let ft = u64::from_le_bytes([
-                    val_bytes[0], val_bytes[1], val_bytes[2], val_bytes[3],
-                    val_bytes[4], val_bytes[5], val_bytes[6], val_bytes[7],
+                    val_bytes[0],
+                    val_bytes[1],
+                    val_bytes[2],
+                    val_bytes[3],
+                    val_bytes[4],
+                    val_bytes[5],
+                    val_bytes[6],
+                    val_bytes[7],
                 ]);
                 last_logon_time = parse_filetime_to_iso(ft);
             }
             ID_KEY_CREATION_TIME if val_bytes.len() == 8 => {
                 let ft = u64::from_le_bytes([
-                    val_bytes[0], val_bytes[1], val_bytes[2], val_bytes[3],
-                    val_bytes[4], val_bytes[5], val_bytes[6], val_bytes[7],
+                    val_bytes[0],
+                    val_bytes[1],
+                    val_bytes[2],
+                    val_bytes[3],
+                    val_bytes[4],
+                    val_bytes[5],
+                    val_bytes[6],
+                    val_bytes[7],
                 ]);
                 creation_time = parse_filetime_to_iso(ft);
             }
@@ -432,9 +471,13 @@ pub fn parse_key_credential_link(input: &str) -> Result<ShadowCredentialReport, 
             }
             if meta.is_file() {
                 if meta.len() > 1_048_576 {
-                    return Err(format!("KeyCredentialLink file exceeds 1 MB limit: '{}'", clean));
+                    return Err(format!(
+                        "KeyCredentialLink file exceeds 1 MB limit: '{}'",
+                        clean
+                    ));
                 }
-                let data = fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
+                let data = fs::read(clean)
+                    .map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
                 return parse_key_credential_bytes(&data, None);
             }
         }
@@ -443,7 +486,9 @@ pub fn parse_key_credential_link(input: &str) -> Result<ShadowCredentialReport, 
     if clean.starts_with("B:") || clean.starts_with("b:") {
         let parts: Vec<&str> = clean.splitn(4, ':').collect();
         if parts.len() >= 4 {
-            let char_count: usize = parts[1].parse().map_err(|_| "Invalid character count in DN-Binary".to_string())?;
+            let char_count: usize = parts[1]
+                .parse()
+                .map_err(|_| "Invalid character count in DN-Binary".to_string())?;
             let hex_slice = parts[2].get(..char_count).unwrap_or(parts[2]);
             if hex_slice.len() % 2 != 0 || !hex_slice.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err("Invalid hex in DN-Binary".to_string());
@@ -461,7 +506,7 @@ pub fn parse_key_credential_link(input: &str) -> Result<ShadowCredentialReport, 
         }
     }
 
-    if clean.len() % 2 == 0 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+    if clean.len().is_multiple_of(2) && clean.chars().all(|c| c.is_ascii_hexdigit()) {
         let mut raw_bytes = Vec::new();
         for i in (0..clean.len()).step_by(2) {
             let b = u8::from_str_radix(&clean[i..i + 2], 16)
@@ -477,8 +522,14 @@ pub fn parse_key_credential_link(input: &str) -> Result<ShadowCredentialReport, 
 pub fn format_shadow_report_terminal(report: &ShadowCredentialReport) -> String {
     let mut out = String::new();
     out.push_str("[+] Active Directory Shadow Credential ([MS-ADTS] 2.2.20)\n");
-    out.push_str(&format!("    Structure Version : {} (0x{:08x})\n", report.version_str, report.version));
-    out.push_str(&format!("    Blob Length       : {} bytes\n", report.raw_length));
+    out.push_str(&format!(
+        "    Structure Version : {} (0x{:08x})\n",
+        report.version_str, report.version
+    ));
+    out.push_str(&format!(
+        "    Blob Length       : {} bytes\n",
+        report.raw_length
+    ));
 
     if let Some(ref dn) = report.target_dn {
         out.push_str(&format!("    Target Identity   : {}\n", dn));
@@ -506,11 +557,18 @@ pub fn format_shadow_report_terminal(report: &ShadowCredentialReport) -> String 
         if km.key_type == "RSA" {
             let bits = km.bit_length.unwrap_or(0);
             let exp = km.public_exponent.unwrap_or(0);
-            out.push_str(&format!("    Public Key Type   : RSA ({} bits, e={})\n", bits, exp));
+            out.push_str(&format!(
+                "    Public Key Type   : RSA ({} bits, e={})\n",
+                bits, exp
+            ));
             if let Some(ref mod_hex) = km.modulus_hex {
                 let mod_len = km.modulus_length.unwrap_or(0);
                 if mod_hex.len() > 32 {
-                    out.push_str(&format!("    Modulus Preview   : {}... ({} bytes)\n", &mod_hex[..32], mod_len));
+                    out.push_str(&format!(
+                        "    Modulus Preview   : {}... ({} bytes)\n",
+                        &mod_hex[..32],
+                        mod_len
+                    ));
                 } else {
                     out.push_str(&format!("    Modulus           : {}\n", mod_hex));
                 }
@@ -518,12 +576,18 @@ pub fn format_shadow_report_terminal(report: &ShadowCredentialReport) -> String 
         } else if km.key_type == "ECC" {
             let algo = km.algorithm.as_deref().unwrap_or("ECC");
             let curve = km.curve.as_deref().unwrap_or("P-256");
-            out.push_str(&format!("    Public Key Type   : {} Curve {}\n", algo, curve));
+            out.push_str(&format!(
+                "    Public Key Type   : {} Curve {}\n",
+                algo, curve
+            ));
             let x = km.x_hex.as_deref().unwrap_or("");
             let y = km.y_hex.as_deref().unwrap_or("");
             let x_pre = if x.len() > 16 { &x[..16] } else { x };
             let y_pre = if y.len() > 16 { &y[..16] } else { y };
-            out.push_str(&format!("    Coordinates (X,Y) : X={}... Y={}...\n", x_pre, y_pre));
+            out.push_str(&format!(
+                "    Coordinates (X,Y) : X={}... Y={}...\n",
+                x_pre, y_pre
+            ));
         }
     }
 
@@ -540,9 +604,15 @@ pub fn format_shadow_report_terminal(report: &ShadowCredentialReport) -> String 
 pub fn shadow_report_to_json(report: &ShadowCredentialReport) -> String {
     let mut out = String::new();
     out.push_str("{\n");
-    out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&report.status)));
+    out.push_str(&format!(
+        "  \"status\": \"{}\",\n",
+        escape_json(&report.status)
+    ));
     out.push_str(&format!("  \"version\": {},\n", report.version));
-    out.push_str(&format!("  \"version_str\": \"{}\",\n", escape_json(&report.version_str)));
+    out.push_str(&format!(
+        "  \"version_str\": \"{}\",\n",
+        escape_json(&report.version_str)
+    ));
     out.push_str(&format!("  \"raw_length\": {},\n", report.raw_length));
 
     if let Some(ref dn) = report.target_dn {
@@ -581,14 +651,20 @@ pub fn shadow_report_to_json(report: &ShadowCredentialReport) -> String {
         out.push_str("  \"creation_time\": null,\n");
     }
     if let Some(ref lgt) = report.last_logon_time {
-        out.push_str(&format!("  \"last_logon_time\": \"{}\",\n", escape_json(lgt)));
+        out.push_str(&format!(
+            "  \"last_logon_time\": \"{}\",\n",
+            escape_json(lgt)
+        ));
     } else {
         out.push_str("  \"last_logon_time\": null,\n");
     }
 
     if let Some(ref km) = report.key_material {
         out.push_str("  \"key_material\": {\n");
-        out.push_str(&format!("    \"key_type\": \"{}\"", escape_json(&km.key_type)));
+        out.push_str(&format!(
+            "    \"key_type\": \"{}\"",
+            escape_json(&km.key_type)
+        ));
         if let Some(ref m) = km.magic {
             out.push_str(&format!(",\n    \"magic\": \"{}\"", escape_json(m)));
         }
@@ -634,25 +710,38 @@ pub fn shadow_report_to_json(report: &ShadowCredentialReport) -> String {
         out.push_str(&format!("    \"attestation\": {},\n", cki.attestation));
         out.push_str(&format!("    \"mfa_not_used\": {}", cki.mfa_not_used));
         if let Some(ref ext) = cki.extended_hex {
-            out.push_str(&format!(",\n    \"extended_hex\": \"{}\"", escape_json(ext)));
+            out.push_str(&format!(
+                ",\n    \"extended_hex\": \"{}\"",
+                escape_json(ext)
+            ));
         }
         out.push_str("\n  },\n");
     } else {
         out.push_str("  \"custom_key_information\": null,\n");
     }
 
-    out.push_str(&format!("  \"integrity_valid\": {},\n", report.integrity_valid));
+    out.push_str(&format!(
+        "  \"integrity_valid\": {},\n",
+        report.integrity_valid
+    ));
     let issues_json: Vec<String> = report
         .integrity_issues
         .iter()
         .map(|s| format!("\"{}\"", escape_json(s)))
         .collect();
-    out.push_str(&format!("  \"integrity_issues\": [{}],\n", issues_json.join(", ")));
+    out.push_str(&format!(
+        "  \"integrity_issues\": [{}],\n",
+        issues_json.join(", ")
+    ));
 
     out.push_str(&format!("  \"entries_count\": {},\n", report.entries_count));
     out.push_str("  \"entries\": [\n");
     for (idx, ent) in report.entries.iter().enumerate() {
-        let comma = if idx + 1 < report.entries.len() { "," } else { "" };
+        let comma = if idx + 1 < report.entries.len() {
+            ","
+        } else {
+            ""
+        };
         out.push_str(&format!(
             "    {{\"identifier\": {}, \"identifier_name\": \"{}\", \"length\": {}, \"raw_hex\": \"{}\"}}{}\n",
             ent.identifier,

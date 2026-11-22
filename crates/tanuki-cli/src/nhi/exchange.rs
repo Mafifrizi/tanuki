@@ -7,8 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-pub const RFC8693_TOKEN_EXCHANGE_GRANT: &str =
-    "urn:ietf:params:oauth:grant-type:token-exchange";
+pub const RFC8693_TOKEN_EXCHANGE_GRANT: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 
 const SUPPORTED_TOKEN_TYPES: &[&str] = &[
     "urn:ietf:params:oauth:token-type:jwt",
@@ -30,7 +29,7 @@ pub fn validate_token_exchange(params: &TokenExchangeParams) -> TokenValidationR
                 error_description: Some("Missing required parameter 'grant_type'".to_string()),
                 parameters: params.clone(),
                 security_warnings: vec![
-                    "INVALID_REQUEST: Missing required parameter 'grant_type'".to_string(),
+                    "INVALID_REQUEST: Missing required parameter 'grant_type'".to_string()
                 ],
                 subject_token_report: None,
             };
@@ -128,9 +127,8 @@ pub fn validate_token_exchange(params: &TokenExchangeParams) -> TokenValidationR
     let mut security_warnings = Vec::new();
     if let Some(aud) = &params.audience {
         if aud == "*" {
-            security_warnings.push(
-                "WILDCARD_AUDIENCE: Dangerous wildcard audience detected: '*'".to_string(),
-            );
+            security_warnings
+                .push("WILDCARD_AUDIENCE: Dangerous wildcard audience detected: '*'".to_string());
         } else if aud.contains('*') {
             security_warnings.push(format!(
                 "WILDCARD_AUDIENCE: Wildcard pattern in exchange audience: '{}'",
@@ -153,7 +151,9 @@ pub fn validate_token_exchange(params: &TokenExchangeParams) -> TokenValidationR
                         valid: false,
                         exchange_valid: false,
                         error: Some("invalid_grant".to_string()),
-                        error_description: Some("The provided subject_token has expired".to_string()),
+                        error_description: Some(
+                            "The provided subject_token has expired".to_string(),
+                        ),
                         parameters: params.clone(),
                         security_warnings,
                         subject_token_report: Some(rep),
@@ -165,7 +165,8 @@ pub fn validate_token_exchange(params: &TokenExchangeParams) -> TokenValidationR
                         exchange_valid: false,
                         error: Some("invalid_grant".to_string()),
                         error_description: Some(
-                            "The provided subject_token failed security policy validation".to_string(),
+                            "The provided subject_token failed security policy validation"
+                                .to_string(),
                         ),
                         parameters: params.clone(),
                         security_warnings,
@@ -220,11 +221,17 @@ impl LiveExchangeReport {
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("{\n");
-        out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
+        out.push_str(&format!(
+            "  \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
         if let Some(code) = self.http_status {
             out.push_str(&format!("  \"http_status\": {},\n", code));
         }
-        out.push_str(&format!("  \"endpoint\": \"{}\"", escape_json(&self.endpoint)));
+        out.push_str(&format!(
+            "  \"endpoint\": \"{}\"",
+            escape_json(&self.endpoint)
+        ));
         if self.status == "SUCCESS" {
             out.push_str(&format!(",\n  \"response\": {}", self.raw_response_json));
             match &self.access_token {
@@ -232,7 +239,10 @@ impl LiveExchangeReport {
                 None => out.push_str(",\n  \"access_token\": null"),
             }
             match &self.issued_token_type {
-                Some(v) => out.push_str(&format!(",\n  \"issued_token_type\": \"{}\"", escape_json(v))),
+                Some(v) => out.push_str(&format!(
+                    ",\n  \"issued_token_type\": \"{}\"",
+                    escape_json(v)
+                )),
                 None => out.push_str(",\n  \"issued_token_type\": null"),
             }
             match &self.token_type {
@@ -248,7 +258,10 @@ impl LiveExchangeReport {
                 out.push_str(&format!(",\n  \"error\": \"{}\"", escape_json(e)));
             }
             if let Some(ref d) = self.error_description {
-                out.push_str(&format!(",\n  \"error_description\": \"{}\"", escape_json(d)));
+                out.push_str(&format!(
+                    ",\n  \"error_description\": \"{}\"",
+                    escape_json(d)
+                ));
             }
             if !self.raw_response_json.is_empty() {
                 out.push_str(&format!(",\n  \"response\": {}", self.raw_response_json));
@@ -261,7 +274,10 @@ impl LiveExchangeReport {
     pub fn format_terminal(&self) -> String {
         let mut out = String::new();
         out.push_str("[TANUKI RFC 8693 LIVE TOKEN EXCHANGE]\n");
-        out.push_str(&format!(" Endpoint: {} · Status: {}\n", self.endpoint, self.status));
+        out.push_str(&format!(
+            " Endpoint: {} · Status: {}\n",
+            self.endpoint, self.status
+        ));
         if self.status == "SUCCESS" {
             out.push_str(&format!(
                 "[+] HTTP Status       : {} OK\n",
@@ -326,7 +342,10 @@ fn parse_http_url(url: &str) -> Result<(String, String, u16, String), String> {
         .ok_or_else(|| format!("Unsupported or disallowed URL scheme in '{}'", url))?;
     let scheme_low = scheme.to_ascii_lowercase();
     if scheme_low != "http" && scheme_low != "https" {
-        return Err(format!("Unsupported or disallowed URL scheme: '{}'", scheme));
+        return Err(format!(
+            "Unsupported or disallowed URL scheme: '{}'",
+            scheme
+        ));
     }
     let split_idx = rest.find(['/', '?', '#']);
     let (authority, tail) = match split_idx {
@@ -357,13 +376,16 @@ fn parse_http_url(url: &str) -> Result<(String, String, u16, String), String> {
         let p = if after.is_empty() {
             default_port
         } else if let Some(ps) = after.strip_prefix(':') {
-            ps.parse::<u16>().map_err(|_| "Invalid port in URL".to_string())?
+            ps.parse::<u16>()
+                .map_err(|_| "Invalid port in URL".to_string())?
         } else {
             return Err("Invalid host authority in URL".to_string());
         };
         (h.to_string(), p)
     } else if let Some((h, ps)) = authority.rsplit_once(':') {
-        let p = ps.parse::<u16>().map_err(|_| "Invalid port in URL".to_string())?;
+        let p = ps
+            .parse::<u16>()
+            .map_err(|_| "Invalid port in URL".to_string())?;
         (h.to_string(), p)
     } else {
         (authority.to_string(), default_port)
@@ -428,7 +450,10 @@ fn raw_http_request(
         match stream.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => resp_buf.extend_from_slice(&chunk[..n]),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
                 if resp_buf.is_empty() {
                     return Err(format!("HTTP read timed out: {}", e));
                 }
@@ -486,11 +511,17 @@ pub fn exchange_token_live(
 
     let mut form_pairs = vec![
         format!("grant_type={}", url_encode_component(grant.trim())),
-        format!("subject_token={}", url_encode_component(subject_token.trim())),
+        format!(
+            "subject_token={}",
+            url_encode_component(subject_token.trim())
+        ),
         format!("subject_token_type={}", url_encode_component(stt.trim())),
     ];
     if let Some(rtt) = requested_token_type.filter(|s| !s.trim().is_empty()) {
-        form_pairs.push(format!("requested_token_type={}", url_encode_component(rtt.trim())));
+        form_pairs.push(format!(
+            "requested_token_type={}",
+            url_encode_component(rtt.trim())
+        ));
     }
     if let Some(aud) = audience.filter(|s| !s.trim().is_empty()) {
         form_pairs.push(format!("audience={}", url_encode_component(aud.trim())));
@@ -547,11 +578,14 @@ pub fn exchange_token_live(
                 match child.wait_with_output() {
                     Ok(out) if out.status.success() => {
                         let stdout_str = String::from_utf8_lossy(&out.stdout);
-                        if let Some((body_part, code_part)) = stdout_str.trim_end().rsplit_once('\n') {
+                        if let Some((body_part, code_part)) =
+                            stdout_str.trim_end().rsplit_once('\n')
+                        {
                             if let Ok(code) = code_part.trim().parse::<u16>() {
                                 Ok((code, body_part.to_string()))
                             } else {
-                                Err("Failed to parse HTTP status code from curl transport".to_string())
+                                Err("Failed to parse HTTP status code from curl transport"
+                                    .to_string())
                             }
                         } else {
                             Err("Empty HTTP response from curl transport".to_string())
@@ -767,7 +801,8 @@ pub fn discover_cloud_mesh(spiffe_socket: Option<&str>) -> MeshReport {
         let p = Path::new(kp);
         if p.is_file() {
             match crate::util::read_bytes_nofollow(p).and_then(|b| {
-                String::from_utf8(b).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                String::from_utf8(b)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
             }) {
                 Ok(raw) => {
                     let tok = raw.trim().to_string();

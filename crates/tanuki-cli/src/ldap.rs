@@ -69,7 +69,7 @@ pub fn ber_encode_int(val: i64) -> Vec<u8> {
             bytes.insert(0, 0x00);
         }
     } else {
-        while temp != -1 || bytes.first().map_or(false, |&b| (b & 0x80) == 0) {
+        while temp != -1 || bytes.first().is_some_and(|&b| (b & 0x80) == 0) {
             bytes.insert(0, (temp & 0xFF) as u8);
             temp >>= 8;
             if temp == -1 && (bytes[0] & 0x80) != 0 {
@@ -150,7 +150,10 @@ pub fn ber_decode_tlv(data: &[u8], offset: usize) -> Result<(u8, &[u8], usize), 
         len_byte as usize
     } else {
         let num_len_bytes = (len_byte & 0x7F) as usize;
-        if num_len_bytes == 0 || num_len_bytes > std::mem::size_of::<usize>() || curr + num_len_bytes > data.len() {
+        if num_len_bytes == 0
+            || num_len_bytes > std::mem::size_of::<usize>()
+            || curr + num_len_bytes > data.len()
+        {
             return Err(format!("Invalid BER multi-byte length at offset {}", curr));
         }
         let mut l: usize = 0;
@@ -199,8 +202,7 @@ pub fn ber_decode_int(data: &[u8]) -> i64 {
 }
 
 pub fn ber_decode_string(data: &[u8]) -> String {
-    String::from_utf8(data.to_vec())
-        .unwrap_or_else(|_| data.iter().map(|&b| b as char).collect())
+    String::from_utf8(data.to_vec()).unwrap_or_else(|_| data.iter().map(|&b| b as char).collect())
 }
 
 pub fn build_ldap_bind_request(
@@ -330,11 +332,20 @@ impl LdapReport {
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         out.push_str("{\n");
-        out.push_str(&format!("  \"status\": \"{}\",\n", escape_json(&self.status)));
+        out.push_str(&format!(
+            "  \"status\": \"{}\",\n",
+            escape_json(&self.status)
+        ));
         out.push_str(&format!("  \"host\": \"{}\",\n", escape_json(&self.host)));
         out.push_str(&format!("  \"port\": {},\n", self.port));
-        out.push_str(&format!("  \"query_type\": \"{}\",\n", escape_json(&self.query_type)));
-        out.push_str(&format!("  \"base_dn\": \"{}\",\n", escape_json(&self.base_dn)));
+        out.push_str(&format!(
+            "  \"query_type\": \"{}\",\n",
+            escape_json(&self.query_type)
+        ));
+        out.push_str(&format!(
+            "  \"base_dn\": \"{}\",\n",
+            escape_json(&self.base_dn)
+        ));
         out.push_str(&format!("  \"count\": {},\n", self.count));
 
         if let Some(ref m) = self.message {
@@ -348,7 +359,10 @@ impl LdapReport {
         for (i, entry) in self.entries.iter().enumerate() {
             out.push_str("    {\n");
             out.push_str(&format!("      \"dn\": \"{}\",\n", escape_json(&entry.dn)));
-            out.push_str(&format!("      \"query_category\": \"{}\",\n", escape_json(&entry.query_category)));
+            out.push_str(&format!(
+                "      \"query_category\": \"{}\",\n",
+                escape_json(&entry.query_category)
+            ));
             out.push_str("      \"attributes\": {\n");
             for (j, (k, vals)) in entry.attributes.iter().enumerate() {
                 out.push_str(&format!("        \"{}\": [", escape_json(k)));
@@ -365,13 +379,19 @@ impl LdapReport {
                 out.push('\n');
             }
             out.push_str("      }");
-            if entry.query_category.eq_ignore_ascii_case("asreproast") || entry.query_category.eq_ignore_ascii_case("nopreauth") {
-                let uac_int = entry.attributes.iter()
+            if entry.query_category.eq_ignore_ascii_case("asreproast")
+                || entry.query_category.eq_ignore_ascii_case("nopreauth")
+            {
+                let uac_int = entry
+                    .attributes
+                    .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case("userAccountControl"))
                     .and_then(|(_, v)| v.first())
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
-                let enctype_int = entry.attributes.iter()
+                let enctype_int = entry
+                    .attributes
+                    .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case("msDS-SupportedEncryptionTypes"))
                     .and_then(|(_, v)| v.first())
                     .and_then(|s| s.parse::<u64>().ok())
@@ -384,14 +404,22 @@ impl LdapReport {
                     ("RC4-HMAC (etype 23)", "$krb5asrep$23$", 23)
                 };
                 out.push_str(",\n      \"asrep_roastable\": {\n");
-                out.push_str(&format!("        \"dont_req_preauth\": {},\n", (uac_int & 0x400000) != 0));
+                out.push_str(&format!(
+                    "        \"dont_req_preauth\": {},\n",
+                    (uac_int & 0x400000) != 0
+                ));
                 out.push_str(&format!("        \"encryption\": \"{}\",\n", enc_label));
                 out.push_str(&format!("        \"hashcat_format\": \"{}\",\n", hc_fmt));
                 out.push_str(&format!("        \"etype\": {},\n", etype_val));
-                out.push_str(&format!("        \"supported_encryption_types\": {}\n", enctype_int));
+                out.push_str(&format!(
+                    "        \"supported_encryption_types\": {}\n",
+                    enctype_int
+                ));
                 out.push_str("      }\n");
             } else if entry.query_category.eq_ignore_ascii_case("rbcd") {
-                if let Some((_, vals)) = entry.attributes.iter().find(|(k, _)| k.eq_ignore_ascii_case("msds-allowedtoactonbehalfofotheridentity")) {
+                if let Some((_, vals)) = entry.attributes.iter().find(|(k, _)| {
+                    k.eq_ignore_ascii_case("msds-allowedtoactonbehalfofotheridentity")
+                }) {
                     if let Some(hex_val) = vals.first() {
                         let mut raw_bytes = Vec::new();
                         let mut chars = hex_val.chars();
@@ -401,13 +429,18 @@ impl LdapReport {
                             }
                         }
                         if let Ok(rbcd) = crate::pac::parse_rbcd_security_descriptor(&raw_bytes) {
-                            let sids_json = rbcd.allowed_trustee_sids.iter()
+                            let sids_json = rbcd
+                                .allowed_trustee_sids
+                                .iter()
                                 .map(|s| format!("\"{}\"", escape_json(s)))
                                 .collect::<Vec<_>>()
                                 .join(", ");
                             out.push_str(",\n      \"rbcd_parsed\": {\n");
                             out.push_str(&format!("        \"ace_count\": {},\n", rbcd.ace_count));
-                            out.push_str(&format!("        \"allowed_trustee_sids\": [{}]\n", sids_json));
+                            out.push_str(&format!(
+                                "        \"allowed_trustee_sids\": [{}]\n",
+                                sids_json
+                            ));
                             out.push_str("      }\n");
                         } else {
                             out.push('\n');
@@ -444,48 +477,79 @@ impl LdapReport {
 
         if self.status != "SUCCESS" {
             out.push_str(&format!("[!] LDAP Operation Status: {}\n", self.status));
-            let err_msg = self.error.as_deref().or(self.message.as_deref()).unwrap_or("Unknown error");
+            let err_msg = self
+                .error
+                .as_deref()
+                .or(self.message.as_deref())
+                .unwrap_or("Unknown error");
             out.push_str(&format!("    ╰─ Details: {}\n", err_msg));
             return out;
         }
 
         if self.entries.is_empty() {
-            out.push_str(&format!("[*] Query returned 0 matching directory objects for filter '{}'.\n", self.query_type.to_uppercase()));
+            out.push_str(&format!(
+                "[*] Query returned 0 matching directory objects for filter '{}'.\n",
+                self.query_type.to_uppercase()
+            ));
             return out;
         }
 
-        out.push_str(&format!("[+] Discovered Active Directory Objects ({} entries):\n\n", self.entries.len()));
+        out.push_str(&format!(
+            "[+] Discovered Active Directory Objects ({} entries):\n\n",
+            self.entries.len()
+        ));
         for (idx, e) in self.entries.iter().enumerate() {
             let is_last = idx == self.entries.len() - 1;
-            let sam = e.attributes.iter().find(|(k, _)| k.eq_ignore_ascii_case("sAMAccountName"))
+            let sam = e
+                .attributes
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("sAMAccountName"))
                 .and_then(|(_, v)| v.first().cloned())
                 .unwrap_or_else(|| e.dn.clone());
 
             out.push_str(&format!("[{}] {}\n", e.query_category.to_uppercase(), sam));
             out.push_str(&format!("    ├─ DN: {}\n", e.dn));
 
-            if e.query_category.eq_ignore_ascii_case("asreproast") || e.query_category.eq_ignore_ascii_case("nopreauth") {
-                let uac_int = e.attributes.iter()
+            if e.query_category.eq_ignore_ascii_case("asreproast")
+                || e.query_category.eq_ignore_ascii_case("nopreauth")
+            {
+                let uac_int = e
+                    .attributes
+                    .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case("userAccountControl"))
                     .and_then(|(_, v)| v.first())
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
 
-                let enctype_int = e.attributes.iter()
+                let enctype_int = e
+                    .attributes
+                    .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case("msDS-SupportedEncryptionTypes"))
                     .and_then(|(_, v)| v.first())
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(0);
 
                 let (cipher_desc, enctype_desc) = if (enctype_int & 0x10) != 0 {
-                    ("AES-256 (etype 18 | Hashcat: $krb5asrep$18$)", format!("0x{:x} (AES Supported)", enctype_int))
+                    (
+                        "AES-256 (etype 18 | Hashcat: $krb5asrep$18$)",
+                        format!("0x{:x} (AES Supported)", enctype_int),
+                    )
                 } else if (enctype_int & 0x08) != 0 {
-                    ("AES-128 (etype 17 | Hashcat: $krb5asrep$17$)", format!("0x{:x} (AES-128 Supported)", enctype_int))
+                    (
+                        "AES-128 (etype 17 | Hashcat: $krb5asrep$17$)",
+                        format!("0x{:x} (AES-128 Supported)", enctype_int),
+                    )
                 } else {
-                    ("RC4-HMAC (etype 23 | Hashcat: $krb5asrep$23$)", format!("0x{:x} (Default KDC Fallback: RC4-HMAC)", enctype_int))
+                    (
+                        "RC4-HMAC (etype 23 | Hashcat: $krb5asrep$23$)",
+                        format!("0x{:x} (Default KDC Fallback: RC4-HMAC)", enctype_int),
+                    )
                 };
 
-                out.push_str(&format!("    ├─ Pre-Authentication: DISABLED (DONT_REQ_PREAUTH | UAC 0x{:x})\n", uac_int));
+                out.push_str(&format!(
+                    "    ├─ Pre-Authentication: DISABLED (DONT_REQ_PREAUTH | UAC 0x{:x})\n",
+                    uac_int
+                ));
                 out.push_str(&format!("    ├─ Encryption Mode   : {}\n", cipher_desc));
                 out.push_str(&format!("    ├─ Supported Enctypes: {}\n", enctype_desc));
                 out.push_str("    ╰─ Exposure          : Vulnerable to unauthenticated offline Kerberos AS-REP roasting\n");
@@ -516,18 +580,30 @@ impl LdapReport {
                                     raw_bytes.push(b);
                                 }
                             }
-                            if let Ok(rbcd) = crate::pac::parse_rbcd_security_descriptor(&raw_bytes) {
+                            if let Ok(rbcd) = crate::pac::parse_rbcd_security_descriptor(&raw_bytes)
+                            {
                                 out.push_str(&format!("    │  ├─ ACE Count: {}\n", rbcd.ace_count));
                                 if rbcd.allowed_trustee_sids.is_empty() {
                                     out.push_str("    │  ╰─ Allowed Trustee: None\n");
                                 } else {
                                     for (s_idx, s) in rbcd.allowed_trustee_sids.iter().enumerate() {
-                                        let branch = if s_idx == rbcd.allowed_trustee_sids.len() - 1 { "╰─" } else { "├─" };
-                                        out.push_str(&format!("    │  {} Allowed Trustee: {}\n", branch, s));
+                                        let branch = if s_idx == rbcd.allowed_trustee_sids.len() - 1
+                                        {
+                                            "╰─"
+                                        } else {
+                                            "├─"
+                                        };
+                                        out.push_str(&format!(
+                                            "    │  {} Allowed Trustee: {}\n",
+                                            branch, s
+                                        ));
                                     }
                                 }
                             } else {
-                                out.push_str(&format!("    │  ╰─ Parse Error (raw bytes: {})\n", raw_bytes.len()));
+                                out.push_str(&format!(
+                                    "    │  ╰─ Parse Error (raw bytes: {})\n",
+                                    raw_bytes.len()
+                                ));
                             }
                         }
                         continue;
@@ -536,19 +612,31 @@ impl LdapReport {
                     if a_name.eq_ignore_ascii_case("msds-keycredentiallink") {
                         for val in a_vals {
                             if let Ok(s_rep) = crate::shadow::parse_key_credential_link(val) {
-                                out.push_str(&format!("    ├─ {} (Shadow Credential v{}):\n", a_name, s_rep.version_str));
+                                out.push_str(&format!(
+                                    "    ├─ {} (Shadow Credential v{}):\n",
+                                    a_name, s_rep.version_str
+                                ));
                                 if let Some(ref kid) = s_rep.key_id {
                                     out.push_str(&format!("    │  ├─ Key ID   : {}\n", kid));
                                 }
                                 if let Some(ref usage) = s_rep.key_usage {
                                     let src = s_rep.key_source.as_deref().unwrap_or("N/A");
-                                    out.push_str(&format!("    │  ├─ Usage    : {} (Source: {})\n", usage, src));
+                                    out.push_str(&format!(
+                                        "    │  ├─ Usage    : {} (Source: {})\n",
+                                        usage, src
+                                    ));
                                 }
                                 if let Some(ref km) = s_rep.key_material {
                                     if km.key_type == "RSA" {
-                                        out.push_str(&format!("    │  ├─ Key Type : RSA {} bits\n", km.bit_length.unwrap_or(0)));
+                                        out.push_str(&format!(
+                                            "    │  ├─ Key Type : RSA {} bits\n",
+                                            km.bit_length.unwrap_or(0)
+                                        ));
                                     } else if km.key_type == "ECC" {
-                                        out.push_str(&format!("    │  ├─ Key Type : ECC {}\n", km.curve.as_deref().unwrap_or("P-256")));
+                                        out.push_str(&format!(
+                                            "    │  ├─ Key Type : ECC {}\n",
+                                            km.curve.as_deref().unwrap_or("P-256")
+                                        ));
                                     }
                                 }
                                 if let Some(ref dev) = s_rep.device_id {
@@ -586,7 +674,11 @@ impl LdapReport {
                             formatted.join(", ")
                         }
                     } else if a_vals.len() > 3 {
-                        format!("{}, ... (+{} more)", a_vals[..3].join(", "), a_vals.len() - 3)
+                        format!(
+                            "{}, ... (+{} more)",
+                            a_vals[..3].join(", "),
+                            a_vals.len() - 3
+                        )
                     } else {
                         a_vals.join(", ")
                     };
@@ -684,10 +776,14 @@ pub fn parse_ldap_response_stream(raw_data: &[u8]) -> Vec<LdapSearchEntry> {
                     };
                     v_off = n_voff;
                     if is_binary {
-                        let hex_str: String = v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                        let hex_str: String =
+                            v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
                         vals_list.push(hex_str);
-                    } else if attr_name.eq_ignore_ascii_case("msds-keycredentiallink") && !v_bytes.starts_with(b"B:") {
-                        let hex_str: String = v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                    } else if attr_name.eq_ignore_ascii_case("msds-keycredentiallink")
+                        && !v_bytes.starts_with(b"B:")
+                    {
+                        let hex_str: String =
+                            v_bytes.iter().map(|b| format!("{:02x}", b)).collect();
                         vals_list.push(hex_str);
                     } else {
                         vals_list.push(ber_decode_string(v_bytes));
@@ -750,11 +846,20 @@ fn get_search_done_status(data: &[u8]) -> Option<(i64, String)> {
                         if let Ok((_, op_val, _)) = ber_decode_tlv(seq_val, op_off) {
                             let mut code = 0i64;
                             let mut diag = String::new();
-                            if let Ok((TAG_ENUMERATED, res_bytes, inner_done_off)) = ber_decode_tlv(op_val, 0) {
+                            if let Ok((TAG_ENUMERATED, res_bytes, inner_done_off)) =
+                                ber_decode_tlv(op_val, 0)
+                            {
                                 code = ber_decode_int(res_bytes);
-                                if let Ok((_, _, next_sub_off)) = ber_decode_tlv(op_val, inner_done_off) {
-                                    if let Ok((_, diag_bytes, _)) = ber_decode_tlv(op_val, next_sub_off) {
-                                        diag = ber_decode_string(diag_bytes).replace('\0', "").trim().to_string();
+                                if let Ok((_, _, next_sub_off)) =
+                                    ber_decode_tlv(op_val, inner_done_off)
+                                {
+                                    if let Ok((_, diag_bytes, _)) =
+                                        ber_decode_tlv(op_val, next_sub_off)
+                                    {
+                                        diag = ber_decode_string(diag_bytes)
+                                            .replace('\0', "")
+                                            .trim()
+                                            .to_string();
                                     }
                                 }
                             }
@@ -770,6 +875,7 @@ fn get_search_done_status(data: &[u8]) -> Option<(i64, String)> {
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn query_active_directory_ldap(
     host: &str,
     query_type: &str,
@@ -928,13 +1034,19 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
                             let mut diag_msg = String::new();
                             if let Ok((_, _, dn_off)) = ber_decode_tlv(bind_val, next_res_off) {
                                 if let Ok((_, diag_bytes, _)) = ber_decode_tlv(bind_val, dn_off) {
-                                    diag_msg = ber_decode_string(diag_bytes).replace('\0', "").trim().to_string();
+                                    diag_msg = ber_decode_string(diag_bytes)
+                                        .replace('\0', "")
+                                        .trim()
+                                        .to_string();
                                 }
                             }
                             bind_err_detail = Some(if diag_msg.is_empty() {
                                 format!("LDAP bind failed with result code {}", res_code)
                             } else {
-                                format!("LDAP bind failed with result code {} ({})", res_code, diag_msg)
+                                format!(
+                                    "LDAP bind failed with result code {} ({})",
+                                    res_code, diag_msg
+                                )
                             });
                         }
                     }
@@ -968,17 +1080,29 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
     };
 
     let mut all_entries = Vec::new();
-    let mut msg_id = 2;
 
-    for q in target_queries {
+    for (msg_id, q) in (2..).zip(target_queries) {
         let (f_bytes, attrs): (Vec<u8>, Vec<&str>) = match q {
             "spn" => (
                 build_ldap_search_filter("servicePrincipalName", "*"),
-                vec!["sAMAccountName", "servicePrincipalName", "userAccountControl"],
+                vec![
+                    "sAMAccountName",
+                    "servicePrincipalName",
+                    "userAccountControl",
+                ],
             ),
             "asreproast" | "nopreauth" => (
-                build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "4194304"),
-                vec!["sAMAccountName", "userPrincipalName", "userAccountControl", "msDS-SupportedEncryptionTypes"],
+                build_ldap_extensible_filter(
+                    "userAccountControl",
+                    "1.2.840.113556.1.4.803",
+                    "4194304",
+                ),
+                vec![
+                    "sAMAccountName",
+                    "userPrincipalName",
+                    "userAccountControl",
+                    "msDS-SupportedEncryptionTypes",
+                ],
             ),
             "rbcd" => (
                 build_ldap_search_filter("msDS-AllowedToActOnBehalfOfOtherIdentity", "*"),
@@ -989,12 +1113,21 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
                 vec!["sAMAccountName", "msDS-KeyCredentialLink"],
             ),
             "unconstrained" => (
-                build_ldap_extensible_filter("userAccountControl", "1.2.840.113556.1.4.803", "524288"),
+                build_ldap_extensible_filter(
+                    "userAccountControl",
+                    "1.2.840.113556.1.4.803",
+                    "524288",
+                ),
                 vec!["sAMAccountName", "userAccountControl"],
             ),
             s if s.starts_with("identity:") => (
                 build_ldap_search_filter("sAMAccountName", &s["identity:".len()..]),
-                vec!["sAMAccountName", "objectSid", "primaryGroupID", "userAccountControl"],
+                vec![
+                    "sAMAccountName",
+                    "objectSid",
+                    "primaryGroupID",
+                    "userAccountControl",
+                ],
             ),
             _ => (
                 build_ldap_search_filter("objectClass", "*"),
@@ -1002,10 +1135,17 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
             ),
         };
 
-        let search_req = build_ldap_search_request(msg_id, base_dn, SCOPE_SUBTREE, Some(&f_bytes), &attrs, 100, 10);
-        msg_id += 1;
+        let search_req = build_ldap_search_request(
+            msg_id,
+            base_dn,
+            SCOPE_SUBTREE,
+            Some(&f_bytes),
+            &attrs,
+            100,
+            10,
+        );
 
-        if let Ok(_) = stream.write_all(&search_req) {
+        if stream.write_all(&search_req).is_ok() {
             let mut search_buf = Vec::new();
             let mut temp_chunk = [0u8; 4096];
             while let Ok(read_bytes) = stream.read(&mut temp_chunk) {
@@ -1022,7 +1162,10 @@ Refusing to transmit credentials in cleartext. Use the Python engine \
                         count: 0,
                         entries: Vec::new(),
                         message: None,
-                        error: Some(format!("LDAP search response exceeds maximum allowed size ({})", MAX_LDAP_PDU_SIZE)),
+                        error: Some(format!(
+                            "LDAP search response exceeds maximum allowed size ({})",
+                            MAX_LDAP_PDU_SIZE
+                        )),
                     };
                 }
                 search_buf.extend_from_slice(&temp_chunk[..read_bytes]);

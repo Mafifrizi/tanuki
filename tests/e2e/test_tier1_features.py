@@ -100,7 +100,10 @@ class TestTier1DoctorFeatures(unittest.TestCase):
     def test_doctor_cli_json_schema(self) -> None:
         """Category 1.2: --json outputs valid JSON conforming to DoctorReport schema."""
         self._check_doctor_cli_supported()
-        ret, stdout, stderr = run_tanuki_cli(["doctor", "--json"])
+        conf_path = os.path.join(self.dir_path, "krb5.conf")
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.write(build_synthetic_krb5_conf(default_realm="CORP.LOCAL"))
+        ret, stdout, stderr = run_tanuki_cli(["doctor", "--krb5-conf", conf_path, "--json"])
         self.assertEqual(ret, 0, f"Doctor --json failed with exit code {ret}: {stderr}")
         data = json.loads(stdout)
         self.assertIn("status", data)

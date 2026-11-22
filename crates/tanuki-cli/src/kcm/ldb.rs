@@ -80,9 +80,7 @@ pub fn scan_for_ccache_blobs(data: &[u8]) -> Vec<CcacheCandidate> {
 }
 
 fn find_magic(slice: &[u8]) -> Option<usize> {
-    slice
-        .windows(2)
-        .position(|w| w == CCACHE_MAGIC_V4)
+    slice.windows(2).position(|w| w == CCACHE_MAGIC_V4)
 }
 
 fn skip_principal(slice: &[u8], mut cursor: usize) -> Option<usize> {
@@ -154,7 +152,8 @@ fn measure_ccache_body_len(body_slice: &[u8]) -> Option<usize> {
         if next_cur + 4 > body_slice.len() {
             break;
         }
-        let keylen = u16::from_be_bytes([body_slice[next_cur + 2], body_slice[next_cur + 3]]) as usize;
+        let keylen =
+            u16::from_be_bytes([body_slice[next_cur + 2], body_slice[next_cur + 3]]) as usize;
         next_cur += 4;
         if keylen > 4096 || next_cur + keylen + 21 > body_slice.len() {
             break;

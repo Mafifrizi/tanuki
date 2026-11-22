@@ -15,7 +15,10 @@ impl fmt::Display for KeytabError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KeytabError::InvalidHeader => {
-                write!(f, "Invalid keytab format (expected Keytab v2 signature 0x0502)")
+                write!(
+                    f,
+                    "Invalid keytab format (expected Keytab v2 signature 0x0502)"
+                )
             }
             KeytabError::UnexpectedEof => write!(f, "Unexpected end of keytab stream"),
             KeytabError::MalformedEntry(msg) => write!(f, "Malformed keytab entry: {}", msg),
@@ -88,7 +91,9 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
     let mut offset = 0;
 
     if offset + 2 > entry.len() {
-        return Err(KeytabError::MalformedEntry("Missing component count".into()));
+        return Err(KeytabError::MalformedEntry(
+            "Missing component count".into(),
+        ));
     }
     let num_components = i16::from_be_bytes([entry[offset], entry[offset + 1]]);
     offset += 2;
@@ -175,7 +180,9 @@ fn parse_single_entry(entry: &[u8]) -> Result<KeytabEntry, KeytabError> {
 
     let key_len_usize = key_len as usize;
     if offset + key_len_usize > entry.len() {
-        return Err(KeytabError::MalformedEntry("Key data bounds exceeded".into()));
+        return Err(KeytabError::MalformedEntry(
+            "Key data bounds exceeded".into(),
+        ));
     }
     let key_slice = &entry[offset..offset + key_len_usize];
     offset += key_len_usize;
@@ -305,10 +312,7 @@ mod tests {
     #[test]
     fn test_invalid_header_rejection() {
         let bad = vec![0x01, 0x02, 0x00, 0x00];
-        assert_eq!(
-            parse_keytab_bytes(&bad),
-            Err(KeytabError::InvalidHeader)
-        );
+        assert_eq!(parse_keytab_bytes(&bad), Err(KeytabError::InvalidHeader));
     }
 
     #[test]
@@ -330,20 +334,14 @@ mod tests {
     fn test_negative_entry_size_min_does_not_overflow() {
         let mut data = vec![0x05, 0x02];
         data.extend_from_slice(&i32::MIN.to_be_bytes());
-        assert_eq!(
-            parse_keytab_bytes(&data),
-            Err(KeytabError::UnexpectedEof)
-        );
+        assert_eq!(parse_keytab_bytes(&data), Err(KeytabError::UnexpectedEof));
     }
 
     #[test]
     fn test_trailing_residual_bytes_error() {
         let mut data = vec![0x05, 0x02];
         data.extend_from_slice(&[0x00, 0x01]);
-        assert_eq!(
-            parse_keytab_bytes(&data),
-            Err(KeytabError::UnexpectedEof)
-        );
+        assert_eq!(parse_keytab_bytes(&data), Err(KeytabError::UnexpectedEof));
     }
 
     #[test]

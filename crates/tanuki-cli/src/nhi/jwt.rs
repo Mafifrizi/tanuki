@@ -107,7 +107,10 @@ impl<'a> JsonParser<'a> {
 
     fn parse_value(&mut self, depth: usize) -> Result<JsonValue, String> {
         if depth > MAX_JSON_DEPTH {
-            return Err(format!("Maximum JSON nesting depth ({}) exceeded", MAX_JSON_DEPTH));
+            return Err(format!(
+                "Maximum JSON nesting depth ({}) exceeded",
+                MAX_JSON_DEPTH
+            ));
         }
         self.skip_whitespace();
         match self.peek() {
@@ -193,7 +196,9 @@ impl<'a> JsonParser<'a> {
                     self.advance();
                     break;
                 }
-                Some(other) => return Err(format!("Expected ',' or '}}' in object, got '{}'", other)),
+                Some(other) => {
+                    return Err(format!("Expected ',' or '}}' in object, got '{}'", other))
+                }
                 None => return Err("Unterminated object".to_string()),
             }
         }
@@ -223,7 +228,9 @@ impl<'a> JsonParser<'a> {
                     self.advance();
                     break;
                 }
-                Some(other) => return Err(format!("Expected ',' or ']' in array, got '{}'", other)),
+                Some(other) => {
+                    return Err(format!("Expected ',' or ']' in array, got '{}'", other))
+                }
                 None => return Err("Unterminated array".to_string()),
             }
         }
@@ -286,10 +293,7 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
 }
 
 pub const KNOWN_JWT_ALGORITHMS: &[&str] = &[
-    "RS256", "RS384", "RS512",
-    "ES256", "ES384", "ES512",
-    "PS256", "PS384", "PS512",
-    "EdDSA",
+    "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512", "EdDSA",
     "HS256", "HS384", "HS512",
 ];
 
@@ -304,21 +308,27 @@ pub fn b64url_decode(input: &str) -> Result<Vec<u8>, String> {
             b'-' | b'+' => 62,
             b'_' | b'/' => 63,
             b'\r' | b'\n' | b' ' => continue,
-            _ => return Err(format!("Invalid character in base64url stream: {}", b as char)),
+            _ => {
+                return Err(format!(
+                    "Invalid character in base64url stream: {}",
+                    b as char
+                ))
+            }
         };
         clean.push(val);
     }
     if clean.len() % 4 == 1 {
-        return Err("Invalid Base64URL encoding (data character length cannot be 1 mod 4)".to_string());
+        return Err(
+            "Invalid Base64URL encoding (data character length cannot be 1 mod 4)".to_string(),
+        );
     }
     let mut out = Vec::new();
-    let mut chunks = clean.chunks_exact(4);
-    for chunk in chunks.by_ref() {
+    let (chunks, rem) = clean.as_chunks::<4>();
+    for chunk in chunks {
         out.push((chunk[0] << 2) | (chunk[1] >> 4));
         out.push((chunk[1] << 4) | (chunk[2] >> 2));
         out.push((chunk[2] << 6) | chunk[3]);
     }
-    let rem = chunks.remainder();
     if rem.len() == 2 {
         out.push((rem[0] << 2) | (rem[1] >> 4));
     } else if rem.len() == 3 {
@@ -368,8 +378,8 @@ pub fn parse_and_validate_jwt(
     }
 
     let header_bytes = b64url_decode(parts[0])?;
-    let header_str = String::from_utf8(header_bytes)
-        .map_err(|e| format!("Header is not valid UTF-8: {}", e))?;
+    let header_str =
+        String::from_utf8(header_bytes).map_err(|e| format!("Header is not valid UTF-8: {}", e))?;
     let header_json = parse_json(&header_str)?;
     if !matches!(header_json, JsonValue::Object(_)) {
         return Err("Decoded JWT segment must be a JSON object".to_string());
@@ -388,7 +398,10 @@ pub fn parse_and_validate_jwt(
         b64url_decode(sig_raw)?;
     }
 
-    let alg_opt = header_json.get("alg").and_then(|v| v.as_str()).map(|s| s.trim());
+    let alg_opt = header_json
+        .get("alg")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim());
     let alg = alg_opt.unwrap_or("none").to_string();
     let typ = header_json
         .get("typ")
@@ -490,7 +503,10 @@ pub fn parse_and_validate_jwt(
         security_warnings.push(format!("WILDCARD_AUDIENCE: {}", msg));
     } else if let Some(expected) = expected_aud {
         if !aud.iter().any(|a| a == expected) {
-            let msg = format!("Token audience does not match expected audience '{}'", expected);
+            let msg = format!(
+                "Token audience does not match expected audience '{}'",
+                expected
+            );
             findings.push(Finding {
                 severity: "HIGH".to_string(),
                 code: "AUDIENCE_MISMATCH".to_string(),
@@ -517,7 +533,10 @@ pub fn parse_and_validate_jwt(
                 }
             }
             None => {
-                let msg = format!("Token is missing 'iss' claim, expected '{}'", expected_issuer);
+                let msg = format!(
+                    "Token is missing 'iss' claim, expected '{}'",
+                    expected_issuer
+                );
                 findings.push(Finding {
                     severity: "CRITICAL".to_string(),
                     code: "MISSING_ISSUER".to_string(),
@@ -534,7 +553,10 @@ pub fn parse_and_validate_jwt(
             let parts: Vec<&str> = sub_str.split(':').collect();
             if parts.len() >= 4 && parts[2] == "*" {
                 has_broad_subject_scope = true;
-                let msg = format!("Wildcard namespace in Kubernetes ServiceAccount: {}", sub_str);
+                let msg = format!(
+                    "Wildcard namespace in Kubernetes ServiceAccount: {}",
+                    sub_str
+                );
                 findings.push(Finding {
                     severity: "CRITICAL".to_string(),
                     code: "OVERLY_BROAD_SUBJECT".to_string(),
@@ -563,7 +585,10 @@ pub fn parse_and_validate_jwt(
         } else if sub_str.starts_with("repo:") {
             if sub_str.contains('*') {
                 has_broad_subject_scope = true;
-                let msg = format!("Wildcard repository pattern in GitHub OIDC subject: {}", sub_str);
+                let msg = format!(
+                    "Wildcard repository pattern in GitHub OIDC subject: {}",
+                    sub_str
+                );
                 findings.push(Finding {
                     severity: "HIGH".to_string(),
                     code: "OVERLY_BROAD_SUBJECT".to_string(),
@@ -614,7 +639,10 @@ pub fn parse_and_validate_jwt(
         });
         security_warnings.push(format!("INSECURE_ALGORITHM: {}", msg));
     } else if alg.to_uppercase().starts_with("HS") {
-        let msg = format!("Symmetric algorithm {} used instead of asymmetric for workload identity", alg);
+        let msg = format!(
+            "Symmetric algorithm {} used instead of asymmetric for workload identity",
+            alg
+        );
         findings.push(Finding {
             severity: "MEDIUM".to_string(),
             code: "SYMMETRIC_ALGORITHM".to_string(),
@@ -666,7 +694,10 @@ pub fn parse_and_validate_jwt(
 
     if let Some(lt) = lifetime_seconds {
         if lt > 86400 {
-            let msg = format!("Token lifetime ({}s) exceeds 24h threshold for ephemeral workloads", lt);
+            let msg = format!(
+                "Token lifetime ({}s) exceeds 24h threshold for ephemeral workloads",
+                lt
+            );
             findings.push(Finding {
                 severity: "MEDIUM".to_string(),
                 code: "EXCESSIVE_LIFETIME".to_string(),

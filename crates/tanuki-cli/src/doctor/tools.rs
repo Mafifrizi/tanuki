@@ -65,12 +65,19 @@ pub fn audit_host_tools() -> CheckResult {
         CheckResult {
             name: "host_tooling".to_string(),
             status: "PASS".to_string(),
-            details: format!("Utilities available: {} (kinit: {})", tools.join(", "), path),
+            details: format!(
+                "Utilities available: {} (kinit: {})",
+                tools.join(", "),
+                path
+            ),
             recommendation: None,
             remaining_seconds: None,
             extra_fields: vec![
                 ("kinit_present".to_string(), "true".to_string()),
-                ("kinit_path".to_string(), format!("\"{}\"", escape_json(&path))),
+                (
+                    "kinit_path".to_string(),
+                    format!("\"{}\"", escape_json(&path)),
+                ),
             ],
         }
     } else {

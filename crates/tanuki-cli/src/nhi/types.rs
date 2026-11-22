@@ -63,7 +63,10 @@ impl JwtValidationReport {
             escape_json(&self.identity_type)
         ));
         out.push_str("  \"header\": {\n");
-        out.push_str(&format!("    \"alg\": \"{}\"", escape_json(&self.header.alg)));
+        out.push_str(&format!(
+            "    \"alg\": \"{}\"",
+            escape_json(&self.header.alg)
+        ));
         if let Some(typ) = &self.header.typ {
             out.push_str(&format!(",\n    \"typ\": \"{}\"", escape_json(typ)));
         }
@@ -177,7 +180,7 @@ impl JwtValidationReport {
             .join(",\n");
         out.push_str(&warnings_json);
         out.push_str("\n  ]\n");
-        out.push_str("}");
+        out.push('}');
         out
     }
 
@@ -194,14 +197,20 @@ impl JwtValidationReport {
             out.push_str(&format!("Subject (sub)    : {}\n", sub));
         }
         if !self.claims.aud.is_empty() {
-            out.push_str(&format!("Audience (aud)   : {}\n", self.claims.aud.join(", ")));
+            out.push_str(&format!(
+                "Audience (aud)   : {}\n",
+                self.claims.aud.join(", ")
+            ));
         }
 
         let kid_info = match &self.header.kid {
             Some(k) => format!(" | Key ID: {}", k),
             None => String::new(),
         };
-        out.push_str(&format!("Algorithm (alg)  : {}{}\n\n", self.header.alg, kid_info));
+        out.push_str(&format!(
+            "Algorithm (alg)  : {}{}\n\n",
+            self.header.alg, kid_info
+        ));
 
         out.push_str("TEMPORAL STATUS:\n");
         if let Some(iat) = self.claims.iat {
@@ -282,9 +291,10 @@ impl TokenValidationReport {
             None => out.push_str("  \"error\": null,\n"),
         }
         match &self.error_description {
-            Some(desc) => {
-                out.push_str(&format!("  \"error_description\": \"{}\",\n", escape_json(desc)))
-            }
+            Some(desc) => out.push_str(&format!(
+                "  \"error_description\": \"{}\",\n",
+                escape_json(desc)
+            )),
             None => out.push_str("  \"error_description\": null,\n"),
         }
 
@@ -297,10 +307,16 @@ impl TokenValidationReport {
             param_entries.push(format!("    \"subject_token\": \"{}\"", escape_json(st)));
         }
         if let Some(stt) = &self.parameters.subject_token_type {
-            param_entries.push(format!("    \"subject_token_type\": \"{}\"", escape_json(stt)));
+            param_entries.push(format!(
+                "    \"subject_token_type\": \"{}\"",
+                escape_json(stt)
+            ));
         }
         if let Some(rtt) = &self.parameters.requested_token_type {
-            param_entries.push(format!("    \"requested_token_type\": \"{}\"", escape_json(rtt)));
+            param_entries.push(format!(
+                "    \"requested_token_type\": \"{}\"",
+                escape_json(rtt)
+            ));
         }
         if let Some(aud) = &self.parameters.audience {
             param_entries.push(format!("    \"audience\": \"{}\"", escape_json(aud)));

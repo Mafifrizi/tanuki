@@ -17,14 +17,16 @@ pub mod util;
 
 pub use adcs::{scan_adcs_source, AdcsFinding, AdcsReport};
 pub use blast::{
-    blast_report_to_json, classify_identity_tier, evaluate_blast_radius,
-    extract_ad_account_name, format_blast_report_terminal, generate_ad_remediations,
-    BlastReport, LateralPath, RemediationRecipe, TierInfo,
+    blast_report_to_json, classify_identity_tier, evaluate_blast_radius, extract_ad_account_name,
+    format_blast_report_terminal, generate_ad_remediations, BlastReport, LateralPath,
+    RemediationRecipe, TierInfo,
 };
 pub use config::{
     discover_dc_via_srv, generate_krb5_conf, parse_kdc_host_port, strip_kdc_transport_prefix,
 };
-pub use doctor::{enctype::audit_enctype_kvno, run_doctor, CheckResult, DoctorOptions, DoctorReport};
+pub use doctor::{
+    enctype::audit_enctype_kvno, run_doctor, CheckResult, DoctorOptions, DoctorReport,
+};
 pub use fix::{run_fix, FixAction, FixResult};
 pub use kcm::{candidates_to_json, save_candidates, scan_for_ccache_blobs, CcacheCandidate};
 pub use keytab::{entries_to_json, parse_keytab_bytes, KeytabEntry, KeytabError};
@@ -46,8 +48,8 @@ pub use pac::{
 };
 pub use protocol::{
     calculate_clock_drift, calculate_remediated_clockskew, errors_to_json, find_error_resolution,
-    ladder_to_json, parse_krb_error_stime, ErrorResolution, LadderRung, DECISION_LADDER,
-    ERROR_DICTIONARY, FalcoRuleRef, SigmaRuleRef, TelemetryData,
+    ladder_to_json, parse_krb_error_stime, ErrorResolution, FalcoRuleRef, LadderRung, SigmaRuleRef,
+    TelemetryData, DECISION_LADDER, ERROR_DICTIONARY,
 };
 pub use purge::{run_purge, shred_file, PurgeReport, ShredResult};
 pub use shadow::{
@@ -55,7 +57,6 @@ pub use shadow::{
     parse_key_credential_link, shadow_report_to_json, KeyMaterialInfo, ShadowCredentialReport,
 };
 pub use util::{
-    apply_nofollow, escape_json, fill_dynamic_entropy, open_regular_nofollow,
-    read_bytes_nofollow, read_regular_nofollow_bounded, resolve_current_uid, sha256_digest,
-    write_bytes_nofollow,
+    apply_nofollow, escape_json, fill_dynamic_entropy, open_regular_nofollow, read_bytes_nofollow,
+    read_regular_nofollow_bounded, resolve_current_uid, sha256_digest, write_bytes_nofollow,
 };

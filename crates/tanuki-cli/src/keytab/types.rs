@@ -32,7 +32,7 @@ pub struct KeytabEntry {
 
 impl KeytabEntry {
     pub fn is_modern_aes(&self) -> bool {
-        matches!(self.keytype, 17 | 18 | 19 | 20)
+        matches!(self.keytype, 17..=20)
     }
 
     pub fn to_json(&self) -> String {

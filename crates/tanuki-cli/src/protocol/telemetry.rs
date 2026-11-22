@@ -33,11 +33,7 @@ impl TelemetryData {
             .collect();
         let auditd_json = format!("[{}]", auditd_items.join(", "));
 
-        let event_id_items: Vec<String> = self
-            .event_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect();
+        let event_id_items: Vec<String> = self.event_ids.iter().map(|id| id.to_string()).collect();
         let event_ids_json = format!("[{}]", event_id_items.join(", "));
 
         let sigma_items: Vec<String> = self
@@ -112,13 +108,19 @@ impl TelemetryData {
                 } else {
                     format!(" ({})", s.tags.join(", "))
                 };
-                out.push_str(&format!("      - {} [{}]{}\n", s.title, s.logsource, tag_str));
+                out.push_str(&format!(
+                    "      - {} [{}]{}\n",
+                    s.title, s.logsource, tag_str
+                ));
             }
         }
         if !self.falco.is_empty() {
             out.push_str("    Falco Signatures:\n");
             for f in self.falco {
-                out.push_str(&format!("      - {} [{}]: {}\n", f.rule, f.priority, f.condition));
+                out.push_str(&format!(
+                    "      - {} [{}]: {}\n",
+                    f.rule, f.priority, f.condition
+                ));
             }
         }
         if out.ends_with('\n') {
@@ -240,7 +242,8 @@ pub const TELEMETRY_KDC_ERR_PREAUTH_FAILED: TelemetryData = TelemetryData {
     falco: &[FalcoRuleRef {
         rule: "Repeated Keytab Read Untrusted Process",
         priority: "WARNING",
-        condition: "open_read and fd.name = \"/etc/krb5.keytab\" and not proc.name in (sssd, kinit, adcli)",
+        condition:
+            "open_read and fd.name = \"/etc/krb5.keytab\" and not proc.name in (sssd, kinit, adcli)",
         output: "Repeated keytab reads detected on host (user=%user.name command=%proc.cmdline)",
     }],
 };
@@ -320,7 +323,8 @@ pub const TELEMETRY_KDC_ERR_KEY_EXPIRED: TelemetryData = TelemetryData {
     falco: &[FalcoRuleRef {
         rule: "Keytab Password Rotation Execution",
         priority: "NOTICE",
-        condition: "open_write and fd.name = \"/etc/krb5.keytab\" and proc.name in (adcli, net, realm)",
+        condition:
+            "open_write and fd.name = \"/etc/krb5.keytab\" and proc.name in (adcli, net, realm)",
         output: "Keytab rotation performed on host (user=%user.name command=%proc.cmdline)",
     }],
 };
@@ -426,9 +430,7 @@ pub const TELEMETRY_EVENT_4768: TelemetryData = TelemetryData {
 };
 
 pub const TELEMETRY_EVENT_4769: TelemetryData = TelemetryData {
-    auditd: &[
-        "-w /tmp/krb5cc_* -p r -k krb5_ccache_read",
-    ],
+    auditd: &["-w /tmp/krb5cc_* -p r -k krb5_ccache_read"],
     event_ids: &[4769],
     sigma: &[SigmaRuleRef {
         title: "Kerberos Service Ticket Request (Event 4769)",
@@ -445,9 +447,7 @@ pub const TELEMETRY_EVENT_4769: TelemetryData = TelemetryData {
 };
 
 pub const TELEMETRY_EVENT_4771: TelemetryData = TelemetryData {
-    auditd: &[
-        "-w /etc/krb5.keytab -p r -k keytab_read",
-    ],
+    auditd: &["-w /etc/krb5.keytab -p r -k keytab_read"],
     event_ids: &[4771],
     sigma: &[SigmaRuleRef {
         title: "Kerberos Pre-Authentication Failure (Event 4771)",

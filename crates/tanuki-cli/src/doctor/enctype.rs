@@ -19,7 +19,10 @@ pub fn audit_enctype_kvno(
             recommendation: Some(format!("Join domain or export keytab at {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("keytab_path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "keytab_path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "false".to_string()),
             ],
         };
@@ -35,7 +38,10 @@ pub fn audit_enctype_kvno(
                 recommendation: Some(format!("Ensure read permissions for {}", keytab_path)),
                 remaining_seconds: None,
                 extra_fields: vec![
-                    ("keytab_path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                    (
+                        "keytab_path".to_string(),
+                        format!("\"{}\"", escape_json(keytab_path)),
+                    ),
                     ("exists".to_string(), "true".to_string()),
                 ],
             };
@@ -50,7 +56,10 @@ pub fn audit_enctype_kvno(
             recommendation: Some(format!("Regenerate valid keytab at {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("keytab_path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "keytab_path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
             ],
         };
@@ -66,7 +75,10 @@ pub fn audit_enctype_kvno(
                 recommendation: Some(format!("Re-export valid keytab to {}", keytab_path)),
                 remaining_seconds: None,
                 extra_fields: vec![
-                    ("keytab_path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                    (
+                        "keytab_path".to_string(),
+                        format!("\"{}\"", escape_json(keytab_path)),
+                    ),
                     ("exists".to_string(), "true".to_string()),
                 ],
             };
@@ -81,7 +93,10 @@ pub fn audit_enctype_kvno(
             recommendation: Some(format!("Re-export valid keytab to {}", keytab_path)),
             remaining_seconds: None,
             extra_fields: vec![
-                ("keytab_path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+                (
+                    "keytab_path".to_string(),
+                    format!("\"{}\"", escape_json(keytab_path)),
+                ),
                 ("exists".to_string(), "true".to_string()),
             ],
         };
@@ -172,13 +187,19 @@ pub fn audit_enctype_kvno(
         } else {
             details = format!(
                 "Keytab contains {} entries (KVNO {}, AES: {}, RC4: {})",
-                entries.len(), keytab_kvno, has_aes, has_rc4
+                entries.len(),
+                keytab_kvno,
+                has_aes,
+                has_rc4
             );
         }
     }
 
     let mut extra_fields = vec![
-        ("keytab_path".to_string(), format!("\"{}\"", escape_json(keytab_path))),
+        (
+            "keytab_path".to_string(),
+            format!("\"{}\"", escape_json(keytab_path)),
+        ),
         ("exists".to_string(), "true".to_string()),
         ("keytab_kvno".to_string(), keytab_kvno.to_string()),
         ("is_aes_only".to_string(), is_aes_only.to_string()),

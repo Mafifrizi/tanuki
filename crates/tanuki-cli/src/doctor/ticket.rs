@@ -285,15 +285,12 @@ fn parse_ccache_bytes(data: &[u8]) -> Option<ParsedTicket> {
         };
 
         if let Some(ref current_best) = best_ticket {
-            if server.contains("krbtgt")
-                && !current_best
-                    .server
-                    .as_deref()
-                    .unwrap_or("")
-                    .contains("krbtgt")
-            {
-                best_ticket = Some(cand);
-            } else if endtime > current_best.endtime {
+            let current_is_krbtgt = current_best
+                .server
+                .as_deref()
+                .unwrap_or("")
+                .contains("krbtgt");
+            if (server.contains("krbtgt") && !current_is_krbtgt) || endtime > current_best.endtime {
                 best_ticket = Some(cand);
             }
         } else {
@@ -329,7 +326,11 @@ fn format_unix_timestamp(ts: u64) -> String {
     let mut y = 1970;
     let mut rem_days = days;
     loop {
-        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+        let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+            1
+        } else {
+            0
+        };
         let days_in_year = 365 + leap;
         if rem_days >= days_in_year {
             rem_days -= days_in_year;
@@ -339,7 +340,11 @@ fn format_unix_timestamp(ts: u64) -> String {
         }
     }
 
-    let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 1 } else { 0 };
+    let leap = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+        1
+    } else {
+        0
+    };
     let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut m = 1;
     for &d in &month_days {
@@ -351,7 +356,10 @@ fn format_unix_timestamp(ts: u64) -> String {
         }
     }
     let d = rem_days + 1;
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", y, m, d, hours, mins, secs)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        y, m, d, hours, mins, secs
+    )
 }
 
 struct KeyringEntry {
@@ -389,8 +397,8 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
         cache_path = Some(cp.to_string());
         cache_type = "FILE";
     } else if let Ok(env_cc) = env::var("KRB5CCNAME") {
-        if env_cc.starts_with("FILE:") {
-            cache_path = Some(env_cc[5..].to_string());
+        if let Some(stripped) = env_cc.strip_prefix("FILE:") {
+            cache_path = Some(stripped.to_string());
             cache_type = "FILE";
         } else if env_cc.starts_with('/') {
             cache_path = Some(env_cc);
@@ -448,43 +456,50 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                 None
             };
 
-            let (mut status, is_expired, remaining_human, mut details, mut recommendation) = if remaining <= 0 {
-                (
-                    "EXPIRED",
-                    true,
-                    "Expired".to_string(),
-                    format!("Principal {} expired at {}", default_principal, expiry_time),
-                    Some("Acquire fresh ticket via kinit".to_string()),
-                )
-            } else if remaining < 1800 {
-                let mins = remaining / 60;
-                let secs = remaining % 60;
-                let human = format!("{}m {}s", mins, secs);
-                (
-                    "WARN",
-                    false,
-                    human.clone(),
-                    format!("Expiring soon: {} remaining for {}", human, default_principal),
-                    Some("Renew active Kerberos ticket via kinit -R".to_string()),
-                )
-            } else {
-                let hours = remaining / 3600;
-                let mins = (remaining % 3600) / 60;
-                let secs = remaining % 60;
-                let human = format!("{}h {}m {}s", hours, mins, secs);
-                let enctypes_suffix = if !ticket.enctypes.is_empty() {
-                    format!(" [{}]", ticket.enctypes.join(", "))
+            let (mut status, is_expired, remaining_human, mut details, mut recommendation) =
+                if remaining <= 0 {
+                    (
+                        "EXPIRED",
+                        true,
+                        "Expired".to_string(),
+                        format!("Principal {} expired at {}", default_principal, expiry_time),
+                        Some("Acquire fresh ticket via kinit".to_string()),
+                    )
+                } else if remaining < 1800 {
+                    let mins = remaining / 60;
+                    let secs = remaining % 60;
+                    let human = format!("{}m {}s", mins, secs);
+                    (
+                        "WARN",
+                        false,
+                        human.clone(),
+                        format!(
+                            "Expiring soon: {} remaining for {}",
+                            human, default_principal
+                        ),
+                        Some("Renew active Kerberos ticket via kinit -R".to_string()),
+                    )
                 } else {
-                    String::new()
+                    let hours = remaining / 3600;
+                    let mins = (remaining % 3600) / 60;
+                    let secs = remaining % 60;
+                    let human = format!("{}h {}m {}s", hours, mins, secs);
+                    let enctypes_suffix = if !ticket.enctypes.is_empty() {
+                        format!(" [{}]", ticket.enctypes.join(", "))
+                    } else {
+                        String::new()
+                    };
+                    (
+                        "PASS",
+                        false,
+                        human.clone(),
+                        format!(
+                            "{} remaining{} for {} (expires {})",
+                            human, enctypes_suffix, default_principal, expiry_time
+                        ),
+                        None,
+                    )
                 };
-                (
-                    "PASS",
-                    false,
-                    human.clone(),
-                    format!("{} remaining{} for {} (expires {})", human, enctypes_suffix, default_principal, expiry_time),
-                    None,
-                )
-            };
 
             if ticket.has_weak_enctypes {
                 if status == "PASS" {
@@ -502,27 +517,68 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                 remaining_seconds: Some(remaining),
                 extra_fields: vec![
                     ("cache_type".to_string(), format!("\"{}\"", cache_type)),
-                    ("cache_path".to_string(), match cache_path {
-                        Some(p) => format!("\"{}\"", escape_json(&p)),
-                        None => "null".to_string(),
-                    }),
-                    ("default_principal".to_string(), format!("\"{}\"", escape_json(&default_principal))),
-                    ("service_principal".to_string(), format!("\"{}\"", escape_json(&service_principal))),
-                    ("issued_time".to_string(), match issued_time {
-                        Some(t) => format!("\"{}\"", escape_json(&t)),
-                        None => "null".to_string(),
-                    }),
-                    ("expiry_time".to_string(), format!("\"{}\"", escape_json(&expiry_time))),
-                    ("remaining_human".to_string(), format!("\"{}\"", escape_json(&remaining_human))),
+                    (
+                        "cache_path".to_string(),
+                        match cache_path {
+                            Some(p) => format!("\"{}\"", escape_json(&p)),
+                            None => "null".to_string(),
+                        },
+                    ),
+                    (
+                        "default_principal".to_string(),
+                        format!("\"{}\"", escape_json(&default_principal)),
+                    ),
+                    (
+                        "service_principal".to_string(),
+                        format!("\"{}\"", escape_json(&service_principal)),
+                    ),
+                    (
+                        "issued_time".to_string(),
+                        match issued_time {
+                            Some(t) => format!("\"{}\"", escape_json(&t)),
+                            None => "null".to_string(),
+                        },
+                    ),
+                    (
+                        "expiry_time".to_string(),
+                        format!("\"{}\"", escape_json(&expiry_time)),
+                    ),
+                    (
+                        "remaining_human".to_string(),
+                        format!("\"{}\"", escape_json(&remaining_human)),
+                    ),
                     ("is_expired".to_string(), is_expired.to_string()),
-                    ("has_weak_enctypes".to_string(), ticket.has_weak_enctypes.to_string()),
-                    ("tickets_found".to_string(), ticket.tickets_count.to_string()),
-                    ("encryption_types".to_string(), format!("[{}]", ticket.enctypes.iter().map(|e| format!("\"{}\"", escape_json(e))).collect::<Vec<_>>().join(", "))),
-                    ("renewable_until".to_string(), match renew_time {
-                        Some(t) => format!("\"{}\"", escape_json(&t)),
-                        None => "null".to_string(),
-                    }),
-                    ("keyring_tickets_found".to_string(), keyring_keys.len().to_string()),
+                    (
+                        "has_weak_enctypes".to_string(),
+                        ticket.has_weak_enctypes.to_string(),
+                    ),
+                    (
+                        "tickets_found".to_string(),
+                        ticket.tickets_count.to_string(),
+                    ),
+                    (
+                        "encryption_types".to_string(),
+                        format!(
+                            "[{}]",
+                            ticket
+                                .enctypes
+                                .iter()
+                                .map(|e| format!("\"{}\"", escape_json(e)))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    ),
+                    (
+                        "renewable_until".to_string(),
+                        match renew_time {
+                            Some(t) => format!("\"{}\"", escape_json(&t)),
+                            None => "null".to_string(),
+                        },
+                    ),
+                    (
+                        "keyring_tickets_found".to_string(),
+                        keyring_keys.len().to_string(),
+                    ),
                 ],
             };
         }
@@ -534,12 +590,18 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
             CheckResult {
                 name: "ticket_lifetime".to_string(),
                 status: "PASS".to_string(),
-                details: format!("{} active ticket keyring(s) in /proc/keys", active_keys.len()),
+                details: format!(
+                    "{} active ticket keyring(s) in /proc/keys",
+                    active_keys.len()
+                ),
                 recommendation: None,
                 remaining_seconds: Some(0),
                 extra_fields: vec![
                     ("cache_type".to_string(), "\"KEYRING\"".to_string()),
-                    ("keyring_tickets_found".to_string(), keyring_keys.len().to_string()),
+                    (
+                        "keyring_tickets_found".to_string(),
+                        keyring_keys.len().to_string(),
+                    ),
                 ],
             }
         } else {
@@ -551,7 +613,10 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
                 remaining_seconds: Some(0),
                 extra_fields: vec![
                     ("cache_type".to_string(), "\"KEYRING\"".to_string()),
-                    ("keyring_tickets_found".to_string(), keyring_keys.len().to_string()),
+                    (
+                        "keyring_tickets_found".to_string(),
+                        keyring_keys.len().to_string(),
+                    ),
                     ("is_expired".to_string(), "true".to_string()),
                 ],
             }
@@ -560,7 +625,8 @@ pub fn audit_ticket_lifetime(custom_ccache: Option<&str>) -> CheckResult {
         CheckResult {
             name: "ticket_lifetime".to_string(),
             status: "N_A".to_string(),
-            details: "No active Kerberos tickets found in file caches or kernel keyring".to_string(),
+            details: "No active Kerberos tickets found in file caches or kernel keyring"
+                .to_string(),
             recommendation: Some("Run kinit to acquire Kerberos credentials".to_string()),
             remaining_seconds: Some(0),
             extra_fields: vec![

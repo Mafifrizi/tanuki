@@ -25,7 +25,12 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -
         }
     }
 
-    let sssd_footprints = ["/var/lib/sss", "/etc/sssd", "/usr/sbin/sssd", "/usr/lib/sssd"];
+    let sssd_footprints = [
+        "/var/lib/sss",
+        "/etc/sssd",
+        "/usr/sbin/sssd",
+        "/usr/lib/sssd",
+    ];
     let sssd_installed = sssd_footprints.iter().any(|p| Path::new(p).exists());
 
     if !daemon_running && sssd_installed && Path::new("/proc").is_dir() {
@@ -139,10 +144,22 @@ pub fn audit_sssd(sssd_pipe: &str, sssd_pid: &str, secrets_path: Option<&str>) -
         extra_fields: vec![
             ("daemon_running".to_string(), daemon_running.to_string()),
             ("pid".to_string(), pid_json),
-            ("kcm_socket_path".to_string(), format!("\"{}\"", escape_json(sssd_pipe))),
-            ("kcm_socket_active".to_string(), kcm_socket_active.to_string()),
-            ("secrets_path".to_string(), format!("\"{}\"", escape_json(target_secrets))),
-            ("secrets_status".to_string(), format!("\"{}\"", escape_json(&secrets_status))),
+            (
+                "kcm_socket_path".to_string(),
+                format!("\"{}\"", escape_json(sssd_pipe)),
+            ),
+            (
+                "kcm_socket_active".to_string(),
+                kcm_socket_active.to_string(),
+            ),
+            (
+                "secrets_path".to_string(),
+                format!("\"{}\"", escape_json(target_secrets)),
+            ),
+            (
+                "secrets_status".to_string(),
+                format!("\"{}\"", escape_json(&secrets_status)),
+            ),
             (
                 "secrets_error".to_string(),
                 match &secrets_error {
