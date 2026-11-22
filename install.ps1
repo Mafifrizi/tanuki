@@ -4,7 +4,7 @@
 $ErrorActionPreference = "Stop"
 
 $TanukiVersion = "v2.1.5"
-$TanukiSha256 = "551cdda8e7e00dc649cd8481ae9b492affbd55f3cf0e46cf752b489742439447"
+$TanukiSha256 = "e417505c4329005c5e76d20cc0db845ecf04b03e53c06556a7dc1973ecbb9937"
 
 Write-Host "`n[*] Initializing Tanuki Universal Installer for Windows..." -ForegroundColor Cyan
 
